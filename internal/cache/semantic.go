@@ -25,14 +25,16 @@ type Entry struct {
 	CreatedAt  int64
 }
 
-// KeyForRequest is a convenience wrapper that formats model into the hash input
-// when model-specific caching is desired.
-func KeyForRequest(systemPrompt, latestUser, model string) string {
+// KeyForRequest hashes prompt state, model, and provider namespace for lookup.
+func KeyForRequest(systemPrompt, latestUser, model, provider string) string {
 	base := SemanticKey(systemPrompt, latestUser)
-	if model == "" {
-		return base
+	if model != "" {
+		base = SemanticKey(base, model)
 	}
-	return SemanticKey(base, model)
+	if provider != "" {
+		base = SemanticKey(base, provider)
+	}
+	return base
 }
 
 // EntryID returns a human-readable cache entry identifier.

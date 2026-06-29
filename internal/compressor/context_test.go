@@ -21,7 +21,6 @@ func TestCompressStripsUnchangedBlocks(t *testing.T) {
 		t.Fatalf("first turn content changed: %q", out1)
 	}
 
-	// Second turn with same blocks should strip them
 	out2, changed2 := st.CompressMessage(first)
 	if !changed2 {
 		t.Fatal("second identical turn should strip redundant blocks")
@@ -42,5 +41,19 @@ func TestCompressKeepsChangedBlocks(t *testing.T) {
 	}
 	if !strings.Contains(out, "block two NEW") {
 		t.Fatalf("new block missing: %q", out)
+	}
+}
+
+func TestCompressReintroducesAfterTurnWithoutBlocks(t *testing.T) {
+	st := compressor.NewStateTracker()
+	_, _ = st.CompressMessage("alpha\n\nbeta")
+	_, _ = st.CompressMessage("gamma")
+
+	out, changed := st.CompressMessage("alpha\n\nbeta")
+	if changed {
+		t.Fatal("blocks not present in prior turn should not be treated as stripped")
+	}
+	if out != "alpha\n\nbeta" {
+		t.Fatalf("expected full content back, got %q", out)
 	}
 }

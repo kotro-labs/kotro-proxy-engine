@@ -1,9 +1,11 @@
 // Package models defines OpenAI-compatible request/response structs used by the
-// proxy's streaming cache and middleware pipeline. Struct tags mirror the upstream
-// JSON schema to minimize allocation during decode/encode hot paths.
+// proxy's streaming cache and middleware pipeline.
 package models
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // ChatCompletionRequest is the inbound payload from local IDE agents.
 type ChatCompletionRequest struct {
@@ -15,9 +17,80 @@ type ChatCompletionRequest struct {
 }
 
 // ChatMessage represents a single turn in the conversation array.
+// Content accepts both plain strings and multimodal part arrays from Cursor.
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content FlexContent `json:"content"`
+}
+
+// FlexContent holds string or multimodal array content from agent payloads.
+type FlexContent struct {
+	raw json.RawMessage
+}
+
+// UnmarshalJSON preserves the original JSON for lossless re-marshaling upstream.
+func (f *FlexContent) UnmarshalJSON(b []byte) error {
+	f.raw = append(json.RawMessage(nil), b...)
+	return nil
+}
+
+// MarshalJSON emits the original content shape unchanged.
+func (f FlexContent) MarshalJSON() ([]byte, error) {
+	if len(f.raw) == 0 {
+		return []byte(`""`), nil
+	}
+	return f.raw, nil
+}
+
+// Text extracts plain text for cache keying, redaction, and compression.
+func (f FlexContent) Text() string {
+	if len(f.raw) == 0 {
+		return ""
+	}
+	if f.raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(f.raw, &s); err == nil {
+			return s
+		}
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(f.raw, &parts); err == nil {
+		var out string
+		for _, p := range parts {
+			if p.Type == "text" && p.Text != "" {
+				out += p.Text
+			}
+		}
+		return out
+	}
+	return string(f.raw)
+}
+
+// WithText returns a copy with text replaced, preserving string vs array shape.
+func (f FlexContent) WithText(text string) (FlexContent, error) {
+	if len(f.raw) == 0 || f.raw[0] == '"' {
+		b, err := json.Marshal(text)
+		return FlexContent{raw: b}, err
+	}
+	var parts []map[string]any
+	if err := json.Unmarshal(f.raw, &parts); err != nil {
+		return FlexContent{}, err
+	}
+	replaced := false
+	for i, p := range parts {
+		if t, _ := p["type"].(string); t == "text" {
+			parts[i]["text"] = text
+			replaced = true
+		}
+	}
+	if !replaced {
+		parts = append([]map[string]any{{"type": "text", "text": text}}, parts...)
+	}
+	b, err := json.Marshal(parts)
+	return FlexContent{raw: b}, err
 }
 
 // StreamChunk is a single SSE data line from OpenAI-compatible providers.
@@ -48,16 +121,15 @@ func (r *ChatCompletionRequest) ExtractPromptState() (systemPrompt, latestUser s
 	for _, msg := range r.Messages {
 		switch msg.Role {
 		case "system":
-			systemPrompt = msg.Content
+			systemPrompt = msg.Content.Text()
 		case "user":
-			latestUser = msg.Content
+			latestUser = msg.Content.Text()
 		}
 	}
 	return systemPrompt, latestUser
 }
 
-// Clone returns a deep copy suitable for mutation by middleware without aliasing
-// the original request body slices.
+// Clone returns a deep copy suitable for mutation by middleware.
 func (r *ChatCompletionRequest) Clone() *ChatCompletionRequest {
 	out := *r
 	out.Messages = make([]ChatMessage, len(r.Messages))
@@ -74,7 +146,7 @@ func (r *ChatCompletionRequest) Marshal() ([]byte, error) {
 func ParseChatCompletionRequest(body []byte) (*ChatCompletionRequest, error) {
 	var req ChatCompletionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse chat completion: %w", err)
 	}
 	return &req, nil
 }

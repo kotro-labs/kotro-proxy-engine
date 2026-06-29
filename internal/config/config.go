@@ -9,35 +9,36 @@ import (
 
 // Config holds all tunable proxy parameters.
 type Config struct {
-	// ListenAddr is the local bind address (default :8080).
-	ListenAddr string
-
-	// UpstreamURL is the base URL of the upstream LLM provider.
-	UpstreamURL string
-
-	// CacheDBPath is the on-disk path for the embedded bbolt cache store.
-	CacheDBPath string
-
-	// ReadTimeout caps idle time waiting for client request bodies.
-	ReadTimeout time.Duration
-
-	// WriteTimeout caps time writing streaming responses to clients.
+	ListenAddr   string
+	UpstreamURL  string
+	CacheDBPath  string
+	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
+	IdleTimeout  time.Duration
 
-	// IdleTimeout closes keep-alive connections after this duration.
-	IdleTimeout time.Duration
+	// Feature toggles — all enabled by default.
+	EnableCache       bool
+	EnableRedaction   bool
+	EnableCompression bool
+
+	// CacheHitDelay simulates streaming cadence on cache hits (0 = minimal flush).
+	CacheHitDelay time.Duration
 }
 
 // Load reads configuration from environment variables with sensible defaults
 // for local development against the mock upstream on port 9000.
 func Load() Config {
 	return Config{
-		ListenAddr:   envOr("KORTO_LISTEN_ADDR", ":8080"),
-		UpstreamURL:  envOr("KORTO_UPSTREAM_URL", "http://127.0.0.1:9000"),
-		CacheDBPath:  envOr("KORTO_CACHE_DB", "./kortolabs-cache.db"),
-		ReadTimeout:  envDurationOr("KORTO_READ_TIMEOUT", 30*time.Second),
-		WriteTimeout: envDurationOr("KORTO_WRITE_TIMEOUT", 0), // 0 = no timeout for SSE streams
-		IdleTimeout:  envDurationOr("KORTO_IDLE_TIMEOUT", 120*time.Second),
+		ListenAddr:        envOr("KORTO_LISTEN_ADDR", ":8080"),
+		UpstreamURL:       envOr("KORTO_UPSTREAM_URL", "http://127.0.0.1:9000"),
+		CacheDBPath:         envOr("KORTO_CACHE_DB", "./kortolabs-cache.db"),
+		ReadTimeout:         envDurationOr("KORTO_READ_TIMEOUT", 30*time.Second),
+		WriteTimeout:        envDurationOr("KORTO_WRITE_TIMEOUT", 0),
+		IdleTimeout:         envDurationOr("KORTO_IDLE_TIMEOUT", 120*time.Second),
+		EnableCache:         envBoolOr("KORTO_ENABLE_CACHE", true),
+		EnableRedaction:     envBoolOr("KORTO_ENABLE_REDACTION", true),
+		EnableCompression:   envBoolOr("KORTO_ENABLE_COMPRESSION", true),
+		CacheHitDelay:       envDurationOr("KORTO_CACHE_HIT_DELAY_MS", 2*time.Millisecond),
 	}
 }
 
@@ -50,9 +51,25 @@ func envOr(key, fallback string) string {
 
 func envDurationOr(key string, fallback time.Duration) time.Duration {
 	if v := os.Getenv(key); v != "" {
-		if secs, err := strconv.Atoi(v); err == nil {
-			return time.Duration(secs) * time.Second
+		if ms, err := strconv.Atoi(v); err == nil {
+			// Accept raw seconds for timeout keys, milliseconds for *_MS keys.
+			if len(key) >= 3 && key[len(key)-3:] == "_MS" {
+				return time.Duration(ms) * time.Millisecond
+			}
+			return time.Duration(ms) * time.Second
 		}
 	}
 	return fallback
+}
+
+func envBoolOr(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }

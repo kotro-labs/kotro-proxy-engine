@@ -1,20 +1,20 @@
 // Package guardrail implements the local privacy guardrail (Feature B).
-// Outbound payloads are scanned for sensitive entities and masked with stable
-// placeholders; inbound SSE chunks are restored before reaching the IDE.
 package guardrail
 
 import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/kortolabs/proxy-engine/internal/models"
 )
 
 // RedactionMap holds placeholder -> original value mappings for a single request.
 type RedactionMap struct {
-	mu    sync.RWMutex
-	forward map[string]string // placeholder -> secret
-	reverse map[string]string // secret -> placeholder (unused, kept for clarity)
-	seq   int
+	mu      sync.RWMutex
+	forward map[string]string
+	reverse map[string]string
+	seq     int
 }
 
 // NewRedactionMap creates an empty per-request redaction registry.
@@ -25,38 +25,35 @@ func NewRedactionMap() *RedactionMap {
 	}
 }
 
-// sensitivePatterns are ordered from most specific to broadest to minimize
-// false positives while catching common secret formats.
 var sensitivePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),                                              // AWS access key
-	regexp.MustCompile(`(?i)(?:password|passwd|pwd)\s*[:=]\s*['"]?[^\s'"]{4,}['"]?`),   // password assignments
+	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
+	regexp.MustCompile(`(?i)(?:password|passwd|pwd)\s*[:=]\s*['"]?[^\s'"]{4,}['"]?`),
 	regexp.MustCompile(`(?i)(?:api[_-]?key|secret[_-]?key|token)\s*[:=]\s*['"]?[^\s'"]{8,}['"]?`),
-	regexp.MustCompile(`postgres(?:ql)?://[^\s]+`),                                       // DB connection strings
+	regexp.MustCompile(`postgres(?:ql)?://[^\s]+`),
 	regexp.MustCompile(`mysql://[^\s]+`),
 	regexp.MustCompile(`mongodb(?:\+srv)?://[^\s]+`),
 	regexp.MustCompile(`redis://[^\s]+`),
-	regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`),            // emails
-	regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`),                                            // OpenAI-style keys
-	regexp.MustCompile(`sk-ant-[a-zA-Z0-9\-]{20,}`),                                      // Anthropic-style keys
+	regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`),
+	regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`),
+	regexp.MustCompile(`sk-ant-[a-zA-Z0-9\-]{20,}`),
 }
 
 // Redact scans text and replaces discovered secrets with stable placeholders.
-// Returns the redacted text and the map used for inbound restoration.
 func Redact(text string) (string, *RedactionMap) {
 	rm := NewRedactionMap()
-	result := text
+	return rm.RedactString(text), rm
+}
 
+// RedactString mutates rm while redacting text (for multi-message pipelines).
+func (rm *RedactionMap) RedactString(text string) string {
+	result := text
 	for _, pat := range sensitivePatterns {
 		result = pat.ReplaceAllStringFunc(result, func(match string) string {
 			rm.mu.Lock()
 			defer rm.mu.Unlock()
-
-			for placeholder, original := range rm.forward {
-				if original == match {
-					return placeholder
-				}
+			if ph, ok := rm.reverse[match]; ok {
+				return ph
 			}
-
 			rm.seq++
 			placeholder := "[REDACTED_SECRET_" + itoa(rm.seq) + "]"
 			rm.forward[placeholder] = match
@@ -64,33 +61,46 @@ func Redact(text string) (string, *RedactionMap) {
 			return placeholder
 		})
 	}
-
-	return result, rm
+	return result
 }
 
-// Merge copies all entries from other into rm, re-numbering placeholders on collision.
-func (rm *RedactionMap) Merge(other *RedactionMap) {
-	if other == nil {
-		return
-	}
-	other.mu.RLock()
-	defer other.mu.RUnlock()
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
-	for _, orig := range other.forward {
-		// Skip if this secret is already mapped in rm.
-		for _, existing := range rm.forward {
-			if existing == orig {
-				goto next
-			}
+// RedactRequest redacts all message text fields in-place on a cloned request.
+func RedactRequest(req *models.ChatCompletionRequest) (*models.ChatCompletionRequest, *RedactionMap) {
+	out := req.Clone()
+	rm := NewRedactionMap()
+	for i, msg := range out.Messages {
+		text := rm.RedactString(msg.Content.Text())
+		content, err := msg.Content.WithText(text)
+		if err != nil {
+			content, _ = models.FlexContent{}.WithText(text)
 		}
-		rm.seq++
-		placeholder := "[REDACTED_SECRET_" + itoa(rm.seq) + "]"
-		rm.forward[placeholder] = orig
-		rm.reverse[orig] = placeholder
-	next:
+		out.Messages[i].Content = content
 	}
+	return out, rm
+}
+
+// RedactAnthropicRequest redacts system and message text on a cloned Anthropic request.
+func RedactAnthropicRequest(req *models.MessagesRequest) (*models.MessagesRequest, *RedactionMap) {
+	out := req.Clone()
+	rm := NewRedactionMap()
+
+	if out.System.Text() != "" {
+		text := rm.RedactString(out.System.Text())
+		content, err := out.System.WithText(text)
+		if err == nil {
+			out.System = content
+		}
+	}
+
+	for i, msg := range out.Messages {
+		text := rm.RedactString(msg.Content.Text())
+		content, err := msg.Content.WithText(text)
+		if err != nil {
+			content, _ = models.FlexContent{}.WithText(text)
+		}
+		out.Messages[i].Content = content
+	}
+	return out, rm
 }
 
 // Restore reverses placeholder masking on inbound streaming text.
@@ -98,15 +108,23 @@ func (rm *RedactionMap) Restore(text string) string {
 	if rm == nil || len(rm.forward) == 0 {
 		return text
 	}
-
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
-
 	result := text
 	for placeholder, original := range rm.forward {
 		result = strings.ReplaceAll(result, placeholder, original)
 	}
 	return result
+}
+
+// Len returns the number of active redactions.
+func (rm *RedactionMap) Len() int {
+	if rm == nil {
+		return 0
+	}
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	return len(rm.forward)
 }
 
 func itoa(n int) string {

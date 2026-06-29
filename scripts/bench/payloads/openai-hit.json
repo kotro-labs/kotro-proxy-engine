@@ -1,0 +1,1 @@
+{"model":"gpt-4","stream":true,"messages":[{"role":"system","content":"bench"},{"role":"user","content":"warm-openai"}]}

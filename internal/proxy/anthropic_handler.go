@@ -1,5 +1,3 @@
-// Package proxy implements the core reverse-proxy handler with SSE interception,
-// semantic cache lookup/store, and streaming passthrough.
 package proxy
 
 import (
@@ -18,8 +16,8 @@ import (
 	"github.com/kortolabs/proxy-engine/internal/models"
 )
 
-// Handler intercepts OpenAI-compatible POST /v1/chat/completions streams.
-type Handler struct {
+// AnthropicHandler intercepts Anthropic POST /v1/messages streams.
+type AnthropicHandler struct {
 	upstream   *url.URL
 	reverse    *httputil.ReverseProxy
 	cache      *cache.Store
@@ -29,17 +27,17 @@ type Handler struct {
 	pipeline   streamPipeline
 }
 
-// NewHandler wires the reverse proxy to the upstream base URL and cache store.
-func NewHandler(opts Options, store *cache.Store, logger *slog.Logger) (*Handler, error) {
+// NewAnthropicHandler wires the reverse proxy for Anthropic message streams.
+func NewAnthropicHandler(opts Options, store *cache.Store, logger *slog.Logger) (*AnthropicHandler, error) {
 	u, err := url.Parse(opts.UpstreamURL)
 	if err != nil {
-		return nil, fmt.Errorf("proxy: invalid upstream URL: %w", err)
+		return nil, fmt.Errorf("anthropic proxy: invalid upstream URL: %w", err)
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
 
-	h := &Handler{
+	h := &AnthropicHandler{
 		upstream:   u,
 		cache:      store,
 		compressor: compressor.NewStateTracker(),
@@ -52,7 +50,7 @@ func NewHandler(opts Options, store *cache.Store, logger *slog.Logger) (*Handler
 	rp.FlushInterval = -1
 	rp.ModifyResponse = h.modifyResponse
 	rp.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
-		logger.Error("upstream error", "err", err)
+		logger.Error("anthropic upstream error", "err", err)
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 	}
 
@@ -63,15 +61,16 @@ func NewHandler(opts Options, store *cache.Store, logger *slog.Logger) (*Handler
 		req.URL.Host = u.Host
 		req.URL.Scheme = u.Scheme
 		forwardAuthHeaders(req)
+		forwardAnthropicHeaders(req)
 	}
 
 	h.reverse = rp
 	return h, nil
 }
 
-// NewHandlerFromURL is a convenience wrapper for tests.
-func NewHandlerFromURL(upstreamURL string, store *cache.Store, logger *slog.Logger) (*Handler, error) {
-	return NewHandler(Options{
+// NewAnthropicHandlerFromURL is a convenience wrapper for tests.
+func NewAnthropicHandlerFromURL(upstreamURL string, store *cache.Store, logger *slog.Logger) (*AnthropicHandler, error) {
+	return NewAnthropicHandler(Options{
 		UpstreamURL:       upstreamURL,
 		EnableCache:       true,
 		EnableRedaction:   true,
@@ -80,8 +79,8 @@ func NewHandlerFromURL(upstreamURL string, store *cache.Store, logger *slog.Logg
 	}, store, logger)
 }
 
-// ServeHTTP implements http.Handler for POST /v1/chat/completions.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// ServeHTTP implements http.Handler for POST /v1/messages.
+func (h *AnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -94,27 +93,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	req, err := models.ParseChatCompletionRequest(body)
+	req, err := models.ParseMessagesRequest(body)
 	if err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
 
-	processed, cacheSource, redactionMap := h.applyOpenAIMiddleware(req)
-	cacheKey := h.openAICacheKey(cacheSource)
+	processed, cacheSource, redactionMap := h.applyAnthropicMiddleware(req)
+	cacheKey := h.anthropicCacheKey(cacheSource)
 
 	if cacheKey != "" {
 		if entry, err := h.cache.Get(cacheKey); err != nil {
 			h.logger.Error("cache get failed", "key", cache.EntryID(cacheKey), "err", err)
 		} else if entry != nil {
-			h.logger.Info("cache hit", "key", cache.EntryID(cacheKey), "format", StreamOpenAI)
-			h.pipeline.replayCached(w, entry.RawSSE, redactionMap, StreamOpenAI)
+			h.logger.Info("cache hit", "key", cache.EntryID(cacheKey), "format", StreamAnthropic)
+			h.pipeline.replayCached(w, entry.RawSSE, redactionMap, StreamAnthropic)
 			return
 		}
 	}
 
 	if cacheKey != "" {
-		h.logger.Info("cache miss", "key", cache.EntryID(cacheKey), "format", StreamOpenAI)
+		h.logger.Info("cache miss", "key", cache.EntryID(cacheKey), "format", StreamAnthropic)
 	}
 
 	newBody, err := processed.Marshal()
@@ -128,7 +127,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		redactionMap: redactionMap,
 		model:        processed.Model,
 		streaming:    processed.Stream,
-		format:       StreamOpenAI,
+		format:       StreamAnthropic,
 	}
 	ctx := context.WithValue(r.Context(), ctxKeyRequest{}, rctx)
 	r = r.WithContext(ctx)
@@ -139,7 +138,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.reverse.ServeHTTP(w, r)
 }
 
-func (h *Handler) modifyResponse(resp *http.Response) error {
+func (h *AnthropicHandler) modifyResponse(resp *http.Response) error {
 	rctx, _ := resp.Request.Context().Value(ctxKeyRequest{}).(requestContext)
 	return h.pipeline.interceptResponse(resp, rctx)
 }

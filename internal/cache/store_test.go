@@ -19,6 +19,14 @@ func TestSemanticKeyDeterministic(t *testing.T) {
 	}
 }
 
+func TestKeyForRequestProviderIsolation(t *testing.T) {
+	openai := cache.KeyForRequest("sys", "hi", "gpt-4", "openai")
+	anthropic := cache.KeyForRequest("sys", "hi", "gpt-4", "anthropic")
+	if openai == anthropic {
+		t.Fatal("openai and anthropic keys must not collide")
+	}
+}
+
 func TestStoreRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")

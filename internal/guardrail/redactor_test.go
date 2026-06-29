@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kortolabs/proxy-engine/internal/guardrail"
+	"github.com/kortolabs/proxy-engine/internal/models"
 )
 
 func TestRedactAWSKey(t *testing.T) {
@@ -30,16 +31,27 @@ func TestRedactEmail(t *testing.T) {
 	}
 }
 
-func TestMergeRedactionMaps(t *testing.T) {
-	_, rm1 := guardrail.Redact("key=AKIAIOSFODNN7EXAMPLE")
-	_, rm2 := guardrail.Redact("email dev@example.com")
-	rm1.Merge(rm2)
+func TestRedactRequestMultimessage(t *testing.T) {
+	req := &models.ChatCompletionRequest{
+		Messages: []models.ChatMessage{
+			{Role: "user", Content: mustFlex(`"key AKIAIOSFODNN7EXAMPLE"`)},
+			{Role: "user", Content: mustFlex(`"email dev@example.com"`)},
+		},
+	}
+	out, rm := guardrail.RedactRequest(req)
+	body := out.Messages[0].Content.Text() + " " + out.Messages[1].Content.Text()
+	if strings.Contains(body, "AKIA") || strings.Contains(body, "dev@example.com") {
+		t.Fatalf("secrets not redacted: %q", body)
+	}
+	if rm.Len() != 2 {
+		t.Fatalf("expected 2 redactions, got %d", rm.Len())
+	}
+}
 
-	combined := rm1.Restore("[REDACTED_SECRET_1] and [REDACTED_SECRET_2]")
-	if !strings.Contains(combined, "AKIA") || !strings.Contains(combined, "dev@example.com") {
-		t.Fatalf("merge restore failed: %q", combined)
+func mustFlex(raw string) models.FlexContent {
+	var f models.FlexContent
+	if err := f.UnmarshalJSON([]byte(raw)); err != nil {
+		panic(err)
 	}
-	if strings.Contains(combined, "REDACTED") {
-		t.Fatalf("placeholders should be fully restored: %q", combined)
-	}
+	return f
 }

@@ -39,8 +39,7 @@ func TestProxyCacheMissThenHit(t *testing.T) {
 	}
 	defer store.Close()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler, err := proxy.NewHandler(upstream.URL, store, logger)
+	handler, err := proxy.NewHandlerFromURL(upstream.URL, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +66,9 @@ func TestProxyCacheMissThenHit(t *testing.T) {
 	if w2.Code != http.StatusOK {
 		t.Fatalf("hit status %d", w2.Code)
 	}
+	if w2.Header().Get("X-KortoLabs-Cache") != "HIT" {
+		t.Fatal("expected cache hit header")
+	}
 	scanner := bufio.NewScanner(w2.Body)
 	var lines []string
 	for scanner.Scan() {
@@ -91,7 +93,7 @@ func TestProxyRedactsSecretsBeforeUpstream(t *testing.T) {
 	store, _ := cache.Open(filepath.Join(dir, "c.db"))
 	defer store.Close()
 
-	handler, _ := proxy.NewHandler(upstream.URL, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	handler, _ := proxy.NewHandlerFromURL(upstream.URL, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	body := `{"model":"gpt-4","stream":true,"messages":[{"role":"user","content":"key AKIAIOSFODNN7EXAMPLE"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
@@ -110,5 +112,67 @@ func TestProxyRedactsSecretsBeforeUpstream(t *testing.T) {
 	}
 	if !strings.Contains(parsed.Messages[0].Content, "REDACTED") {
 		t.Fatalf("expected placeholder in upstream payload: %s", received)
+	}
+}
+
+func TestProxyForwardsAuthorization(t *testing.T) {
+	var auth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer upstream.Close()
+
+	dir := t.TempDir()
+	store, _ := cache.Open(filepath.Join(dir, "c.db"))
+	defer store.Close()
+	handler, _ := proxy.NewHandlerFromURL(upstream.URL, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	body := `{"model":"gpt-4","stream":true,"messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer sk-test-key")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	if auth != "Bearer sk-test-key" {
+		t.Fatalf("authorization not forwarded: %q", auth)
+	}
+}
+
+func TestProxyCacheHitWithCompressionEnabled(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer upstream.Close()
+
+	dir := t.TempDir()
+	store, err := cache.Open(filepath.Join(dir, "cache.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	handler, err := proxy.NewHandlerFromURL(upstream.URL, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"model":"gpt-4","stream":true,"messages":[{"role":"user","content":"repeat me"}]}`
+	post := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
+	}
+
+	if post().Header().Get("X-KortoLabs-Cache") != "" {
+		t.Fatal("first request should be a cache miss")
+	}
+	if got := post().Header().Get("X-KortoLabs-Cache"); got != "HIT" {
+		t.Fatalf("second identical request should hit cache, got %q", got)
 	}
 }

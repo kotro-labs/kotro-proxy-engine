@@ -6,37 +6,35 @@ import (
 	"encoding/hex"
 	"strings"
 	"sync"
+
+	"github.com/kortolabs/proxy-engine/internal/models"
 )
 
-// StateTracker remembers prior context block hashes per session to strip
-// redundant unchanged blocks from subsequent agent payloads.
+// StateTracker remembers the prior turn's context blocks to strip unchanged
+// MCP schemas, directory trees, and other repeated blank-line-delimited blocks.
 type StateTracker struct {
-	mu     sync.RWMutex
-	blocks map[string]string // hash -> content fingerprint
-	last   []string          // ordered hashes from previous turn
+	mu         sync.Mutex
+	lastBlocks map[string]string // hash -> content from the immediately previous turn
 }
 
 // NewStateTracker creates an empty per-process context diff tracker.
 func NewStateTracker() *StateTracker {
 	return &StateTracker{
-		blocks: make(map[string]string),
+		lastBlocks: make(map[string]string),
 	}
 }
 
-// blockHash fingerprints a single context block for deduplication.
 func blockHash(content string) string {
 	h := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(h[:8]) // 16 hex chars — sufficient for local dedup
+	return hex.EncodeToString(h[:8])
 }
 
-// SplitBlocks divides message content into logical blocks separated by blank
-// lines — typical for MCP schemas and directory tree dumps.
+// SplitBlocks divides message content into logical blocks separated by blank lines.
 func SplitBlocks(content string) []string {
 	parts := strings.Split(content, "\n\n")
 	var blocks []string
 	for _, p := range parts {
-		trimmed := strings.TrimSpace(p)
-		if trimmed != "" {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
 			blocks = append(blocks, trimmed)
 		}
 	}
@@ -47,7 +45,6 @@ func SplitBlocks(content string) []string {
 }
 
 // CompressMessage removes blocks identical to the previous turn's payload.
-// Returns the pruned content and whether any blocks were stripped.
 func (st *StateTracker) CompressMessage(content string) (string, bool) {
 	blocks := SplitBlocks(content)
 	if len(blocks) == 0 {
@@ -58,23 +55,20 @@ func (st *StateTracker) CompressMessage(content string) (string, bool) {
 	defer st.mu.Unlock()
 
 	var kept []string
-	var newHashes []string
 	changed := false
+	current := make(map[string]string, len(blocks))
 
 	for _, block := range blocks {
 		hash := blockHash(block)
-		newHashes = append(newHashes, hash)
-
-		if prev, ok := st.blocks[hash]; ok && prev == block {
-			// Unchanged since last turn — skip redundant block
+		current[hash] = block
+		if prev, ok := st.lastBlocks[hash]; ok && prev == block {
 			changed = true
 			continue
 		}
 		kept = append(kept, block)
-		st.blocks[hash] = block
 	}
 
-	st.last = newHashes
+	st.lastBlocks = current
 	if !changed {
 		return content, false
 	}
@@ -84,31 +78,47 @@ func (st *StateTracker) CompressMessage(content string) (string, bool) {
 	return strings.Join(kept, "\n\n"), true
 }
 
-// CompressMessages applies per-message compression, primarily targeting
-// system and user roles where MCP/context bloat accumulates.
-func (st *StateTracker) CompressMessages(messages []struct {
-	Role    string
-	Content string
-}) []struct {
-	Role    string
-	Content string
-} {
-	out := make([]struct {
-		Role    string
-		Content string
-	}, len(messages))
-
-	for i, msg := range messages {
-		content := msg.Content
-		if msg.Role == "system" || msg.Role == "user" {
-			if pruned, ok := st.CompressMessage(content); ok {
-				content = pruned
+// CompressRequest prunes redundant system/user message blocks across turns.
+func (st *StateTracker) CompressRequest(req *models.ChatCompletionRequest) *models.ChatCompletionRequest {
+	out := req.Clone()
+	for i, msg := range out.Messages {
+		if msg.Role != "system" && msg.Role != "user" {
+			continue
+		}
+		text := msg.Content.Text()
+		if pruned, ok := st.CompressMessage(text); ok {
+			content, err := msg.Content.WithText(pruned)
+			if err == nil {
+				out.Messages[i].Content = content
 			}
 		}
-		out[i] = struct {
-			Role    string
-			Content string
-		}{Role: msg.Role, Content: content}
+	}
+	return out
+}
+
+// CompressAnthropicRequest prunes redundant system and user blocks across turns.
+func (st *StateTracker) CompressAnthropicRequest(req *models.MessagesRequest) *models.MessagesRequest {
+	out := req.Clone()
+
+	if out.System.Text() != "" {
+		if pruned, ok := st.CompressMessage(out.System.Text()); ok {
+			if content, err := out.System.WithText(pruned); err == nil {
+				out.System = content
+			}
+		}
+	}
+
+	for i, msg := range out.Messages {
+		if msg.Role != "user" {
+			continue
+		}
+		text := msg.Content.Text()
+		if pruned, ok := st.CompressMessage(text); ok {
+			content, err := msg.Content.WithText(pruned)
+			if err == nil {
+				out.Messages[i].Content = content
+			}
+		}
 	}
 	return out
 }
