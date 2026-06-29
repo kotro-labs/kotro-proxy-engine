@@ -13,16 +13,27 @@ import (
 
 const bucketName = "sse_cache"
 
+// StoreOptions configures TTL and background eviction for the embedded cache.
+type StoreOptions struct {
+	TTL              time.Duration // 0 disables expiration
+	EvictionInterval time.Duration
+}
+
 // Store is a bbolt-backed embedded database for cached SSE streams.
-// Reads are lock-free at the Bolt layer; writes are serialized by the DB.
 type Store struct {
 	db   *bolt.DB
 	path string
+	ttl  time.Duration
 	mu   sync.RWMutex
 }
 
-// Open creates or opens the cache database at path.
+// Open creates or opens the cache database at path with no TTL.
 func Open(path string) (*Store, error) {
+	return OpenWithOptions(path, StoreOptions{})
+}
+
+// OpenWithOptions creates or opens the cache database with TTL settings.
+func OpenWithOptions(path string, opts StoreOptions) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
 		return nil, fmt.Errorf("cache: mkdir: %w", err)
 	}
@@ -40,10 +51,10 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("cache: init bucket: %w", err)
 	}
 
-	return &Store{db: db, path: path}, nil
+	return &Store{db: db, path: path, ttl: opts.TTL}, nil
 }
 
-// Get retrieves a cached SSE stream by semantic key. Returns nil, nil on miss.
+// Get retrieves a cached SSE stream by semantic key. Returns nil, nil on miss or expiry.
 func (s *Store) Get(key string) (*Entry, error) {
 	var raw []byte
 	err := s.db.View(func(tx *bolt.Tx) error {
@@ -51,7 +62,7 @@ func (s *Store) Get(key string) (*Entry, error) {
 		if b == nil {
 			return nil
 		}
-		raw = b.Get([]byte(key))
+		raw = append([]byte(nil), b.Get([]byte(key))...)
 		return nil
 	})
 	if err != nil {
@@ -61,22 +72,60 @@ func (s *Store) Get(key string) (*Entry, error) {
 		return nil, nil
 	}
 
+	payload, expired := decodeStoredValue(raw, time.Now().UnixNano())
+	if expired {
+		go func(k string) { _ = s.Delete(k) }(key)
+		return nil, nil
+	}
+
 	var entry Entry
-	if err := json.Unmarshal(raw, &entry); err != nil {
+	if err := json.Unmarshal(payload, &entry); err != nil {
 		return nil, fmt.Errorf("cache: corrupt entry: %w", err)
 	}
 	return &entry, nil
 }
 
-// Put asynchronously-safe write of a complete SSE stream entry.
+// Put writes a complete SSE stream entry with an optional expiration prefix.
 func (s *Store) Put(entry Entry) error {
-	raw, err := json.Marshal(entry)
+	payload, err := json.Marshal(entry)
 	if err != nil {
 		return err
 	}
+	stored := encodeStoredValue(expiresAtNano(s.ttl), payload)
+
 	return s.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
-		return b.Put([]byte(entry.Key), raw)
+		return b.Put([]byte(entry.Key), stored)
+	})
+}
+
+// Delete removes a cache entry by key.
+func (s *Store) Delete(key string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketName))
+		if b == nil {
+			return nil
+		}
+		return b.Delete([]byte(key))
+	})
+}
+
+// TTL returns the configured entry lifetime (0 = no expiry).
+func (s *Store) TTL() time.Duration { return s.ttl }
+
+// SweepExpired deletes all keys whose TTL prefix has lapsed.
+func (s *Store) SweepExpired() (int, error) {
+	return s.sweepExpiredKeys()
+}
+
+// PutRaw stores a raw bucket value (used for legacy migration tests).
+func (s *Store) PutRaw(key string, value []byte) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketName))
+		if b == nil {
+			return fmt.Errorf("cache: bucket missing")
+		}
+		return b.Put([]byte(key), value)
 	})
 }
 

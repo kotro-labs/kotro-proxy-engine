@@ -26,6 +26,12 @@ type Config struct {
 
 	// EnablePprof exposes /debug/pprof for local profiling and leak audits.
 	EnablePprof bool
+
+	// CacheTTL is entry lifetime (0 disables expiration). Accepts Go duration strings.
+	CacheTTL time.Duration
+
+	// CacheEvictionInterval is the background sweep cadence for expired keys.
+	CacheEvictionInterval time.Duration
 }
 
 // Load reads configuration from environment variables with sensible defaults
@@ -42,7 +48,9 @@ func Load() Config {
 		EnableRedaction:     envBoolOr("KORTO_ENABLE_REDACTION", true),
 		EnableCompression:   envBoolOr("KORTO_ENABLE_COMPRESSION", true),
 		CacheHitDelay:       envDurationOr("KORTO_CACHE_HIT_DELAY_MS", 2*time.Millisecond),
-		EnablePprof:         envBoolOr("KORTO_ENABLE_PPROF", false),
+		EnablePprof:             envBoolOr("KORTO_ENABLE_PPROF", false),
+		CacheTTL:                  envFlexibleDurationOr("KORTO_CACHE_TTL", 24*time.Hour),
+		CacheEvictionInterval:   envFlexibleDurationOr("KORTO_EVICTION_INTERVAL", 10*time.Minute),
 	}
 }
 
@@ -76,4 +84,15 @@ func envBoolOr(key string, fallback bool) bool {
 		return fallback
 	}
 	return b
+}
+
+func envFlexibleDurationOr(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	if d, err := time.ParseDuration(v); err == nil {
+		return d
+	}
+	return envDurationOr(key, fallback)
 }

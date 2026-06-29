@@ -67,6 +67,9 @@ Cache hits return `X-KortoLabs-Cache: HIT`.
 | `KORTO_ENABLE_REDACTION` | `true` | Local PII guardrail |
 | `KORTO_ENABLE_COMPRESSION` | `true` | Context deduplication |
 | `KORTO_CACHE_HIT_DELAY_MS` | `2` | Replay pacing on cache hits |
+| `KORTO_CACHE_TTL` | `24h` | Cache entry lifetime (`0` disables expiry) |
+| `KORTO_EVICTION_INTERVAL` | `10m` | Background sweep for expired keys |
+| `KORTO_ENABLE_PPROF` | `false` | Expose `/debug/pprof` for leak audits |
 
 ## Cancel-storm leak audit (k6 + pprof)
 

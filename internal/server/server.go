@@ -15,18 +15,25 @@ import (
 
 // Server wraps the HTTP listener and its dependencies.
 type Server struct {
-	cfg    config.Config
-	http   *http.Server
-	cache  *cache.Store
-	logger *slog.Logger
+	cfg         config.Config
+	http        *http.Server
+	cache       *cache.Store
+	logger      *slog.Logger
+	evictCancel context.CancelFunc
 }
 
 // New constructs a Server without starting it.
 func New(cfg config.Config, logger *slog.Logger) (*Server, error) {
-	store, err := cache.Open(cfg.CacheDBPath)
+	store, err := cache.OpenWithOptions(cfg.CacheDBPath, cache.StoreOptions{
+		TTL:              cfg.CacheTTL,
+		EvictionInterval: cfg.CacheEvictionInterval,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("server: cache: %w", err)
 	}
+
+	evictCtx, evictCancel := context.WithCancel(context.Background())
+	store.StartEvictionWorker(evictCtx, cfg.CacheEvictionInterval, logger)
 
 	chatHandler, err := proxy.NewHandler(proxy.OptionsFromConfig(cfg), store, logger)
 	if err != nil {
@@ -67,7 +74,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Server, error) {
 		IdleTimeout:  cfg.IdleTimeout,
 	}
 
-	return &Server{cfg: cfg, http: srv, cache: store, logger: logger}, nil
+	return &Server{cfg: cfg, http: srv, cache: store, logger: logger, evictCancel: evictCancel}, nil
 }
 
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
@@ -95,12 +102,17 @@ func (s *Server) ListenAndServe() error {
 		"redaction", s.cfg.EnableRedaction,
 		"compression", s.cfg.EnableCompression,
 		"pprof", s.cfg.EnablePprof,
+		"cache_ttl", s.cfg.CacheTTL.String(),
+		"cache_eviction", s.cfg.CacheEvictionInterval.String(),
 	)
 	return s.http.ListenAndServe()
 }
 
 // Shutdown gracefully stops the server and closes the cache store.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.evictCancel != nil {
+		s.evictCancel()
+	}
 	err := s.http.Shutdown(ctx)
 	if closeErr := s.cache.Close(); closeErr != nil && err == nil {
 		err = closeErr
