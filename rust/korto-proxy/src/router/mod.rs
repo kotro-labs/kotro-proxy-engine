@@ -53,6 +53,7 @@ pub fn open_store(cfg: &Config) -> Result<Store, crate::cache::StoreError> {
         &cfg.cache_db_path,
         StoreOptions {
             ttl: cfg.cache_ttl,
+            enable_compression: cfg.enable_compression,
         },
     )
 }

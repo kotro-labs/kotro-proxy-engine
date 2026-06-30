@@ -25,8 +25,9 @@ type Server struct {
 // New constructs a Server without starting it.
 func New(cfg config.Config, logger *slog.Logger) (*Server, error) {
 	store, err := cache.OpenWithOptions(cfg.CacheDBPath, cache.StoreOptions{
-		TTL:              cfg.CacheTTL,
-		EvictionInterval: cfg.CacheEvictionInterval,
+		TTL:               cfg.CacheTTL,
+		EvictionInterval:  cfg.CacheEvictionInterval,
+		EnableCompression: cfg.EnableCompression,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("server: cache: %w", err)

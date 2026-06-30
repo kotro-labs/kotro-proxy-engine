@@ -9,7 +9,7 @@ import (
 func TestEncodeDecodeStoredValue(t *testing.T) {
 	payload := []byte(`{"key":"k","raw_sse":"data: x"}`)
 	exp := time.Now().Add(time.Hour).UnixNano()
-	encoded := encodeStoredValue(exp, payload)
+	encoded := encodeStoredValue(exp, payload, false)
 
 	decoded, expired := decodeStoredValue(encoded, time.Now().UnixNano())
 	if expired {
@@ -22,6 +22,24 @@ func TestEncodeDecodeStoredValue(t *testing.T) {
 	_, expired = decodeStoredValue(encoded, exp+1)
 	if !expired {
 		t.Fatal("expected expired entry")
+	}
+}
+
+func TestEncodeDecodeCompressedStoredValue(t *testing.T) {
+	payload := []byte(`{"key":"k","raw_sse":"data: x"}`)
+	exp := time.Now().Add(time.Hour).UnixNano()
+	encoded := encodeStoredValue(exp, payload, true)
+
+	if !isZstdFrame(encoded[expiryPrefixLen:]) {
+		t.Fatal("expected zstd frame after expiry prefix")
+	}
+
+	decoded, expired := decodeStoredValue(encoded, time.Now().UnixNano())
+	if expired {
+		t.Fatal("expected active compressed entry")
+	}
+	if string(decoded) != string(payload) {
+		t.Fatalf("payload mismatch: %q", decoded)
 	}
 }
 
@@ -45,7 +63,7 @@ func TestExpiresAtNanoZeroWithoutTTL(t *testing.T) {
 func TestExpiryPrefixLayout(t *testing.T) {
 	payload := []byte(`{"x":1}`)
 	exp := int64(123456789)
-	encoded := encodeStoredValue(exp, payload)
+	encoded := encodeStoredValue(exp, payload, false)
 	if len(encoded) != 8+len(payload) {
 		t.Fatalf("unexpected encoded length %d", len(encoded))
 	}

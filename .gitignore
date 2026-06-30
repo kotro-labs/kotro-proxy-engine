@@ -20,6 +20,7 @@ coverage.html
 # Local runtime artifacts
 kortolabs-cache.db
 *.db
+benchmarks/.audit-logs/
 
 # IDE / OS
 .idea/

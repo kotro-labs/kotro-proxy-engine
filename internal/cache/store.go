@@ -15,16 +15,18 @@ const bucketName = "sse_cache"
 
 // StoreOptions configures TTL and background eviction for the embedded cache.
 type StoreOptions struct {
-	TTL              time.Duration // 0 disables expiration
-	EvictionInterval time.Duration
+	TTL               time.Duration // 0 disables expiration
+	EvictionInterval  time.Duration
+	EnableCompression bool
 }
 
 // Store is a bbolt-backed embedded database for cached SSE streams.
 type Store struct {
-	db   *bolt.DB
-	path string
-	ttl  time.Duration
-	mu   sync.RWMutex
+	db        *bolt.DB
+	path      string
+	ttl       time.Duration
+	compress  bool
+	mu        sync.RWMutex
 }
 
 // Open creates or opens the cache database at path with no TTL.
@@ -51,7 +53,7 @@ func OpenWithOptions(path string, opts StoreOptions) (*Store, error) {
 		return nil, fmt.Errorf("cache: init bucket: %w", err)
 	}
 
-	return &Store{db: db, path: path, ttl: opts.TTL}, nil
+	return &Store{db: db, path: path, ttl: opts.TTL, compress: opts.EnableCompression}, nil
 }
 
 // Get retrieves a cached SSE stream by semantic key. Returns nil, nil on miss or expiry.
@@ -91,7 +93,7 @@ func (s *Store) Put(entry Entry) error {
 	if err != nil {
 		return err
 	}
-	stored := encodeStoredValue(expiresAtNano(s.ttl), payload)
+	stored := encodeStoredValue(expiresAtNano(s.ttl), payload, s.compress)
 
 	return s.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))

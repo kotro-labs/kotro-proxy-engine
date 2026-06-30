@@ -1,4 +1,4 @@
-.PHONY: build test bench mock proxy run dev load-test cancel-audit clean
+.PHONY: build test bench mock proxy run dev load-test cancel-audit rust-cancel-audit audit clean
 
 build: proxy mock
 
@@ -27,9 +27,6 @@ load-test: build
 cancel-audit: build
 	bash benchmarks/run_audit.sh
 
-clean:
-	rm -rf bin/ kortolabs-cache.db
-
 rust-test:
 	cd rust && cargo test
 
@@ -41,3 +38,9 @@ rust-run:
 
 rust-cancel-audit:
 	bash benchmarks/run_rust_audit.sh
+
+# Run both audits sequentially (never in parallel — they share :8080/:9000).
+audit: cancel-audit rust-cancel-audit
+
+clean:
+	rm -rf bin/ kortolabs-cache.db benchmarks/.audit-logs

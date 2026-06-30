@@ -88,10 +88,10 @@ mod tests {
         let legacy = br#"{"Key":"k"}"#;
         assert!(should_retain_entry(legacy, i64::MAX));
 
-        let active = encode_stored_value(9_999_999_999_999_999, br#"{"Key":"k"}"#);
+        let active = encode_stored_value(9_999_999_999_999_999, br#"{"Key":"k"}"#, false);
         assert!(should_retain_entry(&active, 1));
 
-        let expired = encode_stored_value(100, br#"{"Key":"k"}"#);
+        let expired = encode_stored_value(100, br#"{"Key":"k"}"#, false);
         assert!(!should_retain_entry(&expired, 200));
     }
 
@@ -102,6 +102,7 @@ mod tests {
             dir.path().join("evict.db"),
             StoreOptions {
                 ttl: StdDuration::from_millis(1),
+                ..Default::default()
             },
         )
         .unwrap();

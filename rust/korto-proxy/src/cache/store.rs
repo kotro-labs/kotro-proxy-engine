@@ -17,12 +17,14 @@ pub(crate) const CACHE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::ne
 #[derive(Debug, Clone)]
 pub struct StoreOptions {
     pub ttl: Duration,
+    pub enable_compression: bool,
 }
 
 impl Default for StoreOptions {
     fn default() -> Self {
         Self {
             ttl: Duration::ZERO,
+            enable_compression: true,
         }
     }
 }
@@ -52,6 +54,7 @@ pub struct Store {
     db: Arc<Database>,
     path: PathBuf,
     ttl: Duration,
+    compress: bool,
 }
 
 impl Store {
@@ -83,6 +86,7 @@ impl Store {
             db: Arc::new(db),
             path,
             ttl: opts.ttl,
+            compress: opts.enable_compression,
         })
     }
 
@@ -118,14 +122,14 @@ impl Store {
             return Ok(None);
         };
 
-        let entry: Entry = serde_json::from_slice(payload)?;
+        let entry: Entry = serde_json::from_slice(&payload)?;
         Ok(Some(entry))
     }
 
     /// Writes a complete SSE stream entry with the store-level TTL prefix.
     pub fn put(&self, entry: Entry) -> Result<(), StoreError> {
         let payload = serde_json::to_vec(&entry)?;
-        let stored = encode_stored_value(expires_at_nano(self.ttl), &payload);
+        let stored = encode_stored_value(expires_at_nano(self.ttl), &payload, self.compress);
 
         let write_txn = self.db.begin_write()?;
         {
@@ -163,6 +167,10 @@ impl Store {
     /// Configured entry lifetime (`Duration::ZERO` = no expiry).
     pub fn ttl(&self) -> Duration {
         self.ttl
+    }
+
+    pub fn compression_enabled(&self) -> bool {
+        self.compress
     }
 
     /// On-disk database file path.
@@ -232,6 +240,7 @@ mod tests {
             dir.path().join("ttl.db"),
             StoreOptions {
                 ttl: Duration::from_secs(3600),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -254,7 +263,8 @@ mod tests {
         let store = Store::open_with_options(
             dir.path().join("short.db"),
             StoreOptions {
-                ttl: Duration::from_millis(15),
+                ttl: Duration::from_millis(100),
+                enable_compression: false,
             },
         )
         .unwrap();
@@ -270,10 +280,10 @@ mod tests {
 
         assert!(store.get("short").unwrap().is_some());
 
-        thread::sleep(Duration::from_millis(25));
+        thread::sleep(Duration::from_millis(120));
         assert!(store.get("short").unwrap().is_none());
 
-        thread::sleep(Duration::from_millis(15));
+        thread::sleep(Duration::from_millis(50));
         assert!(store.get("short").unwrap().is_none());
     }
 
@@ -284,6 +294,7 @@ mod tests {
             dir.path().join("sweep.db"),
             StoreOptions {
                 ttl: Duration::from_millis(1),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -300,6 +311,29 @@ mod tests {
         thread::sleep(Duration::from_millis(5));
         assert_eq!(store.sweep_expired().unwrap(), 1);
         assert!(store.get("gone").unwrap().is_none());
+    }
+
+    #[test]
+    fn compressed_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_with_options(
+            dir.path().join("zstd.db"),
+            StoreOptions {
+                ttl: Duration::from_secs(3600),
+                enable_compression: true,
+            },
+        )
+        .unwrap();
+
+        let entry = Entry {
+            key: "zstd-key".into(),
+            raw_sse: b"data: {\"x\":1}\n\ndata: [DONE]\n\n".to_vec(),
+            model: "gpt-4".into(),
+            created_at: 0,
+        };
+        store.put(entry.clone()).unwrap();
+        let got = store.get("zstd-key").unwrap().expect("hit");
+        assert_eq!(got.raw_sse, entry.raw_sse);
     }
 
     #[test]
