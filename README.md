@@ -85,6 +85,16 @@ K6_VUS=500 K6_DURATION=30s make cancel-audit
 
 Requires `KORTO_ENABLE_PPROF=true` (set automatically by `run_audit.sh`). Pass criteria: post-stress goroutine count within ±5 of baseline.
 
+## Rust Phase 2
+
+Go Phase 1 is the behavioral reference. The Rust port lives in `rust/`:
+
+```bash
+cd rust && cargo test && cargo run -p korto-proxy
+```
+
+Architecture map: [docs/RUST-ARCHITECTURE.md](docs/RUST-ARCHITECTURE.md)
+
 ## Benchmarks
 
 Install [k6](https://k6.io/): `brew install k6`

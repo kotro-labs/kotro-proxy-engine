@@ -1,0 +1,35 @@
+[package]
+name = "korto-proxy"
+description = "High-performance Rust port of the Korto local LLM proxy engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "korto-proxy"
+path = "src/main.rs"
+
+[dependencies]
+bytes = "1"
+sha2 = "0.10"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+redb = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+futures-util = "0.3"
+async-stream = "0.3"
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+http = "1"
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+hyper = "1"
+http-body-util = "0.1"

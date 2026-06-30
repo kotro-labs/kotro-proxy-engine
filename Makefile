@@ -29,3 +29,15 @@ cancel-audit: build
 
 clean:
 	rm -rf bin/ kortolabs-cache.db
+
+rust-test:
+	cd rust && cargo test
+
+rust-build:
+	cd rust && CARGO_TARGET_DIR=target cargo build --release -p korto-proxy
+
+rust-run:
+	cd rust && cargo run -p korto-proxy
+
+rust-cancel-audit:
+	bash benchmarks/run_rust_audit.sh

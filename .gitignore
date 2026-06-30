@@ -14,6 +14,9 @@ coverage.html
 # Go workspace
 /vendor/
 
+# Rust workspace
+/rust/target/
+
 # Local runtime artifacts
 kortolabs-cache.db
 *.db
