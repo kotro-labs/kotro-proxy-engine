@@ -122,7 +122,6 @@ jobs:
             cp "$bin" "$NPM_BIN/$name"
             chmod +x "$EXT_BIN/$name" "$NPM_BIN/$name" || true
 
-            # Homebrew tarballs: one binary per archive.
             if [[ "$name" == *.exe ]]; then
               cp "$bin" "$RELEASE_DIR/$name"
             else
@@ -139,6 +138,13 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Sync distribution package versions
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version --prefix distributions/npm-cli
+          npm version "$VERSION" --no-git-tag-version --allow-same-version --prefix distributions/vscode-extension
+
       - name: Build VS Code extension (.vsix)
         run: |
           cd distributions/vscode-extension
@@ -146,16 +152,29 @@ jobs:
           npm run compile
           npx @vscode/vsce@latest package --no-dependencies -o ../../release-assets/kortolabs-proxy-engine.vsix
 
-      - name: Sync npm package version
-        working-directory: distributions/npm-cli
-        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
-
       - name: Publish to npm
-        if: github.ref_type == 'tag' && secrets.NPM_TOKEN != ''
+        if: github.ref_type == 'tag'
         working-directory: distributions/npm-cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN not set — skipping npm publish"
+            exit 0
+          fi
+          npm publish --access public
+
+      - name: Publish to VS Code Marketplace
+        if: github.ref_type == 'tag'
+        working-directory: distributions/vscode-extension
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "VSCE_PAT not set — skipping Marketplace publish"
+            exit 0
+          fi
+          npx @vscode/vsce@latest publish --no-dependencies -p "$VSCE_PAT"
 
       - name: Create GitHub release
         if: github.ref_type == 'tag'

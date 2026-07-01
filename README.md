@@ -1,5 +1,10 @@
 # Korto Proxy Engine
 
+[![CI](https://github.com/ramairwing/kotro-proxy-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/ramairwing/kotro-proxy-engine/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ramairwing/kotro-proxy-engine)](https://github.com/ramairwing/kotro-proxy-engine/releases)
+[![npm](https://img.shields.io/npm/v/@kortolabs/proxy-engine)](https://www.npmjs.com/package/@kortolabs/proxy-engine)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/kortolabs.kortolabs-proxy-engine?label=VS%20Code)](https://marketplace.visualstudio.com/items?itemName=kortolabs.kortolabs-proxy-engine)
+
 **The open-source, single-binary local AI proxy** — intercept streaming LLM traffic from OpenAI and Anthropic SDKs, cut token waste, and keep secrets off the wire.
 
 Korto fills the gap between local agent runtimes (Cursor, Claude Code, custom SDK clients) and cloud providers. It is designed as the premier self-hosted alternative to hosted gateways like TokenShift: one binary, no SaaS dependency, full control over cache, redaction, and context compression.
@@ -14,6 +19,19 @@ Korto fills the gap between local agent runtimes (Cursor, Claude Code, custom SD
 | **Dual provider support** | OpenAI `POST /v1/chat/completions` and Anthropic `POST /v1/messages`. |
 | **Offline test harness** | Mock upstream simulates chunked OpenAI + Anthropic SSE without network. |
 | **Load benchmarks** | k6 and vegeta scripts for cache hit/miss and mixed workloads. |
+
+## Install
+
+| Channel | Command |
+|---------|---------|
+| **Docker** | `docker-compose up` (mock upstream + Rust proxy) |
+| **npm** | `npm install -g @kortolabs/proxy-engine` → `kortolabs-proxy` |
+| **Homebrew** | `brew tap ramairwing/tap && brew install kortolabs-proxy` |
+| **VS Code / Cursor** | [Marketplace extension](https://marketplace.visualstudio.com/items?itemName=kortolabs.kortolabs-proxy-engine) (IDE sidecar on `:8080`) |
+| **GitHub Release** | [Download binary](https://github.com/ramairwing/kotro-proxy-engine/releases) for your platform |
+| **From source** | `make build` or `cd rust && cargo run -p korto-proxy` |
+
+Registry publish runs automatically on `v*` tags when `NPM_TOKEN` and `VSCE_PAT` secrets are configured. See [distributions/SECRETS.md](distributions/SECRETS.md).
 
 ## Quick start
 

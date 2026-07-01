@@ -5,9 +5,11 @@ Packaging for three install surfaces lives under `distributions/` so the engine 
 ```
 distributions/
 ├── shared/binary-target.js     # Platform → release asset name (single source of truth)
+├── SECRETS.md                  # NPM_TOKEN + VSCE_PAT setup for CI publish
 ├── vscode-extension/           # Cursor / VS Code IDE sidecar
 ├── npm-cli/                    # npm install -g @kortolabs/proxy-engine
-└── homebrew/Formula/           # brew install kortolabs/tap/kortolabs-proxy
+├── homebrew/Formula/           # In-repo formula reference
+└── homebrew-tap/               # Standalone tap repo scaffold (copy to github.com/ramairwing/homebrew-tap)
 ```
 
 ## Release asset layout
@@ -39,7 +41,7 @@ npm run compile
 # Package: npm run package
 ```
 
-Pushing a `v*` tag triggers `.github/workflows/release.yml`, which cross-compiles all four platform binaries, stages them into `distributions/*/bin/`, builds a `.vsix`, and publishes a GitHub release. Set repository secret `NPM_TOKEN` to enable automated npm publish.
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which cross-compiles all four platform binaries, stages them into `distributions/*/bin/`, builds a `.vsix`, publishes to **npm** and the **VS Code Marketplace** when secrets are set, and creates a GitHub Release. See [SECRETS.md](SECRETS.md).
 
 ## NPM global CLI
 
@@ -57,10 +59,12 @@ Copy `homebrew/Formula/kortolabs-proxy.rb` into a `homebrew-tap` repository, rep
 brew install kortolabs/tap/kortolabs-proxy
 ```
 
-After a GitHub release completes, stamp checksums automatically:
+After a GitHub release completes, stamp checksums automatically (updates both in-repo and tap scaffold formulas):
 
 ```bash
 scripts/update-homebrew-shas.sh v0.1.0
 # or
 make update-homebrew-shas VERSION=v0.1.0
 ```
+
+Copy the stamped tap formula into `github.com/ramairwing/homebrew-tap` — see [homebrew-tap/README.md](homebrew-tap/README.md).

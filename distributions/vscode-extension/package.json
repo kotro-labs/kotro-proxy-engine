@@ -5,6 +5,20 @@
   "version": "0.1.0",
   "publisher": "kortolabs",
   "license": "MIT",
+  "galleryBanner": {
+    "color": "#0f172a",
+    "theme": "dark"
+  },
+  "keywords": [
+    "ai",
+    "proxy",
+    "openai",
+    "anthropic",
+    "cache",
+    "llm",
+    "cursor",
+    "streaming"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ramairwing/kotro-proxy-engine.git",

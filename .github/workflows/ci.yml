@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Go + Rust tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+
+      - name: Go tests
+        run: go test ./...
+
+      - name: Rust tests
+        working-directory: rust
+        run: cargo test
