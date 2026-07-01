@@ -9,17 +9,41 @@ Configure these in **GitHub → Settings → Secrets and variables → Actions**
 
 **Publisher:** `kortosystems` — [Manage publisher](https://marketplace.visualstudio.com/manage/publishers/kortosystems)
 
-## VSCE_PAT (you are NOT on the right screen for this)
+## VSCE_PAT (Marketplace publish token)
 
-The **Upload extension** dialog in Marketplace is for manual `.vsix` uploads. CI uses `vsce publish` instead — close that modal.
+The URL `dev.azure.com/_users/settings/tokens` often returns **404**. Use one of these paths instead:
 
-Create the token here:
+### Option A — From Marketplace (easiest)
 
-1. Open [https://dev.azure.com/_users/settings/tokens](https://dev.azure.com/_users/settings/tokens)  
-   (Same Microsoft account as Marketplace: `prameshchennai@gmail.com`)
-2. **+ New Token**
-3. Scopes: **Custom defined** → **Marketplace** → check **Manage**
-4. Copy token → GitHub secret named exactly **`VSCE_PAT`**
+1. Stay on [marketplace.visualstudio.com/manage/publishers/kortosystems](https://marketplace.visualstudio.com/manage/publishers/kortosystems)
+2. Click your **profile / name** (top right, near Sign out)
+3. Look for **Personal access tokens** or a link to **Azure DevOps**
+4. Create token with:
+   - **Organization:** **All accessible organizations** (required)
+   - **Scopes:** Custom → **Show all scopes** → **Marketplace → Manage**
+
+### Option B — Via Azure DevOps (if Option A doesn’t show tokens)
+
+1. Open [https://dev.azure.com](https://dev.azure.com) and sign in with `prameshchennai@gmail.com`
+2. If prompted, **create a free organization** (any name, e.g. `kortosystems-dev`)
+3. Click your **profile icon** (top right) → **Personal access tokens**  
+   Or go directly to:  
+   `https://dev.azure.com/{YourOrgName}/_usersSettings/tokens`  
+   (replace `{YourOrgName}` with the org you created — note `_usersSettings`, not `_users/settings`)
+4. **+ New Token** → same scopes as above (**Marketplace → Manage**, **All accessible organizations**)
+5. Copy token → GitHub secret **`VSCE_PAT`**
+
+### Option C — Verify with terminal (optional)
+
+```bash
+cd distributions/vscode-extension
+npx @vscode/vsce login kortosystems
+# Paste the PAT when prompted — should print "verification succeeded"
+```
+
+**Do not** use the manual **Upload extension** dialog on Marketplace — CI publishes via `vsce publish`.
+
+Close the upload modal; you don't need to drag a `.vsix` there.
 
 ## NPM_TOKEN
 
