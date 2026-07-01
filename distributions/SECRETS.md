@@ -22,9 +22,8 @@ Configure these in **GitHub → Settings → Secrets and variables → Actions**
 → **New extension** → upload file. Public install counter starts immediately.
 
 ```bash
-# After downloading the 4 CI binaries into a folder:
-make package-extension ARTIFACTS_DIR=~/Downloads/artifacts
-# Upload: kortolabs-proxy-engine.vsix
+# After CI completes, download kortolabs-proxy-engine.vsix from GitHub Releases
+# Upload via Marketplace → kortosystems → New extension
 ```
 
 Only pursue `VSCE_PAT` below if you want **fully automated** `vsce publish` in GitHub Actions.
@@ -42,16 +41,22 @@ The URL `dev.azure.com/_users/settings/tokens` often returns **404**. Use one of
    - **Organization:** **All accessible organizations** (required)
    - **Scopes:** Custom → **Show all scopes** → **Marketplace → Manage**
 
-### Option B — Via Azure DevOps (if Option A doesn’t show tokens)
+### Option B — Via Azure DevOps (blocked if subscription required)
 
-1. Open [https://dev.azure.com](https://dev.azure.com) and sign in with `prameshchennai@gmail.com`
-2. If prompted, **create a free organization** (any name, e.g. `kortosystems-dev`)
-3. Click your **profile icon** (top right) → **Personal access tokens**  
-   Or go directly to:  
-   `https://dev.azure.com/{YourOrgName}/_usersSettings/tokens`  
-   (replace `{YourOrgName}` with the org you created — note `_usersSettings`, not `_users/settings`)
-4. **+ New Token** → same scopes as above (**Marketplace → Manage**, **All accessible organizations**)
-5. Copy token → GitHub secret **`VSCE_PAT`**
+Microsoft may require linking **Pay-As-You-Go** billing before org creation. Azure Free Trial accounts often fail here.
+
+| If you see "We couldn't find any subscriptions" | What to do |
+|------------------------------------------------|------------|
+| Want Marketplace **now** | Use **manual `.vsix` upload** above (no PAT) |
+| Want **CI automation** | Click **Get started with Azure** → Pay-As-You-Go (PAT creation is free; card verification only) |
+| Avoid Azure billing | Use a **fresh Outlook account** never used for Azure, or defer automated publish |
+
+If org creation succeeds:
+
+1. Profile icon (top right) → **Personal access tokens**  
+   Or: `https://dev.azure.com/{YourOrgName}/_usersSettings/tokens`
+2. **+ New Token** → **All accessible organizations** + **Marketplace → Manage**
+3. GitHub secret **`VSCE_PAT`**
 
 ### Option C — Verify with terminal (optional)
 
@@ -61,9 +66,9 @@ npx @vscode/vsce login kortosystems
 # Paste the PAT when prompted — should print "verification succeeded"
 ```
 
-**Do not** use the manual **Upload extension** dialog on Marketplace — CI publishes via `vsce publish`.
-
-Close the upload modal; you don't need to drag a `.vsix` there.
+**Manual upload** (publisher owner, no PAT): use **New extension** on  
+[marketplace.visualstudio.com/manage/publishers/kortosystems](https://marketplace.visualstudio.com/manage/publishers/kortosystems)  
+and upload `kortolabs-proxy-engine.vsix` from GitHub Releases.
 
 ## NPM_TOKEN
 
@@ -74,7 +79,7 @@ Close the upload modal; you don't need to drag a `.vsix` there.
 
 ## Go-live sequence (first public release)
 
-**Do not re-dispatch the tag until both secrets are active.**
+**Do not re-dispatch the tag until `NPM_TOKEN` is set.** `VSCE_PAT` is optional if you will upload the `.vsix` manually.
 
 ### 0. Add secrets
 

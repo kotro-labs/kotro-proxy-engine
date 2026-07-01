@@ -30,11 +30,11 @@ if [[ "$CONFIRM" -eq 0 ]]; then
   echo "Before re-dispatching ${TAG}, confirm these repository secrets exist:"
   echo "  https://github.com/ramairwing/kotro-proxy-engine/settings/secrets/actions"
   echo ""
-  echo "  [ ] NPM_TOKEN  — npm automation token for @kortosystems/proxy-engine"
-  echo "  [ ] VSCE_PAT   — VS Code Marketplace publish token (publisher: kortosystems)"
+  echo "  [ ] NPM_TOKEN  — required for npm publish"
+  echo "  [ ] VSCE_PAT   — optional (publisher: kortosystems); skip if uploading .vsix manually"
   echo ""
   echo "If either secret is missing, the release will build GitHub assets only"
-  echo "and SKIP npm / Marketplace publish."
+  echo "and SKIP npm / Marketplace publish (you can upload .vsix manually)."
   echo ""
   read -r -p "Secrets configured? Type yes to re-dispatch ${TAG}: " answer
   if [[ "$answer" != "yes" ]]; then
