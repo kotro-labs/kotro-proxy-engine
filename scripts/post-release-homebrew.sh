@@ -25,6 +25,19 @@ if git diff --cached --quiet; then
   exit 0
 fi
 
+if ! git config user.email >/dev/null 2>&1 || ! git config user.name >/dev/null 2>&1; then
+  echo "Git author identity is not configured." >&2
+  echo "" >&2
+  echo "Set it once (repo-local example):" >&2
+  echo '  git config user.email "you@example.com"' >&2
+  echo '  git config user.name "Your Name"' >&2
+  echo "" >&2
+  echo "Formula files are already staged. Then run:" >&2
+  echo "  git commit -m \"chore: align production homebrew tap checksums for ${TAG#v}\"" >&2
+  echo "  git push origin main" >&2
+  exit 1
+fi
+
 git commit -m "chore: align production homebrew tap checksums for ${TAG#v}"
 
 echo ""

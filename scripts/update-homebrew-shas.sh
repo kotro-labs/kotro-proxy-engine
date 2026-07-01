@@ -9,7 +9,7 @@
 #   distributions/homebrew/Formula/kortolabs-proxy.rb
 #   distributions/homebrew-tap/Formula/kortolabs-proxy.rb
 #
-# Requires: gh (authenticated against the release repository)
+# Requires: curl. Uses gh CLI when available (recommended for private repos).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,22 +20,35 @@ FORMULAS=(
 )
 
 DRY_RUN=0
+FROM_DIR=""
 TAG=""
 
-for arg in "$@"; do
-  case "$arg" in
-    --dry-run) DRY_RUN=1 ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --from-dir)
+      shift
+      [[ $# -gt 0 ]] || { echo "--from-dir requires a path" >&2; exit 1; }
+      FROM_DIR="$1"
+      shift
+      ;;
     -h|--help)
-      echo "Usage: $0 <tag> [--dry-run]"
+      echo "Usage: $0 <tag> [--dry-run] [--from-dir <path>]"
+      echo ""
+      echo "  --from-dir  Use local tarballs (e.g. downloaded from GitHub Actions artifacts)"
       exit 0
       ;;
     -*)
-      echo "Unknown flag: $arg" >&2
+      echo "Unknown flag: $1" >&2
       exit 1
       ;;
     *)
-      [[ -z "$TAG" ]] || { echo "Unexpected argument: $arg" >&2; exit 1; }
-      TAG="$arg"
+      [[ -z "$TAG" ]] || { echo "Unexpected argument: $1" >&2; exit 1; }
+      TAG="$1"
+      shift
       ;;
   esac
 done
@@ -44,7 +57,7 @@ done
 [[ "$TAG" == v* ]] || TAG="v${TAG}"
 VERSION="${TAG#v}"
 
-command -v gh >/dev/null 2>&1 || { echo "gh CLI not found. Install: brew install gh" >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo "curl not found" >&2; exit 1; }
 
 sha256_file() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -57,16 +70,40 @@ sha256_file() {
 ARM_ASSET="korto-proxy-aarch64-apple-darwin.tar.gz"
 INTEL_ASSET="korto-proxy-x86_64-apple-darwin.tar.gz"
 
+download_asset() {
+  local asset="$1"
+  local dest="${TMP}/${asset}"
+
+  if [[ -n "$FROM_DIR" ]]; then
+    cp "${FROM_DIR}/${asset}" "$dest"
+    return
+  fi
+
+  if command -v gh >/dev/null 2>&1; then
+    gh release download "$TAG" -R "$REPO" -D "$TMP" -p "$asset"
+    return
+  fi
+
+  local url="https://github.com/${REPO}/releases/download/${TAG}/${asset}"
+  echo "Fetching ${url}"
+  if ! curl -fsSL "$url" -o "$dest"; then
+    echo "" >&2
+    echo "Download failed. For private repos, install gh and authenticate:" >&2
+    echo "  brew install gh && gh auth login" >&2
+    echo "  $0 ${TAG}" >&2
+    echo "" >&2
+    echo "Or download macOS .tar.gz assets from the CI run and pass:" >&2
+    echo "  $0 ${TAG} --from-dir /path/to/downloads" >&2
+    exit 1
+  fi
+}
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-echo "=== Downloading ${TAG} assets from ${REPO} ==="
-if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-  echo "Release ${TAG} not found. Wait for the release workflow to finish." >&2
-  exit 1
-fi
-
-gh release download "$TAG" -R "$REPO" -D "$TMP" -p "$ARM_ASSET" -p "$INTEL_ASSET"
+echo "=== Resolving ${TAG} Homebrew tarballs from ${REPO} ==="
+download_asset "$ARM_ASSET"
+download_asset "$INTEL_ASSET"
 
 ARM_SHA="$(sha256_file "${TMP}/${ARM_ASSET}")"
 INTEL_SHA="$(sha256_file "${TMP}/${INTEL_ASSET}")"
