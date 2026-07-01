@@ -3,7 +3,7 @@
   "displayName": "KortoLabs Proxy Engine",
   "description": "Transparent IDE sidecar for the Korto semantic caching LLM proxy.",
   "version": "0.1.0",
-  "publisher": "kortolabs",
+  "publisher": "kortosystems",
   "license": "MIT",
   "galleryBanner": {
     "color": "#0f172a",
@@ -32,32 +32,32 @@
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "KortoLabs Proxy",
+      "title": "Korto Proxy",
       "properties": {
-        "kortolabs.listenAddr": {
+        "kortosystems.listenAddr": {
           "type": "string",
           "default": ":8080",
           "description": "Proxy bind address (KORTO_LISTEN_ADDR)."
         },
-        "kortolabs.upstreamUrl": {
+        "kortosystems.upstreamUrl": {
           "type": "string",
           "default": "https://api.openai.com",
           "description": "Upstream provider base URL (KORTO_UPSTREAM_URL)."
         },
-        "kortolabs.cacheDb": {
+        "kortosystems.cacheDb": {
           "type": "string",
           "default": "",
           "description": "Cache database path. Empty uses extension global storage."
         },
-        "kortolabs.enableCache": {
+        "kortosystems.enableCache": {
           "type": "boolean",
           "default": true
         },
-        "kortolabs.enableRedaction": {
+        "kortosystems.enableRedaction": {
           "type": "boolean",
           "default": true
         },
-        "kortolabs.enableCompression": {
+        "kortosystems.enableCompression": {
           "type": "boolean",
           "default": true
         }

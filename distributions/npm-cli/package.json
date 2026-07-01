@@ -1,5 +1,5 @@
 {
-  "name": "@kortolabs/proxy-engine",
+  "name": "@kortosystems/proxy-engine",
   "version": "0.1.0",
   "description": "High-performance semantic caching AI proxy gateway with native Rust runtime.",
   "license": "MIT",

@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/ramairwing/kotro-proxy-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/ramairwing/kotro-proxy-engine/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ramairwing/kotro-proxy-engine)](https://github.com/ramairwing/kotro-proxy-engine/releases)
-[![npm](https://img.shields.io/npm/v/@kortolabs/proxy-engine)](https://www.npmjs.com/package/@kortolabs/proxy-engine)
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/kortolabs.kortolabs-proxy-engine?label=VS%20Code)](https://marketplace.visualstudio.com/items?itemName=kortolabs.kortolabs-proxy-engine)
+[![npm](https://img.shields.io/npm/v/@kortosystems/proxy-engine)](https://www.npmjs.com/package/@kortosystems/proxy-engine)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/kortosystems.kortolabs-proxy-engine?label=VS%20Code)](https://marketplace.visualstudio.com/items?itemName=kortosystems.kortolabs-proxy-engine)
 
 **The open-source, single-binary local AI proxy** — intercept streaming LLM traffic from OpenAI and Anthropic SDKs, cut token waste, and keep secrets off the wire.
 
@@ -25,9 +25,9 @@ Korto fills the gap between local agent runtimes (Cursor, Claude Code, custom SD
 | Channel | Command |
 |---------|---------|
 | **Docker** | `docker-compose up` (mock upstream + Rust proxy) |
-| **npm** | `npm install -g @kortolabs/proxy-engine` → `kortolabs-proxy` |
+| **npm** | `npm install -g @kortosystems/proxy-engine` → `kortolabs-proxy` |
 | **Homebrew** | `brew tap ramairwing/tap && brew install kortolabs-proxy` |
-| **VS Code / Cursor** | [Marketplace extension](https://marketplace.visualstudio.com/items?itemName=kortolabs.kortolabs-proxy-engine) (IDE sidecar on `:8080`) |
+| **VS Code / Cursor** | [Marketplace extension](https://marketplace.visualstudio.com/items?itemName=kortosystems.kortolabs-proxy-engine) (IDE sidecar on `:8080`) |
 | **GitHub Release** | [Download binary](https://github.com/ramairwing/kotro-proxy-engine/releases) for your platform |
 | **From source** | `make build` or `cd rust && cargo run -p korto-proxy` |
 

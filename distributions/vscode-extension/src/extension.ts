@@ -8,7 +8,7 @@ let sidecarProcess: ChildProcess | null = null;
 const output = vscode.window.createOutputChannel('KortoLabs Proxy Engine');
 
 function extensionConfig() {
-  const cfg = vscode.workspace.getConfiguration('kortolabs');
+  const cfg = vscode.workspace.getConfiguration('kortosystems');
   return {
     listenAddr: cfg.get<string>('listenAddr', ':8080'),
     upstreamUrl: cfg.get<string>('upstreamUrl', 'https://api.openai.com'),

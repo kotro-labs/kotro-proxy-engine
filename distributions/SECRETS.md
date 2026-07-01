@@ -4,34 +4,47 @@ Configure these in **GitHub → Settings → Secrets and variables → Actions**
 
 | Secret | Purpose | How to obtain |
 |--------|---------|---------------|
-| `NPM_TOKEN` | Publish `@kortolabs/proxy-engine` on tag push | [npmjs.com](https://www.npmjs.com) → Access Tokens → **Automation** token |
-| `VSCE_PAT` | Publish `kortolabs.kortolabs-proxy-engine` to VS Code Marketplace | [Azure DevOps PAT](https://dev.azure.com) with **Marketplace → Manage** scope, or `vsce login` PAT |
+| `NPM_TOKEN` | Publish `@kortosystems/proxy-engine` on tag push | [npmjs.com](https://www.npmjs.com) → Access Tokens → **Automation** token |
+| `VSCE_PAT` | Publish `kortosystems.kortolabs-proxy-engine` to VS Code Marketplace | [Azure DevOps PAT](https://dev.azure.com/_users/settings/tokens) with **Marketplace → Manage** scope |
+
+**Publisher:** `kortosystems` — [Manage publisher](https://marketplace.visualstudio.com/manage/publishers/kortosystems)
+
+## VSCE_PAT (you are NOT on the right screen for this)
+
+The **Upload extension** dialog in Marketplace is for manual `.vsix` uploads. CI uses `vsce publish` instead — close that modal.
+
+Create the token here:
+
+1. Open [https://dev.azure.com/_users/settings/tokens](https://dev.azure.com/_users/settings/tokens)  
+   (Same Microsoft account as Marketplace: `prameshchennai@gmail.com`)
+2. **+ New Token**
+3. Scopes: **Custom defined** → **Marketplace** → check **Manage**
+4. Copy token → GitHub secret named exactly **`VSCE_PAT`**
+
+## NPM_TOKEN
+
+1. Create npm org **kortosystems** at [npmjs.com/org/create](https://www.npmjs.com/org/create)  
+   *Or use `@ramairwing/proxy-engine` if you prefer your personal scope — update `distributions/npm-cli/package.json`.*
+2. **Access Tokens** → **Automation** token with publish access
+3. GitHub secret named exactly **`NPM_TOKEN`**
 
 ## Go-live sequence (first public release)
 
-**Do not re-dispatch the tag until both secrets are active.** If the pipeline runs without them, GitHub Release assets are still built, but npm and Marketplace publish steps skip.
+**Do not re-dispatch the tag until both secrets are active.**
 
 ### 0. Add secrets
 
-1. [Repository secrets dashboard](https://github.com/ramairwing/kotro-proxy-engine/settings/secrets/actions)
-2. Add `NPM_TOKEN` and `VSCE_PAT` (see setup sections below)
+[Repository secrets dashboard](https://github.com/ramairwing/kotro-proxy-engine/settings/secrets/actions)
 
 ### 1. Re-dispatch tag (after secrets are live)
 
 ```bash
 make go-live VERSION=v0.1.0
-# or
-scripts/go-live.sh v0.1.0
 ```
-
-This deletes the stale `v0.1.0` tag locally and on `origin`, then pushes a fresh tag to trigger the full release matrix including registry publish.
 
 ### 2. Monitor CI
 
 https://github.com/ramairwing/kotro-proxy-engine/actions/workflows/release.yml
-
-Verify jobs complete and assets appear at:
-https://github.com/ramairwing/kotro-proxy-engine/releases/tag/v0.1.0
 
 ### 3. Stamp Homebrew checksums (after release assets upload)
 
@@ -40,41 +53,17 @@ make post-release-homebrew VERSION=v0.1.0
 git push origin main
 ```
 
-### 4. Publish Homebrew tap
-
-```bash
-cp distributions/homebrew-tap/Formula/kortolabs-proxy.rb ../homebrew-tap/Formula/
-cd ../homebrew-tap && git commit -am "Bump kortolabs-proxy to v0.1.0" && git push
-```
-
-### 5. Verify public telemetry
+### 4. Verify public telemetry
 
 | Surface | URL |
 |---------|-----|
 | GitHub Release | https://github.com/ramairwing/kotro-proxy-engine/releases |
-| npm | https://www.npmjs.com/package/@kortolabs/proxy-engine |
-| VS Code Marketplace | https://marketplace.visualstudio.com/items?itemName=kortolabs.kortolabs-proxy-engine |
-
----
-
-## npm setup
-
-1. Create npm org/user `@kortolabs` (or update `distributions/npm-cli/package.json` name).
-2. Add `NPM_TOKEN` secret to the repository.
-3. Push a `v*` tag — workflow publishes from `distributions/npm-cli/`.
-
-## VS Code Marketplace setup
-
-1. Create publisher at [marketplace.visualstudio.com/manage](https://marketplace.visualstudio.com/manage) (publisher id: `kortolabs`).
-2. Generate PAT with **Marketplace (Publish)** scope.
-3. Add as `VSCE_PAT` repository secret.
-4. Push a `v*` tag — workflow runs `vsce publish` with native binaries embedded.
+| npm | https://www.npmjs.com/package/@kortosystems/proxy-engine |
+| VS Code Marketplace | https://marketplace.visualstudio.com/items?itemName=kortosystems.kortolabs-proxy-engine |
 
 If secrets are absent, the release workflow **skips** registry publish and still uploads GitHub Release assets + `.vsix`.
 
 ## Homebrew tap
-
-No GitHub secret required. After release:
 
 ```bash
 scripts/update-homebrew-shas.sh v0.1.0

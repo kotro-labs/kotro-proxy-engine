@@ -7,7 +7,7 @@ distributions/
 ├── shared/binary-target.js     # Platform → release asset name (single source of truth)
 ├── SECRETS.md                  # NPM_TOKEN + VSCE_PAT setup for CI publish
 ├── vscode-extension/           # Cursor / VS Code IDE sidecar
-├── npm-cli/                    # npm install -g @kortolabs/proxy-engine
+├── npm-cli/                    # npm install -g @kortosystems/proxy-engine
 ├── homebrew/Formula/           # In-repo formula reference
 └── homebrew-tap/               # Standalone tap repo scaffold (copy to github.com/ramairwing/homebrew-tap)
 ```
