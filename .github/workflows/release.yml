@@ -1,0 +1,168 @@
+name: Cross-Compile & Package Distribution Channels
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-sys-sidecars:
+    name: Build ${{ matrix.artifact_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: korto-proxy-aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: korto-proxy-x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: korto-proxy-x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: korto-proxy-x86_64-pc-windows-msvc.exe
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config
+
+      - name: Initialize Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo registry
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+
+      - name: Build release binary
+        working-directory: rust
+        run: cargo build --release -p korto-proxy --target ${{ matrix.target }}
+
+      - name: Strip binary (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          BIN="rust/target/${{ matrix.target }}/release/korto-proxy"
+          strip "$BIN" || true
+
+      - name: Stage distribution asset
+        shell: bash
+        run: |
+          mkdir -p "staging/${{ matrix.artifact_name }}"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            SRC="rust/target/${{ matrix.target }}/release/korto-proxy.exe"
+          else
+            SRC="rust/target/${{ matrix.target }}/release/korto-proxy"
+          fi
+          cp "$SRC" "staging/${{ matrix.artifact_name }}/${{ matrix.artifact_name }}"
+          chmod +x "staging/${{ matrix.artifact_name }}/${{ matrix.artifact_name }}" || true
+
+      - name: Upload platform artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: staging/${{ matrix.artifact_name }}/${{ matrix.artifact_name }}
+          if-no-files-found: error
+
+  publish-channels:
+    name: Package and release
+    needs: build-sys-sidecars
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-dev.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release version: $VERSION"
+
+      - name: Download compiled binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Consolidate into distribution channels
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXT_BIN="distributions/vscode-extension/bin"
+          NPM_BIN="distributions/npm-cli/bin"
+          RELEASE_DIR="release-assets"
+          mkdir -p "$EXT_BIN" "$NPM_BIN" "$RELEASE_DIR"
+
+          for bin in artifacts/*; do
+            name="$(basename "$bin")"
+            cp "$bin" "$EXT_BIN/$name"
+            cp "$bin" "$NPM_BIN/$name"
+            chmod +x "$EXT_BIN/$name" "$NPM_BIN/$name" || true
+
+            # Homebrew tarballs: one binary per archive.
+            if [[ "$name" == *.exe ]]; then
+              cp "$bin" "$RELEASE_DIR/$name"
+            else
+              tar -czf "$RELEASE_DIR/${name}.tar.gz" -C "$(dirname "$bin")" "$name"
+            fi
+          done
+
+          ls -la "$EXT_BIN"
+          ls -la "$RELEASE_DIR"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Build VS Code extension (.vsix)
+        run: |
+          cd distributions/vscode-extension
+          npm ci
+          npm run compile
+          npx @vscode/vsce@latest package --no-dependencies -o ../../release-assets/kortolabs-proxy-engine.vsix
+
+      - name: Sync npm package version
+        working-directory: distributions/npm-cli
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Publish to npm
+        if: github.ref_type == 'tag' && secrets.NPM_TOKEN != ''
+        working-directory: distributions/npm-cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+      - name: Create GitHub release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

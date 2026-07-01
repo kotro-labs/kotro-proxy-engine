@@ -36,10 +36,10 @@ cd distributions/vscode-extension
 npm install
 npm run compile
 # Copy release binaries into distributions/vscode-extension/bin/
-# Package: vsce package
+# Package: npm run package
 ```
 
-Activates on startup, spawns `korto-proxy` silently, tears down on IDE exit. Configure via `kortolabs.*` settings or `KORTO_*` env vars.
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which cross-compiles all four platform binaries, stages them into `distributions/*/bin/`, builds a `.vsix`, and publishes a GitHub release. Set repository secret `NPM_TOKEN` to enable automated npm publish.
 
 ## NPM global CLI
 
