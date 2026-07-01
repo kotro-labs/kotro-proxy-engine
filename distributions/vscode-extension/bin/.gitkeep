@@ -1,0 +1,3 @@
+# Native release binaries are copied here by CI before packaging.
+# See distributions/shared/binary-target.js for expected asset names.
+*
