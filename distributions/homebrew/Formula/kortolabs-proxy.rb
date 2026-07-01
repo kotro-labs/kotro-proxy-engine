@@ -7,10 +7,10 @@ class KortolabsProxy < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/ramairwing/kotro-proxy-engine/releases/download/v0.1.0/korto-proxy-aarch64-apple-darwin.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_AARCH64_APPLE_DARWIN"
+      sha256 "39f7934181d0aea6992efdf56a0bf22408803d44ed7bd71a8d10378a9f851bc3"
     else
       url "https://github.com/ramairwing/kotro-proxy-engine/releases/download/v0.1.0/korto-proxy-x86_64-apple-darwin.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_X86_64_APPLE_DARWIN"
+      sha256 "3dd2891a8cd6c9a0ee54250d8152aa673d9c40e7a9518d59cfd907c33675f13c"
     end
   end
 
