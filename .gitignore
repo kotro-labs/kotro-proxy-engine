@@ -28,3 +28,7 @@ benchmarks/.audit-logs/
 .DS_Store
 *.swp
 *~
+
+# Distribution channel build artifacts
+distributions/**/node_modules/
+distributions/**/out/

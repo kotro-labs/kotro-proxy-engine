@@ -1,0 +1,32 @@
+{
+  "name": "@kortolabs/proxy-engine",
+  "version": "0.1.0",
+  "description": "High-performance semantic caching AI proxy gateway with native Rust runtime.",
+  "license": "MIT",
+  "author": "Ramesh Pandian",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ramairwing/kotro-proxy-engine.git",
+    "directory": "distributions/npm-cli"
+  },
+  "bin": {
+    "kortolabs-proxy": "./bin/index.js"
+  },
+  "files": [
+    "bin/index.js",
+    "lib/binary-target.js",
+    "bin/korto-proxy-*"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "ai",
+    "proxy",
+    "cache",
+    "rust",
+    "llm",
+    "openai",
+    "anthropic"
+  ]
+}
