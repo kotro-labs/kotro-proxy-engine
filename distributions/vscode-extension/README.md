@@ -1,7 +1,10 @@
 # KortoLabs Proxy Engine
 
+<!-- Marketplace README images must use absolute GitHub raw URLs: vsce rewrites
+     relative paths to repo-root /media/* which does not exist. -->
+
 <p align="center">
-  <img src="media/icon.png" alt="Korto" width="96" height="96" />
+  <img src="https://raw.githubusercontent.com/ramairwing/kotro-proxy-engine/main/distributions/vscode-extension/media/icon.png" alt="Korto" width="96" height="96" />
 </p>
 
 Transparent **IDE sidecar** for the [Kotro Proxy Engine](https://github.com/ramairwing/kotro-proxy-engine) — a local LLM gateway with streaming semantic cache, PII redaction, and context compression for **OpenAI** and **Anthropic** APIs.
@@ -21,11 +24,11 @@ Works in **VS Code**, **Cursor**, and other VS Code–compatible editors.
 
 ### Status bar
 
-![Kotro status bar showing cache hit and bytes saved](media/status-bar.png)
+![Kotro status bar showing cache hit and bytes saved](https://raw.githubusercontent.com/ramairwing/kotro-proxy-engine/main/distributions/vscode-extension/media/status-bar.png)
 
 ### Dashboard
 
-![Kotro proxy operator dashboard](media/dashboard.png)
+![Kotro proxy operator dashboard](https://raw.githubusercontent.com/ramairwing/kotro-proxy-engine/main/distributions/vscode-extension/media/dashboard.png)
 
 ## Install
 

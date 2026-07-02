@@ -2,7 +2,7 @@
   "name": "kortolabs-proxy-engine",
   "displayName": "KortoLabs Proxy Engine",
   "description": "Transparent IDE sidecar for the Korto semantic caching LLM proxy.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "kortosystems",
   "license": "MIT",
   "icon": "media/icon.png",
