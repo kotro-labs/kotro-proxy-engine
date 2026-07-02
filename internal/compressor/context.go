@@ -5,22 +5,34 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
-	"sync"
+	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/kortolabs/proxy-engine/internal/models"
+)
+
+const (
+	defaultMaxScopes = 10_000
+	defaultScopeTTL  = time.Hour
 )
 
 // StateTracker remembers prior-turn context blocks per tenant/session scope to
 // strip unchanged MCP schemas, directory trees, and other repeated blocks.
 type StateTracker struct {
-	mu     sync.Mutex
-	scopes map[string]map[string]string // scope key -> block hash -> content
+	scopes *lru.LRU[string, map[string]string]
 }
 
-// NewStateTracker creates an empty per-process context diff tracker.
-func NewStateTracker() *StateTracker {
+// NewStateTracker creates a bounded, TTL-backed per-process context diff tracker.
+func NewStateTracker(maxScopes int, scopeTTL time.Duration) *StateTracker {
+	if maxScopes <= 0 {
+		maxScopes = defaultMaxScopes
+	}
+	if scopeTTL <= 0 {
+		scopeTTL = defaultScopeTTL
+	}
 	return &StateTracker{
-		scopes: make(map[string]map[string]string),
+		scopes: lru.NewLRU[string, map[string]string](maxScopes, nil, scopeTTL),
 	}
 }
 
@@ -51,11 +63,8 @@ func (st *StateTracker) CompressMessage(scope Scope, content string) (string, bo
 		return content, false
 	}
 
-	st.mu.Lock()
-	defer st.mu.Unlock()
-
 	scopeKey := scope.Key()
-	lastBlocks := st.scopes[scopeKey]
+	lastBlocks, _ := st.scopes.Get(scopeKey)
 	if lastBlocks == nil {
 		lastBlocks = make(map[string]string)
 	}
@@ -74,7 +83,7 @@ func (st *StateTracker) CompressMessage(scope Scope, content string) (string, bo
 		kept = append(kept, block)
 	}
 
-	st.scopes[scopeKey] = current
+	st.scopes.Add(scopeKey, current)
 	if !changed {
 		return content, false
 	}

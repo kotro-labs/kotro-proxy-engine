@@ -42,7 +42,7 @@ func NewHandler(opts Options, store *cache.Store, logger *slog.Logger) (*Handler
 	h := &Handler{
 		upstream:   u,
 		cache:      store,
-		compressor: compressor.NewStateTracker(),
+		compressor: compressor.NewStateTracker(opts.CompressorMaxScopes, opts.CompressorScopeTTL),
 		logger:     logger,
 		opts:       opts,
 		pipeline:   streamPipeline{cache: store, logger: logger, opts: opts},
@@ -72,11 +72,13 @@ func NewHandler(opts Options, store *cache.Store, logger *slog.Logger) (*Handler
 // NewHandlerFromURL is a convenience wrapper for tests.
 func NewHandlerFromURL(upstreamURL string, store *cache.Store, logger *slog.Logger) (*Handler, error) {
 	return NewHandler(Options{
-		UpstreamURL:       upstreamURL,
-		EnableCache:       true,
-		EnableRedaction:   true,
-		EnableCompression: true,
-		CacheHitDelay:     2 * time.Millisecond,
+		UpstreamURL:         upstreamURL,
+		EnableCache:           true,
+		EnableRedaction:       true,
+		EnableCompression:     true,
+		CacheHitDelay:         2 * time.Millisecond,
+		CompressorMaxScopes:   10_000,
+		CompressorScopeTTL:    time.Hour,
 	}, store, logger)
 }
 
@@ -98,7 +100,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scope := scopeFromRequest(r)
+	scope := h.opts.Scope.FromRequest(r)
 	processed, cacheSource, redactionMap := h.applyOpenAIMiddleware(scope, req)
 	cacheKey := h.openAICacheKey(scope, cacheSource)
 

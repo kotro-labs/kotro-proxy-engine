@@ -17,10 +17,14 @@ type Options struct {
 	EnableCompression   bool
 	CacheHitDelay       time.Duration
 	MaxRequestBodyBytes int64
+	Scope               ScopeResolver
+	CompressorMaxScopes int
+	CompressorScopeTTL  time.Duration
 }
 
 // OptionsFromConfig maps application config to proxy options.
 func OptionsFromConfig(cfg config.Config) Options {
+	cidrs, _ := parseTrustedCIDRs(cfg.TrustedProxyCIDRs)
 	return Options{
 		UpstreamURL:         cfg.UpstreamURL,
 		EnableCache:         cfg.EnableCache,
@@ -28,6 +32,12 @@ func OptionsFromConfig(cfg config.Config) Options {
 		EnableCompression:   cfg.EnableCompression,
 		CacheHitDelay:       cfg.CacheHitDelay,
 		MaxRequestBodyBytes: cfg.MaxRequestBodyBytes,
+		Scope: ScopeResolver{
+			TrustUpstreamGateway: cfg.TrustUpstreamGateway,
+			TrustedProxyCIDRs:      cidrs,
+		},
+		CompressorMaxScopes: cfg.CompressorMaxScopes,
+		CompressorScopeTTL:  cfg.CompressorScopeTTL,
 	}
 }
 

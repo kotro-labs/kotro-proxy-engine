@@ -35,6 +35,18 @@ type Config struct {
 
 	// MaxRequestBodyBytes caps JSON request body size (default 10 MiB).
 	MaxRequestBodyBytes int64
+
+	// TrustUpstreamGateway honors X-Tenant-ID from trusted proxy CIDRs only.
+	TrustUpstreamGateway bool
+
+	// TrustedProxyCIDRs is a comma-separated list of CIDRs allowed to set scope headers.
+	TrustedProxyCIDRs string
+
+	// CompressorMaxScopes bounds in-memory compressor scope entries.
+	CompressorMaxScopes int
+
+	// CompressorScopeTTL evicts idle compressor scopes after this duration.
+	CompressorScopeTTL time.Duration
 }
 
 // Load reads configuration from environment variables with sensible defaults
@@ -55,6 +67,10 @@ func Load() Config {
 		CacheTTL:              envFlexibleDurationOr("KORTO_CACHE_TTL", 24*time.Hour),
 		CacheEvictionInterval: envFlexibleDurationOr("KORTO_EVICTION_INTERVAL", 10*time.Minute),
 		MaxRequestBodyBytes:   envInt64Or("KORTO_MAX_REQUEST_BODY_BYTES", 10<<20),
+		TrustUpstreamGateway:  envBoolOr("KORTO_TRUST_UPSTREAM_GATEWAY", false),
+		TrustedProxyCIDRs:     envOr("KORTO_TRUSTED_PROXY_CIDRS", ""),
+		CompressorMaxScopes:   int(envInt64Or("KORTO_COMPRESSOR_MAX_SCOPES", 10_000)),
+		CompressorScopeTTL:    envFlexibleDurationOr("KORTO_COMPRESSOR_SCOPE_TTL", time.Hour),
 	}
 }
 

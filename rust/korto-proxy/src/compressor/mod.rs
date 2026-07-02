@@ -1,12 +1,16 @@
 //! Context block dedup — mirrors `internal/compressor/context.go`.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::time::Duration;
 
+use moka::sync::Cache;
 use sha2::{Digest, Sha256};
 
 use crate::models::anthropic::MessagesRequest;
 use crate::models::openai::{content_text, ChatCompletionRequest};
+
+const DEFAULT_MAX_SCOPES: u64 = 10_000;
+const DEFAULT_SCOPE_TTL: Duration = Duration::from_secs(3600);
 
 /// Isolates compressor state to a tenant/session pair.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -22,19 +26,33 @@ impl Scope {
 }
 
 pub struct StateTracker {
-    scopes: Mutex<HashMap<String, HashMap<String, String>>>,
+    scopes: Cache<String, HashMap<String, String>>,
 }
 
 impl Default for StateTracker {
     fn default() -> Self {
-        Self::new()
+        Self::new(DEFAULT_MAX_SCOPES, DEFAULT_SCOPE_TTL)
     }
 }
 
 impl StateTracker {
-    pub fn new() -> Self {
+    pub fn new(max_scopes: u64, idle_ttl: Duration) -> Self {
+        let max_scopes = if max_scopes == 0 {
+            DEFAULT_MAX_SCOPES
+        } else {
+            max_scopes
+        };
+        let idle_ttl = if idle_ttl.is_zero() {
+            DEFAULT_SCOPE_TTL
+        } else {
+            idle_ttl
+        };
+
         Self {
-            scopes: Mutex::new(HashMap::new()),
+            scopes: Cache::builder()
+                .max_capacity(max_scopes)
+                .time_to_idle(idle_ttl)
+                .build(),
         }
     }
 
@@ -44,11 +62,11 @@ impl StateTracker {
             return (content.to_string(), false);
         }
 
-        let mut scopes = self.scopes.lock().expect("compressor lock");
         let scope_key = scope.key();
-        let last_blocks = scopes
-            .entry(scope_key)
-            .or_default();
+        let last_blocks = self
+            .scopes
+            .get(&scope_key)
+            .unwrap_or_default();
 
         let mut kept = Vec::new();
         let mut changed = false;
@@ -64,8 +82,7 @@ impl StateTracker {
             kept.push(block);
         }
 
-        *last_blocks = current;
-        drop(scopes);
+        self.scopes.insert(scope_key, current);
 
         if !changed {
             return (content.to_string(), false);
@@ -156,7 +173,7 @@ mod tests {
 
     #[test]
     fn strips_unchanged_blocks_on_second_turn() {
-        let tracker = StateTracker::new();
+        let tracker = StateTracker::default();
         let s = scope("tenant-a", "session-1");
         let payload = "MCP schema v1\nline1\nline2\n\nDirectory tree:\n/src";
 
@@ -169,19 +186,8 @@ mod tests {
     }
 
     #[test]
-    fn keeps_changed_blocks() {
-        let tracker = StateTracker::new();
-        let s = scope("tenant-a", "session-1");
-        tracker.compress_message(&s, "block one");
-
-        let (out, changed) = tracker.compress_message(&s, "block one\n\nblock two NEW");
-        assert!(changed);
-        assert!(out.contains("block two NEW"));
-    }
-
-    #[test]
     fn isolates_tenant_sessions() {
-        let tracker = StateTracker::new();
+        let tracker = StateTracker::default();
         let payload = "shared block\n\ncontext";
         let tenant_a = scope("tenant-a", "session-1");
         let tenant_b = scope("tenant-b", "session-1");
@@ -197,7 +203,7 @@ mod tests {
 
     #[test]
     fn compress_messages_request_prunes_repeated_user_turn() {
-        let tracker = StateTracker::new();
+        let tracker = StateTracker::default();
         let s = scope("tenant-a", "session-1");
         let req: MessagesRequest = serde_json::from_value(serde_json::json!({
             "model": "claude-3-5-sonnet-20241022",

@@ -5,16 +5,21 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kortolabs/proxy-engine/internal/compressor"
 )
+
+func tracker() *compressor.StateTracker {
+	return compressor.NewStateTracker(1000, time.Hour)
+}
 
 func scope(tenant, session string) compressor.Scope {
 	return compressor.Scope{TenantID: tenant, SessionID: session}
 }
 
 func TestCompressStripsUnchangedBlocks(t *testing.T) {
-	st := compressor.NewStateTracker()
+	st := tracker()
 	s := scope("tenant-a", "session-1")
 	blockA := "MCP schema v1\nline1\nline2"
 	blockB := "Directory tree:\n/src\n  main.go"
@@ -38,7 +43,7 @@ func TestCompressStripsUnchangedBlocks(t *testing.T) {
 }
 
 func TestCompressKeepsChangedBlocks(t *testing.T) {
-	st := compressor.NewStateTracker()
+	st := tracker()
 	s := scope("tenant-a", "session-1")
 	_, _ = st.CompressMessage(s, "block one")
 
@@ -53,7 +58,7 @@ func TestCompressKeepsChangedBlocks(t *testing.T) {
 }
 
 func TestCompressReintroducesAfterTurnWithoutBlocks(t *testing.T) {
-	st := compressor.NewStateTracker()
+	st := tracker()
 	s := scope("tenant-a", "session-1")
 	_, _ = st.CompressMessage(s, "alpha\n\nbeta")
 	_, _ = st.CompressMessage(s, "gamma")
@@ -68,7 +73,7 @@ func TestCompressReintroducesAfterTurnWithoutBlocks(t *testing.T) {
 }
 
 func TestCompressIsolatesTenantSessions(t *testing.T) {
-	st := compressor.NewStateTracker()
+	st := tracker()
 	payload := "shared block\n\ncontext"
 
 	tenantA := scope("tenant-a", "session-1")
@@ -90,7 +95,7 @@ func TestCompressIsolatesTenantSessions(t *testing.T) {
 }
 
 func TestCompressConcurrentScopes(t *testing.T) {
-	st := compressor.NewStateTracker()
+	st := tracker()
 	payload := "alpha\n\nbeta"
 
 	var wg sync.WaitGroup

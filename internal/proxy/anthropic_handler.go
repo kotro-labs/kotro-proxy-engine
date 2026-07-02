@@ -40,7 +40,7 @@ func NewAnthropicHandler(opts Options, store *cache.Store, logger *slog.Logger) 
 	h := &AnthropicHandler{
 		upstream:   u,
 		cache:      store,
-		compressor: compressor.NewStateTracker(),
+		compressor: compressor.NewStateTracker(opts.CompressorMaxScopes, opts.CompressorScopeTTL),
 		logger:     logger,
 		opts:       opts,
 		pipeline:   streamPipeline{cache: store, logger: logger, opts: opts},
@@ -97,7 +97,7 @@ func (h *AnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scope := scopeFromRequest(r)
+	scope := h.opts.Scope.FromRequest(r)
 	processed, cacheSource, redactionMap := h.applyAnthropicMiddleware(scope, req)
 	cacheKey := h.anthropicCacheKey(scope, cacheSource)
 
