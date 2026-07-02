@@ -13,6 +13,7 @@
     "kortolabs-proxy": "./bin/index.js"
   },
   "files": [
+    "README.md",
     "bin/index.js",
     "lib/binary-target.js",
     "bin/korto-proxy-*"
