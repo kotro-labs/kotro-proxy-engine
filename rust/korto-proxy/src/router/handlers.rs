@@ -1,12 +1,13 @@
 //! Axum route handlers.
 
 use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
     body::Body,
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -22,7 +23,6 @@ use crate::guardrail::{redact_chat_request, redact_messages_request, RedactionMa
 use crate::models::{anthropic::MessagesRequest, openai::ChatCompletionRequest};
 use crate::proxy::pipeline::{create_processing_pipeline, PipelineOptions, StreamFormat};
 use crate::proxy::replay::create_cached_replay_stream;
-use crate::router::scope::scope_from_headers;
 use crate::router::AppState;
 
 const SSE_HEADERS: [(&str, &str); 4] = [
@@ -42,6 +42,7 @@ pub async fn handle_healthz() -> impl IntoResponse {
 
 pub async fn handle_chat_completions(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
@@ -52,7 +53,7 @@ pub async fn handle_chat_completions(
         }
     };
 
-    let scope = scope_from_headers(&headers);
+    let scope = state.scope.from_request(&headers, peer.ip());
     let (processed, cache_source, redaction_map) =
         apply_openai_middleware(&state, req, &scope);
     let cache_key = openai_cache_key(&state, &scope, &cache_source);
@@ -86,6 +87,7 @@ pub async fn handle_chat_completions(
 
 pub async fn handle_messages(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
@@ -96,7 +98,7 @@ pub async fn handle_messages(
         }
     };
 
-    let scope = scope_from_headers(&headers);
+    let scope = state.scope.from_request(&headers, peer.ip());
     let (processed, cache_source, redaction_map) =
         apply_anthropic_middleware(&state, req, &scope);
     let cache_key = anthropic_cache_key(&state, &scope, &cache_source);

@@ -176,3 +176,44 @@ func TestProxyCacheHitWithCompressionEnabled(t *testing.T) {
 		t.Fatalf("second identical request should hit cache, got %q", got)
 	}
 }
+
+func TestCacheIsolation_TenantSeparation(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer upstream.Close()
+
+	dir := t.TempDir()
+	store, err := cache.Open(filepath.Join(dir, "cache.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	handler, err := proxy.NewHandlerFromURL(upstream.URL, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"model":"gpt-4","stream":true,"messages":[{"role":"system","content":"sys"},{"role":"user","content":"shared prompt"}]}`
+	post := func(token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
+	}
+
+	if post("tenant-alpha").Header().Get("X-KortoLabs-Cache") != "" {
+		t.Fatal("tenant-alpha first request should miss cache")
+	}
+	if post("tenant-beta").Header().Get("X-KortoLabs-Cache") != "" {
+		t.Fatal("tenant-beta must not hit tenant-alpha cache entry")
+	}
+	if got := post("tenant-alpha").Header().Get("X-KortoLabs-Cache"); got != "HIT" {
+		t.Fatalf("tenant-alpha second request should hit cache, got %q", got)
+	}
+}

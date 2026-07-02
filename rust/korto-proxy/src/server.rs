@@ -51,7 +51,7 @@ impl Server {
             "kortolabs proxy listening"
         );
 
-        axum::serve(listener, self.router)
+        axum::serve(listener, self.router.into_make_service_with_connect_info::<SocketAddr>())
             .with_graceful_shutdown(shutdown_signal())
             .await?;
 

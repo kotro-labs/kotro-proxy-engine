@@ -15,6 +15,10 @@ pub struct Config {
     pub enable_redaction: bool,
     pub enable_compression: bool,
     pub enable_pprof: bool,
+    pub trust_upstream_gateway: bool,
+    pub trusted_proxy_cidrs: String,
+    pub compressor_max_scopes: u64,
+    pub compressor_scope_ttl: Duration,
 }
 
 impl Default for Config {
@@ -30,6 +34,10 @@ impl Default for Config {
             enable_redaction: true,
             enable_compression: true,
             enable_pprof: false,
+            trust_upstream_gateway: false,
+            trusted_proxy_cidrs: String::new(),
+            compressor_max_scopes: 10_000,
+            compressor_scope_ttl: Duration::from_secs(3600),
         }
     }
 }
@@ -54,6 +62,16 @@ impl Config {
             enable_redaction: env_bool("KORTO_ENABLE_REDACTION", defaults.enable_redaction),
             enable_compression: env_bool("KORTO_ENABLE_COMPRESSION", defaults.enable_compression),
             enable_pprof: env_bool("KORTO_ENABLE_PPROF", defaults.enable_pprof),
+            trust_upstream_gateway: env_bool(
+                "KORTO_TRUST_UPSTREAM_GATEWAY",
+                defaults.trust_upstream_gateway,
+            ),
+            trusted_proxy_cidrs: env_or("KORTO_TRUSTED_PROXY_CIDRS", defaults.trusted_proxy_cidrs),
+            compressor_max_scopes: env_u64("KORTO_COMPRESSOR_MAX_SCOPES", defaults.compressor_max_scopes),
+            compressor_scope_ttl: env_flexible_duration(
+                "KORTO_COMPRESSOR_SCOPE_TTL",
+                defaults.compressor_scope_ttl,
+            ),
         }
     }
 }
@@ -63,6 +81,13 @@ fn env_or(key: &str, fallback: String) -> String {
 }
 
 fn env_bool(key: &str, fallback: bool) -> bool {
+    match env::var(key) {
+        Ok(v) => v.parse().unwrap_or(fallback),
+        Err(_) => fallback,
+    }
+}
+
+fn env_u64(key: &str, fallback: u64) -> u64 {
     match env::var(key) {
         Ok(v) => v.parse().unwrap_or(fallback),
         Err(_) => fallback,
@@ -83,6 +108,19 @@ fn env_flexible_duration(key: &str, fallback: Duration) -> Duration {
     }
 }
 
+fn unit_duration(value: &str, unit: &str) -> Option<Duration> {
+    let num = value.strip_suffix(unit)?.parse::<u64>().ok()?;
+    Some(match unit {
+        "ns" => Duration::from_nanos(num),
+        "us" | "µs" => Duration::from_micros(num),
+        "ms" => Duration::from_millis(num),
+        "s" => Duration::from_secs(num),
+        "m" => Duration::from_secs(num * 60),
+        "h" => Duration::from_secs(num * 3600),
+        _ => return None,
+    })
+}
+
 fn parse_go_duration(v: &str) -> Option<Duration> {
     if let Ok(secs) = v.parse::<u64>() {
         return Some(Duration::from_secs(secs));
@@ -100,25 +138,28 @@ fn parse_go_duration(v: &str) -> Option<Duration> {
         if i == start {
             return None;
         }
-        let n: u64 = v[start..i].parse().ok()?;
+        let digits = &v[start..i];
 
-        if i + 1 < bytes.len() && &v[i..i + 2] == "ms" {
-            total += Duration::from_millis(n);
-            i += 2;
+        if let Some(unit) = ["ms", "µs", "us", "ns"]
+            .into_iter()
+            .find(|unit| v[i..].starts_with(unit))
+        {
+            total += unit_duration(&format!("{digits}{unit}"), unit)?;
+            i += unit.len();
             continue;
         }
+
         if i >= bytes.len() {
             return None;
         }
 
-        total += match bytes[i] as char {
-            'h' => Duration::from_secs(n * 3600),
-            'm' => Duration::from_secs(n * 60),
-            's' => Duration::from_secs(n),
-            'u' | 'µ' => Duration::from_micros(n),
-            'n' => Duration::from_nanos(n),
+        let unit = match bytes[i] as char {
+            'h' => "h",
+            'm' => "m",
+            's' => "s",
             _ => return None,
         };
+        total += unit_duration(&format!("{digits}{unit}"), unit)?;
         i += 1;
     }
 
@@ -139,5 +180,7 @@ mod tests {
         assert_eq!(parse_go_duration("10m"), Some(Duration::from_secs(600)));
         assert_eq!(parse_go_duration("2ms"), Some(Duration::from_millis(2)));
         assert_eq!(parse_go_duration("500ms"), Some(Duration::from_millis(500)));
+        assert_eq!(parse_go_duration("250us"), Some(Duration::from_micros(250)));
+        assert_eq!(parse_go_duration("100ns"), Some(Duration::from_nanos(100)));
     }
 }

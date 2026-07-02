@@ -15,6 +15,7 @@ use reqwest::Client;
 use crate::cache::{Store, StoreOptions};
 use crate::compressor::StateTracker;
 use crate::config::Config;
+use crate::router::scope::{parse_trusted_cidrs, ScopeResolver};
 
 use handlers::{handle_chat_completions, handle_healthz, handle_messages, handle_passthrough};
 
@@ -28,10 +29,12 @@ pub struct AppState {
     pub enable_compression: bool,
     pub cache_hit_delay: Duration,
     pub compressor: Arc<StateTracker>,
+    pub scope: ScopeResolver,
 }
 
 impl AppState {
     pub fn new(cfg: &Config, store: Store, http_client: Client) -> Self {
+        let trusted_cidrs = parse_trusted_cidrs(&cfg.trusted_proxy_cidrs).unwrap_or_default();
         Self {
             store,
             http_client,
@@ -40,7 +43,14 @@ impl AppState {
             enable_redaction: cfg.enable_redaction,
             enable_compression: cfg.enable_compression,
             cache_hit_delay: cfg.cache_hit_delay,
-            compressor: Arc::new(StateTracker::new()),
+            compressor: Arc::new(StateTracker::new(
+                cfg.compressor_max_scopes,
+                cfg.compressor_scope_ttl,
+            )),
+            scope: ScopeResolver {
+                trust_upstream_gateway: cfg.trust_upstream_gateway,
+                trusted_proxy_cidrs: trusted_cidrs,
+            },
         }
     }
 }
