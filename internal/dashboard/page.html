@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kotro Proxy Dashboard</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4f;
+      --text: #e8eef7;
+      --muted: #8fa3bf;
+      --accent: #3dd6c3;
+      --hit: #5ee08d;
+      --miss: #f0a060;
+      --bypass: #8fa3bf;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+    .sub { color: var(--muted); font-size: 0.85rem; }
+    main { padding: 1.25rem 1.5rem 2rem; max-width: 1100px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.1rem;
+    }
+    .label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .value { font-size: 1.65rem; font-weight: 700; margin-top: 0.35rem; }
+    .value small { font-size: 0.95rem; font-weight: 500; color: var(--muted); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; }
+    .pill {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .pill.hit { background: rgba(94, 224, 141, 0.15); color: var(--hit); }
+    .pill.miss { background: rgba(240, 160, 96, 0.15); color: var(--miss); }
+    .pill.bypass { background: rgba(143, 163, 191, 0.12); color: var(--bypass); }
+    .links a { color: var(--accent); text-decoration: none; margin-right: 1rem; }
+    .links a:hover { text-decoration: underline; }
+    .err { color: #ff7b7b; margin-top: 0.75rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Kotro Proxy Dashboard</h1>
+      <div class="sub">Local sidecar observability · refreshes every 5s</div>
+    </div>
+    <div class="links sub">
+      <a href="/metrics">Prometheus</a>
+      <a href="/healthz">Health</a>
+    </div>
+  </header>
+  <main>
+    <div class="grid">
+      <div class="card">
+        <div class="label">Cache hit rate (5m)</div>
+        <div class="value" id="hit-rate">—</div>
+      </div>
+      <div class="card">
+        <div class="label">Compressor bytes saved</div>
+        <div class="value" id="bytes-saved">—</div>
+      </div>
+      <div class="card">
+        <div class="label">Redactions (session)</div>
+        <div class="value" id="redactions">—</div>
+      </div>
+      <div class="card">
+        <div class="label">Active compressor scopes</div>
+        <div class="value" id="scopes">—</div>
+      </div>
+      <div class="card">
+        <div class="label">Cache entries</div>
+        <div class="value" id="cache-entries">—</div>
+      </div>
+      <div class="card">
+        <div class="label">Requests (session)</div>
+        <div class="value" id="requests">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label" style="margin-bottom: 0.75rem;">Recent requests</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Time (UTC)</th>
+            <th>Provider</th>
+            <th>Route</th>
+            <th>Cache</th>
+          </tr>
+        </thead>
+        <tbody id="recent-body">
+          <tr><td colspan="4" class="sub">Waiting for traffic…</td></tr>
+        </tbody>
+      </table>
+      <div class="sub" style="margin-top: 0.75rem;" id="updated-at">—</div>
+      <div class="err" id="error" hidden></div>
+    </div>
+  </main>
+  <script>
+    function fmtBytes(n) {
+      if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+      if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+      return Math.round(n) + ' B';
+    }
+    function fmtPct(n) {
+      return (n * 100).toFixed(1) + '%';
+    }
+    function pill(status) {
+      const cls = status === 'hit' ? 'hit' : status === 'miss' ? 'miss' : 'bypass';
+      return '<span class="pill ' + cls + '">' + status.toUpperCase() + '</span>';
+    }
+    function render(data) {
+      document.getElementById('hit-rate').textContent =
+        fmtPct(data.cache_hit_rate_5m) + ' (' + data.cache_hits_5m + 'H / ' + data.cache_misses_5m + 'M)';
+      document.getElementById('bytes-saved').textContent = fmtBytes(data.compressor_bytes_saved_total);
+      document.getElementById('redactions').textContent = Math.round(data.redactions_total);
+      document.getElementById('scopes').textContent = Math.round(data.compressor_scopes_active);
+      document.getElementById('cache-entries').textContent = Math.round(data.cache_entries);
+      document.getElementById('requests').textContent = Math.round(data.requests_total);
+      document.getElementById('updated-at').textContent = 'Updated ' + data.updated_at;
+
+      const body = document.getElementById('recent-body');
+      if (!data.recent_requests || data.recent_requests.length === 0) {
+        body.innerHTML = '<tr><td colspan="4" class="sub">No proxied requests yet</td></tr>';
+        return;
+      }
+      body.innerHTML = data.recent_requests.map(function (r) {
+        const t = new Date(r.at).toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+        return '<tr><td>' + t + '</td><td>' + r.provider + '</td><td>' + r.route + '</td><td>' + pill(r.cache_status) + '</td></tr>';
+      }).join('');
+    }
+    async function refresh() {
+      try {
+        const res = await fetch('/api/dashboard', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        render(data);
+        document.getElementById('error').hidden = true;
+      } catch (err) {
+        const el = document.getElementById('error');
+        el.hidden = false;
+        el.textContent = 'Failed to load dashboard: ' + err.message;
+      }
+    }
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

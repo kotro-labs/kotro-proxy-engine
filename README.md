@@ -27,7 +27,7 @@ Korto fills the gap between local agent runtimes (Cursor, Claude Code, custom SD
 | **Docker** | `docker-compose up` (mock upstream + Rust proxy) |
 | **npm** | `npm install -g @kortosystems/proxy-engine` → `kortolabs-proxy` |
 | **Homebrew** | `brew tap ramairwing/tap && brew trust ramairwing/tap && brew install kortolabs-proxy` |
-| **VS Code / Cursor** | [Marketplace extension](https://marketplace.visualstudio.com/items?itemName=kortosystems.kortolabs-proxy-engine) (IDE sidecar on `:8080`) |
+| **VS Code / Cursor** | [Marketplace extension](https://marketplace.visualstudio.com/items?itemName=kortosystems.kortolabs-proxy-engine) (status bar + dashboard link) |
 | **GitHub Release** | [Download binary](https://github.com/ramairwing/kotro-proxy-engine/releases) for your platform |
 | **From source** | `make build` or `cd rust && cargo run -p korto-proxy` |
 
@@ -75,6 +75,8 @@ curl -N http://127.0.0.1:8080/v1/messages \
 
 Cache hits return `X-KortoLabs-Cache: HIT`.
 
+Local dashboard: [http://localhost:8080/dashboard](http://localhost:8080/dashboard) (requires `KORTO_ENABLE_METRICS=true`).
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -88,6 +90,7 @@ Cache hits return `X-KortoLabs-Cache: HIT`.
 | `KORTO_CACHE_TTL` | `24h` | Cache entry lifetime (`0` disables expiry) |
 | `KORTO_EVICTION_INTERVAL` | `10m` | Background sweep for expired keys |
 | `KORTO_ENABLE_PPROF` | `false` | Expose `/debug/pprof` for leak audits |
+| `KORTO_ENABLE_METRICS` | `true` | Expose `/metrics` and `/dashboard` for local observability |
 
 ## Cancel-storm leak audit (k6 + pprof)
 
@@ -121,9 +124,12 @@ Install [k6](https://k6.io/): `brew install k6`
 chmod +x scripts/bench/run.sh
 make load-test          # all scenarios
 make load-test SCENARIO=hit
+make eval-suite         # full ROI dashboard → benchmarks/eval-suite/RESULTS.md
 ```
 
 Scenarios: `miss`, `hit`, `anthropic`, `mixed`, `all`.
+
+Eval suite results and methodology: [benchmarks/eval-suite/RESULTS.md](benchmarks/eval-suite/RESULTS.md). Roadmap and security docs: [docs/roadmap/90-DAY-ROADMAP.md](docs/roadmap/90-DAY-ROADMAP.md), [docs/security/THREAT-MODEL.md](docs/security/THREAT-MODEL.md).
 
 Vegeta alternative:
 

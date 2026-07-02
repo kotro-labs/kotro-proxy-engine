@@ -40,7 +40,7 @@ func NewAnthropicHandler(opts Options, store *cache.Store, logger *slog.Logger) 
 	h := &AnthropicHandler{
 		upstream:   u,
 		cache:      store,
-		compressor: compressor.NewStateTracker(opts.CompressorMaxScopes, opts.CompressorScopeTTL),
+		compressor: compressor.NewStateTracker(opts.CompressorMaxScopes, opts.CompressorScopeTTL, opts.Metrics),
 		logger:     logger,
 		opts:       opts,
 		pipeline:   streamPipeline{cache: store, logger: logger, opts: opts},
@@ -51,6 +51,7 @@ func NewAnthropicHandler(opts Options, store *cache.Store, logger *slog.Logger) 
 	rp.ModifyResponse = h.modifyResponse
 	rp.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
 		logger.Error("anthropic upstream error", "err", err)
+		opts.Metrics.RecordError("anthropic", "upstream")
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 	}
 
@@ -81,42 +82,60 @@ func NewAnthropicHandlerFromURL(upstreamURL string, store *cache.Store, logger *
 
 // ServeHTTP implements http.Handler for POST /v1/messages.
 func (h *AnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	obs := newRequestObserver(h.opts.Metrics, "anthropic", "/v1/messages")
+	defer obs.finish()
+
 	if r.Method != http.MethodPost {
+		h.opts.Metrics.RecordError("anthropic", "internal")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	body, err := readLimitedBody(w, r, h.opts.MaxRequestBodyBytes)
 	if err != nil {
+		if isBodyLimitError(err) {
+			h.opts.Metrics.RecordError("anthropic", "body_limit")
+		} else {
+			h.opts.Metrics.RecordError("anthropic", "parse")
+		}
 		return
 	}
+	h.opts.Metrics.RecordRequestBody("anthropic", len(body))
 
 	req, err := models.ParseMessagesRequest(body)
 	if err != nil {
+		h.opts.Metrics.RecordError("anthropic", "parse")
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	obs.setStream(req.Stream)
 
-	scope := h.opts.Scope.FromRequest(r)
+	scope, scopeMeta := h.opts.Scope.Resolve(r)
+	recordScopeMetrics(h.opts.Metrics, scopeMeta)
+
 	processed, cacheSource, redactionMap := h.applyAnthropicMiddleware(scope, req)
+	recordRedactionMetrics(h.opts.Metrics, redactionMap)
 	cacheKey := h.anthropicCacheKey(scope, cacheSource)
 
 	if cacheKey != "" {
 		if entry, err := h.cache.Get(cacheKey); err != nil {
 			h.logger.Error("cache get failed", "key", cache.EntryID(cacheKey), "err", err)
+			h.opts.Metrics.RecordError("anthropic", "internal")
 		} else if entry != nil {
+			obs.setCacheStatus("hit")
+			h.opts.Metrics.RecordCacheHit("anthropic", len(entry.RawSSE))
 			h.logger.Info("cache hit", "key", cache.EntryID(cacheKey), "format", StreamAnthropic)
 			h.pipeline.replayCached(r.Context(), w, entry.RawSSE, redactionMap, StreamAnthropic)
 			return
 		}
-	}
-
-	if cacheKey != "" {
+		obs.setCacheStatus("miss")
+		h.opts.Metrics.RecordCacheMiss("anthropic")
 		h.logger.Info("cache miss", "key", cache.EntryID(cacheKey), "format", StreamAnthropic)
 	}
 
 	newBody, err := processed.Marshal()
 	if err != nil {
+		h.opts.Metrics.RecordError("anthropic", "internal")
 		http.Error(w, "marshal", http.StatusInternalServerError)
 		return
 	}
@@ -129,6 +148,7 @@ func (h *AnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		format:       StreamAnthropic,
 	}
 	ctx := context.WithValue(r.Context(), ctxKeyRequest{}, rctx)
+	ctx = context.WithValue(ctx, ctxKeyUpstreamStart{}, time.Now())
 	r = r.WithContext(ctx)
 	r.Body = io.NopCloser(bytes.NewReader(newBody))
 	r.ContentLength = int64(len(newBody))
@@ -139,6 +159,7 @@ func (h *AnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		bw, err := bootstrapUpstreamSSE(w, h.logger)
 		if err != nil {
 			h.logger.Error("sse bootstrap failed", "err", err)
+			h.opts.Metrics.RecordError("anthropic", "internal")
 			http.Error(w, "streaming connection failure", http.StatusInternalServerError)
 			return
 		}
@@ -149,6 +170,9 @@ func (h *AnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AnthropicHandler) modifyResponse(resp *http.Response) error {
+	if start, ok := resp.Request.Context().Value(ctxKeyUpstreamStart{}).(time.Time); ok {
+		recordUpstreamMetrics(h.opts.Metrics, "anthropic", resp.StatusCode, start)
+	}
 	rctx, _ := resp.Request.Context().Value(ctxKeyRequest{}).(requestContext)
 	return h.pipeline.interceptResponse(resp, rctx)
 }

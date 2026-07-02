@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kortolabs/proxy-engine/internal/metrics"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -26,6 +27,7 @@ type Store struct {
 	path      string
 	ttl       time.Duration
 	compress  bool
+	metrics   *metrics.Registry
 	mu        sync.RWMutex
 }
 
@@ -112,12 +114,39 @@ func (s *Store) Delete(key string) error {
 	})
 }
 
+// SetMetrics attaches a Prometheus registry for cache gauges and evictions.
+func (s *Store) SetMetrics(m *metrics.Registry) {
+	s.metrics = m
+}
+
+// Count returns the number of keys in the cache bucket.
+func (s *Store) Count() (int, error) {
+	var n int
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketName))
+		if b == nil {
+			return nil
+		}
+		stats := b.Stats()
+		n = stats.KeyN
+		return nil
+	})
+	return n, err
+}
+
 // TTL returns the configured entry lifetime (0 = no expiry).
 func (s *Store) TTL() time.Duration { return s.ttl }
 
 // SweepExpired deletes all keys whose TTL prefix has lapsed.
 func (s *Store) SweepExpired() (int, error) {
-	return s.sweepExpiredKeys()
+	n, err := s.sweepExpiredKeys()
+	if err == nil && s.metrics != nil {
+		s.metrics.RecordCacheEvictions("ttl", n)
+		if count, cerr := s.Count(); cerr == nil {
+			s.metrics.SetCacheEntries(count)
+		}
+	}
+	return n, err
 }
 
 // PutRaw stores a raw bucket value (used for legacy migration tests).

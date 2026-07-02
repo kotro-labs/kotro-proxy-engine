@@ -7,6 +7,7 @@ import (
 	"github.com/kortolabs/proxy-engine/internal/compressor"
 	"github.com/kortolabs/proxy-engine/internal/config"
 	"github.com/kortolabs/proxy-engine/internal/guardrail"
+	"github.com/kortolabs/proxy-engine/internal/metrics"
 	"github.com/kortolabs/proxy-engine/internal/models"
 	"time"
 )
@@ -22,10 +23,11 @@ type Options struct {
 	Scope               ScopeResolver
 	CompressorMaxScopes int
 	CompressorScopeTTL  time.Duration
+	Metrics             *metrics.Registry
 }
 
 // OptionsFromConfig maps application config to proxy options.
-func OptionsFromConfig(cfg config.Config, logger *slog.Logger) Options {
+func OptionsFromConfig(cfg config.Config, logger *slog.Logger, m *metrics.Registry) Options {
 	cidrs, err := parseTrustedCIDRs(cfg.TrustedProxyCIDRs)
 	if err != nil {
 		if logger == nil {
@@ -52,6 +54,7 @@ func OptionsFromConfig(cfg config.Config, logger *slog.Logger) Options {
 		},
 		CompressorMaxScopes: cfg.CompressorMaxScopes,
 		CompressorScopeTTL:  cfg.CompressorScopeTTL,
+		Metrics:             m,
 	}
 }
 

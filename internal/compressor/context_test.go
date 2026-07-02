@@ -11,7 +11,7 @@ import (
 )
 
 func tracker() *compressor.StateTracker {
-	return compressor.NewStateTracker(1000, time.Hour)
+	return compressor.NewStateTracker(1000, time.Hour, nil)
 }
 
 func scope(tenant, session string) compressor.Scope {

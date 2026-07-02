@@ -2,7 +2,6 @@
 package guardrail
 
 import (
-	"regexp"
 	"strings"
 	"sync"
 
@@ -11,31 +10,20 @@ import (
 
 // RedactionMap holds placeholder -> original value mappings for a single request.
 type RedactionMap struct {
-	mu      sync.RWMutex
-	forward map[string]string
-	reverse map[string]string
-	seq     int
+	mu            sync.RWMutex
+	forward       map[string]string
+	reverse       map[string]string
+	patternCounts map[string]int
+	seq           int
 }
 
 // NewRedactionMap creates an empty per-request redaction registry.
 func NewRedactionMap() *RedactionMap {
 	return &RedactionMap{
-		forward: make(map[string]string),
-		reverse: make(map[string]string),
+		forward:       make(map[string]string),
+		reverse:       make(map[string]string),
+		patternCounts: make(map[string]int),
 	}
-}
-
-var sensitivePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
-	regexp.MustCompile(`(?i)(?:password|passwd|pwd)\s*[:=]\s*['"]?[^\s'"]{4,}['"]?`),
-	regexp.MustCompile(`(?i)(?:api[_-]?key|secret[_-]?key|token)\s*[:=]\s*['"]?[^\s'"]{8,}['"]?`),
-	regexp.MustCompile(`postgres(?:ql)?://[^\s]+`),
-	regexp.MustCompile(`mysql://[^\s]+`),
-	regexp.MustCompile(`mongodb(?:\+srv)?://[^\s]+`),
-	regexp.MustCompile(`redis://[^\s]+`),
-	regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`),
-	regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`),
-	regexp.MustCompile(`sk-ant-[a-zA-Z0-9\-]{20,}`),
 }
 
 // Redact scans text and replaces discovered secrets with stable placeholders.
@@ -47,8 +35,8 @@ func Redact(text string) (string, *RedactionMap) {
 // RedactString mutates rm while redacting text (for multi-message pipelines).
 func (rm *RedactionMap) RedactString(text string) string {
 	result := text
-	for _, pat := range sensitivePatterns {
-		result = pat.ReplaceAllStringFunc(result, func(match string) string {
+	for _, spec := range classifiedPatterns {
+		result = spec.re.ReplaceAllStringFunc(result, func(match string) string {
 			rm.mu.Lock()
 			defer rm.mu.Unlock()
 			if ph, ok := rm.reverse[match]; ok {
@@ -58,6 +46,7 @@ func (rm *RedactionMap) RedactString(text string) string {
 			placeholder := "[REDACTED_SECRET_" + itoa(rm.seq) + "]"
 			rm.forward[placeholder] = match
 			rm.reverse[match] = placeholder
+			rm.patternCounts[spec.label]++
 			return placeholder
 		})
 	}
@@ -105,16 +94,26 @@ func RedactAnthropicRequest(req *models.MessagesRequest) (*models.MessagesReques
 
 // Restore reverses placeholder masking on inbound streaming text.
 func (rm *RedactionMap) Restore(text string) string {
+	out, _ := rm.RestoreCounted(text)
+	return out
+}
+
+// RestoreCounted restores placeholders and returns the number of replacements.
+func (rm *RedactionMap) RestoreCounted(text string) (string, int) {
 	if rm == nil || len(rm.forward) == 0 {
-		return text
+		return text, 0
 	}
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
 	result := text
+	restores := 0
 	for placeholder, original := range rm.forward {
-		result = strings.ReplaceAll(result, placeholder, original)
+		if strings.Contains(result, placeholder) {
+			restores += strings.Count(result, placeholder)
+			result = strings.ReplaceAll(result, placeholder, original)
+		}
 	}
-	return result
+	return result, restores
 }
 
 // Len returns the number of active redactions.

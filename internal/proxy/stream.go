@@ -13,6 +13,7 @@ import (
 
 	"github.com/kortolabs/proxy-engine/internal/cache"
 	"github.com/kortolabs/proxy-engine/internal/guardrail"
+	"github.com/kortolabs/proxy-engine/internal/metrics"
 	"github.com/kortolabs/proxy-engine/internal/models"
 	"github.com/kortolabs/proxy-engine/internal/sse"
 )
@@ -90,7 +91,9 @@ func (p *streamPipeline) interceptResponse(resp *http.Response, rctx requestCont
 			clientFrame := frame
 			if rctx.redactionMap.Len() > 0 {
 				clientFrame = sse.TransformDataLine(frame, func(payload []byte) []byte {
-					return restorePayload(payload, rctx.redactionMap, rctx.format)
+					out, restores := restorePayloadCounted(payload, rctx.redactionMap, rctx.format)
+					p.opts.Metrics.RecordRedactionRestores(restores)
+					return out
 				})
 			}
 
@@ -110,6 +113,11 @@ func (p *streamPipeline) interceptResponse(resp *http.Response, rctx requestCont
 			if err := p.cache.Put(entry); err != nil {
 				p.logger.Error("cache put failed", "key", cache.EntryID(rctx.cacheKey), "err", err)
 			} else {
+				provider := metrics.ProviderLabel(string(rctx.format))
+				p.opts.Metrics.RecordCacheStore(provider)
+				if n, err := p.cache.Count(); err == nil {
+					p.opts.Metrics.SetCacheEntries(n)
+				}
 				p.logger.Info("cache stored", "key", cache.EntryID(rctx.cacheKey), "bytes", len(entry.RawSSE), "format", rctx.format)
 			}
 		}
@@ -174,7 +182,9 @@ func (p *streamPipeline) replayCached(ctx context.Context, w http.ResponseWriter
 		out := frame
 		if rm != nil && rm.Len() > 0 {
 			out = sse.TransformDataLine(frame, func(payload []byte) []byte {
-				return restorePayload(payload, rm, format)
+				restored, restores := restorePayloadCounted(payload, rm, format)
+				p.opts.Metrics.RecordRedactionRestores(restores)
+				return restored
 			})
 		}
 
@@ -209,44 +219,64 @@ func frameComplete(frame sse.Frame, format StreamFormat) bool {
 	}
 }
 
-func restorePayload(payload []byte, rm *guardrail.RedactionMap, format StreamFormat) []byte {
+func restorePayloadCounted(payload []byte, rm *guardrail.RedactionMap, format StreamFormat) ([]byte, int) {
 	switch format {
 	case StreamAnthropic:
-		return restoreAnthropicDelta(payload, rm)
+		return restoreAnthropicDeltaCounted(payload, rm)
 	default:
-		return restoreOpenAIChunk(payload, rm)
+		return restoreOpenAIChunkCounted(payload, rm)
 	}
 }
 
-func restoreOpenAIChunk(payload []byte, rm *guardrail.RedactionMap) []byte {
+func restorePayload(payload []byte, rm *guardrail.RedactionMap, format StreamFormat) []byte {
+	out, _ := restorePayloadCounted(payload, rm, format)
+	return out
+}
+
+func restoreOpenAIChunkCounted(payload []byte, rm *guardrail.RedactionMap) ([]byte, int) {
 	var chunk models.StreamChunk
 	if err := json.Unmarshal(payload, &chunk); err != nil {
-		return payload
+		return payload, 0
 	}
+	restores := 0
 	for i := range chunk.Choices {
 		if chunk.Choices[i].Delta.Content != "" {
-			chunk.Choices[i].Delta.Content = rm.Restore(chunk.Choices[i].Delta.Content)
+			var n int
+			chunk.Choices[i].Delta.Content, n = rm.RestoreCounted(chunk.Choices[i].Delta.Content)
+			restores += n
 		}
 	}
 	out, err := json.Marshal(chunk)
 	if err != nil {
-		return payload
+		return payload, 0
 	}
+	return out, restores
+}
+
+func restoreOpenAIChunk(payload []byte, rm *guardrail.RedactionMap) []byte {
+	out, _ := restoreOpenAIChunkCounted(payload, rm)
 	return out
 }
 
-func restoreAnthropicDelta(payload []byte, rm *guardrail.RedactionMap) []byte {
+func restoreAnthropicDeltaCounted(payload []byte, rm *guardrail.RedactionMap) ([]byte, int) {
 	var evt models.AnthropicDeltaEvent
 	if err := json.Unmarshal(payload, &evt); err != nil {
-		return payload
+		return payload, 0
 	}
 	if evt.Type != "content_block_delta" || evt.Delta.Text == "" {
-		return payload
+		return payload, 0
 	}
-	evt.Delta.Text = rm.Restore(evt.Delta.Text)
+	var n int
+	evt.Delta.Text, n = rm.RestoreCounted(evt.Delta.Text)
+	restores := n
 	out, err := json.Marshal(evt)
 	if err != nil {
-		return payload
+		return payload, 0
 	}
+	return out, restores
+}
+
+func restoreAnthropicDelta(payload []byte, rm *guardrail.RedactionMap) []byte {
+	out, _ := restoreAnthropicDeltaCounted(payload, rm)
 	return out
 }

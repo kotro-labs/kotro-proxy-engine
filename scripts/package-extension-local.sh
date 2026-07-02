@@ -34,6 +34,15 @@ copy_bin() {
 
 mkdir -p "$BIN_DIR"
 
+if [[ -x "${ROOT}/bin/kortolabs-proxy" ]]; then
+  case "$(uname -s)/$(uname -m)" in
+    Darwin/arm64)  cp "${ROOT}/bin/kortolabs-proxy" "${BIN_DIR}/korto-proxy-aarch64-apple-darwin" ;;
+    Darwin/x86_64) cp "${ROOT}/bin/kortolabs-proxy" "${BIN_DIR}/korto-proxy-x86_64-apple-darwin" ;;
+    Linux/x86_64)  cp "${ROOT}/bin/kortolabs-proxy" "${BIN_DIR}/korto-proxy-x86_64-unknown-linux-gnu" ;;
+  esac
+  echo "Staged local Go proxy into ${BIN_DIR} for $(uname -s)/$(uname -m)"
+fi
+
 copy_bin "korto-proxy-aarch64-apple-darwin"
 copy_bin "korto-proxy-x86_64-apple-darwin"
 copy_bin "korto-proxy-x86_64-unknown-linux-gnu"
