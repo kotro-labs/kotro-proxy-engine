@@ -17,10 +17,12 @@ use serde_json::Value;
 use tracing::{error, info};
 
 use crate::cache::key_for_request;
+use crate::compressor::Scope;
 use crate::guardrail::{redact_chat_request, redact_messages_request, RedactionMap};
 use crate::models::{anthropic::MessagesRequest, openai::ChatCompletionRequest};
 use crate::proxy::pipeline::{create_processing_pipeline, PipelineOptions, StreamFormat};
 use crate::proxy::replay::create_cached_replay_stream;
+use crate::router::scope::scope_from_headers;
 use crate::router::AppState;
 
 const SSE_HEADERS: [(&str, &str); 4] = [
@@ -50,8 +52,10 @@ pub async fn handle_chat_completions(
         }
     };
 
-    let (cache_source, redaction_map) = apply_openai_middleware(&state, req);
-    let cache_key = openai_cache_key(&state, &cache_source);
+    let scope = scope_from_headers(&headers);
+    let (processed, cache_source, redaction_map) =
+        apply_openai_middleware(&state, req, &scope);
+    let cache_key = openai_cache_key(&state, &scope, &cache_source);
 
     if !cache_key.is_empty() {
         if let Ok(Some(entry)) = state.store.get(&cache_key) {
@@ -70,10 +74,10 @@ pub async fn handle_chat_completions(
         &state,
         &headers,
         "/v1/chat/completions",
-        &cache_source,
-        cache_source.stream,
+        &processed,
+        processed.stream,
         cache_key,
-        cache_source.model.clone(),
+        processed.model.clone(),
         StreamFormat::OpenAI,
         redaction_map,
     )
@@ -92,8 +96,10 @@ pub async fn handle_messages(
         }
     };
 
-    let (cache_source, redaction_map) = apply_anthropic_middleware(&state, req);
-    let cache_key = anthropic_cache_key(&state, &cache_source);
+    let scope = scope_from_headers(&headers);
+    let (processed, cache_source, redaction_map) =
+        apply_anthropic_middleware(&state, req, &scope);
+    let cache_key = anthropic_cache_key(&state, &scope, &cache_source);
 
     if !cache_key.is_empty() {
         if let Ok(Some(entry)) = state.store.get(&cache_key) {
@@ -112,10 +118,10 @@ pub async fn handle_messages(
         &state,
         &headers,
         "/v1/messages",
-        &cache_source,
-        cache_source.stream,
+        &processed,
+        processed.stream,
         cache_key,
-        cache_source.model.clone(),
+        processed.model.clone(),
         StreamFormat::Anthropic,
         redaction_map,
     )
@@ -155,41 +161,77 @@ pub async fn handle_passthrough(State(state): State<Arc<AppState>>, req: Request
 fn apply_openai_middleware(
     state: &AppState,
     req: ChatCompletionRequest,
-) -> (ChatCompletionRequest, Option<Arc<RedactionMap>>) {
-    if state.enable_redaction {
+    scope: &Scope,
+) -> (
+    ChatCompletionRequest,
+    ChatCompletionRequest,
+    Option<Arc<RedactionMap>>,
+) {
+    let (redacted, map) = if state.enable_redaction {
         let (out, map) = redact_chat_request(req);
         (out, Some(map))
     } else {
         (req, None)
-    }
+    };
+
+    let cache_source = redacted.clone();
+    let processed = if state.enable_compression {
+        state.compressor.compress_chat_request(scope, redacted)
+    } else {
+        redacted
+    };
+
+    (processed, cache_source, map)
 }
 
 fn apply_anthropic_middleware(
     state: &AppState,
     req: MessagesRequest,
-) -> (MessagesRequest, Option<Arc<RedactionMap>>) {
-    if state.enable_redaction {
+    scope: &Scope,
+) -> (
+    MessagesRequest,
+    MessagesRequest,
+    Option<Arc<RedactionMap>>,
+) {
+    let (redacted, map) = if state.enable_redaction {
         let (out, map) = redact_messages_request(req);
         (out, Some(map))
     } else {
         (req, None)
-    }
+    };
+
+    let cache_source = redacted.clone();
+    let processed = if state.enable_compression {
+        state.compressor.compress_messages_request(scope, redacted)
+    } else {
+        redacted
+    };
+
+    (processed, cache_source, map)
 }
 
-fn openai_cache_key(state: &AppState, req: &ChatCompletionRequest) -> String {
+fn openai_cache_key(
+    state: &AppState,
+    scope: &Scope,
+    req: &ChatCompletionRequest,
+) -> String {
     if !state.enable_cache || !req.stream {
         return String::new();
     }
     let (system, user) = req.extract_prompt_state();
-    key_for_request(&system, &user, &req.model, "openai")
+    key_for_request(&system, &user, &req.model, "openai", &scope.key())
 }
 
-fn anthropic_cache_key(state: &AppState, req: &MessagesRequest) -> String {
+fn anthropic_cache_key(
+    state: &AppState,
+    scope: &Scope,
+    req: &MessagesRequest,
+) -> String {
     if !state.enable_cache || !req.stream {
         return String::new();
     }
     let (system, user) = req.extract_prompt_state();
-    key_for_request(&system, &user, &req.model, "anthropic")
+    key_for_request(&system, &user, &req.model, "anthropic", &scope.key())
 }
 
 async fn forward_provider<T: serde::Serialize>(

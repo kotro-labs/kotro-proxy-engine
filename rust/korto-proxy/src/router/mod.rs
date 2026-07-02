@@ -1,6 +1,7 @@
 //! Axum HTTP/2 router — mirrors `internal/server/server.go` + handlers.
 
 mod handlers;
+mod scope;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +13,7 @@ use axum::{
 use reqwest::Client;
 
 use crate::cache::{Store, StoreOptions};
+use crate::compressor::StateTracker;
 use crate::config::Config;
 
 use handlers::{handle_chat_completions, handle_healthz, handle_messages, handle_passthrough};
@@ -23,7 +25,9 @@ pub struct AppState {
     pub upstream_url: String,
     pub enable_cache: bool,
     pub enable_redaction: bool,
+    pub enable_compression: bool,
     pub cache_hit_delay: Duration,
+    pub compressor: Arc<StateTracker>,
 }
 
 impl AppState {
@@ -34,7 +38,9 @@ impl AppState {
             upstream_url: cfg.upstream_url.trim_end_matches('/').to_string(),
             enable_cache: cfg.enable_cache,
             enable_redaction: cfg.enable_redaction,
+            enable_compression: cfg.enable_compression,
             cache_hit_delay: cfg.cache_hit_delay,
+            compressor: Arc::new(StateTracker::new()),
         }
     }
 }
