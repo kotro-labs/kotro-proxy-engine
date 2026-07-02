@@ -45,6 +45,7 @@ show_failure_logs() {
   tail -n 15 "${AUDIT_LOG_DIR}/k6-go.log" 2>/dev/null || true
 }
 
+wait_for_proxy() {
   for _ in $(seq 1 30); do
     if curl_quiet "${PROXY_URL}/healthz" >/dev/null 2>&1; then
       return 0

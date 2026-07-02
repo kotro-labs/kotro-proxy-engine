@@ -47,6 +47,9 @@ type Config struct {
 
 	// CompressorScopeTTL evicts idle compressor scopes after this duration.
 	CompressorScopeTTL time.Duration
+
+	// EnableMetrics exposes GET /metrics for Prometheus scraping.
+	EnableMetrics bool
 }
 
 // Load reads configuration from environment variables with sensible defaults
@@ -71,6 +74,7 @@ func Load() Config {
 		TrustedProxyCIDRs:     envOr("KORTO_TRUSTED_PROXY_CIDRS", ""),
 		CompressorMaxScopes:   int(envInt64Or("KORTO_COMPRESSOR_MAX_SCOPES", 10_000)),
 		CompressorScopeTTL:    envFlexibleDurationOr("KORTO_COMPRESSOR_SCOPE_TTL", time.Hour),
+		EnableMetrics:         envBoolOr("KORTO_ENABLE_METRICS", true),
 	}
 }
 

@@ -15,7 +15,7 @@ func TestOptionsFromConfig_LogsInvalidTrustedProxyCIDRs(t *testing.T) {
 	opts := OptionsFromConfig(config.Config{
 		TrustUpstreamGateway: true,
 		TrustedProxyCIDRs:    "not-a-cidr",
-	}, logger)
+	}, logger, nil)
 
 	if len(opts.Scope.TrustedProxyCIDRs) != 0 {
 		t.Fatal("invalid CIDR config must fail safe to empty whitelist")

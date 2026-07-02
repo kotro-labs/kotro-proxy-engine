@@ -9,6 +9,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
 
+	"github.com/kortolabs/proxy-engine/internal/metrics"
 	"github.com/kortolabs/proxy-engine/internal/models"
 )
 
@@ -20,20 +21,26 @@ const (
 // StateTracker remembers prior-turn context blocks per tenant/session scope to
 // strip unchanged MCP schemas, directory trees, and other repeated blocks.
 type StateTracker struct {
-	scopes *lru.LRU[string, map[string]string]
+	scopes  *lru.LRU[string, map[string]string]
+	metrics *metrics.Registry
 }
 
 // NewStateTracker creates a bounded, TTL-backed per-process context diff tracker.
-func NewStateTracker(maxScopes int, scopeTTL time.Duration) *StateTracker {
+func NewStateTracker(maxScopes int, scopeTTL time.Duration, m *metrics.Registry) *StateTracker {
 	if maxScopes <= 0 {
 		maxScopes = defaultMaxScopes
 	}
 	if scopeTTL <= 0 {
 		scopeTTL = defaultScopeTTL
 	}
-	return &StateTracker{
-		scopes: lru.NewLRU[string, map[string]string](maxScopes, nil, scopeTTL),
+	st := &StateTracker{metrics: m}
+	onEvict := func(_ string, _ map[string]string) {
+		if m != nil {
+			m.RecordCompressorEviction("lru")
+		}
 	}
+	st.scopes = lru.NewLRU[string, map[string]string](maxScopes, onEvict, scopeTTL)
+	return st
 }
 
 func blockHash(content string) string {
@@ -84,8 +91,19 @@ func (st *StateTracker) CompressMessage(scope Scope, content string) (string, bo
 	}
 
 	st.scopes.Add(scopeKey, current)
+	if st.metrics != nil {
+		st.metrics.SetCompressorScopes(st.scopes.Len())
+	}
 	if !changed {
 		return content, false
+	}
+	blocksStripped := len(blocks) - len(kept)
+	bytesSaved := len(content) - len(strings.Join(kept, "\n\n"))
+	if bytesSaved < 0 {
+		bytesSaved = 0
+	}
+	if st.metrics != nil {
+		st.metrics.RecordCompression(blocksStripped, bytesSaved)
 	}
 	if len(kept) == 0 {
 		return "", true

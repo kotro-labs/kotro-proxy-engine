@@ -2,7 +2,7 @@
   "name": "kortolabs-proxy-engine",
   "displayName": "KortoLabs Proxy Engine",
   "description": "Transparent IDE sidecar for the Korto semantic caching LLM proxy.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "kortosystems",
   "license": "MIT",
   "galleryBanner": {
@@ -60,9 +60,26 @@
         "kortosystems.enableCompression": {
           "type": "boolean",
           "default": true
+        },
+        "kortosystems.enableMetrics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Expose /metrics and /dashboard on the local sidecar (KORTO_ENABLE_METRICS)."
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "kortosystems.openDashboard",
+        "title": "Korto: Open Dashboard",
+        "category": "Korto"
+      },
+      {
+        "command": "kortosystems.showProxyOutput",
+        "title": "Korto: Show Proxy Logs",
+        "category": "Korto"
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p .",

@@ -7,9 +7,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/kortolabs/proxy-engine/internal/cache"
 	"github.com/kortolabs/proxy-engine/internal/config"
+	"github.com/kortolabs/proxy-engine/internal/dashboard"
+	"github.com/kortolabs/proxy-engine/internal/metrics"
 	"github.com/kortolabs/proxy-engine/internal/proxy"
 )
 
@@ -20,6 +23,7 @@ type Server struct {
 	cache       *cache.Store
 	logger      *slog.Logger
 	evictCancel context.CancelFunc
+	metrics     *metrics.Registry
 }
 
 // New constructs a Server without starting it.
@@ -36,19 +40,28 @@ func New(cfg config.Config, logger *slog.Logger) (*Server, error) {
 	evictCtx, evictCancel := context.WithCancel(context.Background())
 	store.StartEvictionWorker(evictCtx, cfg.CacheEvictionInterval, logger)
 
-	chatHandler, err := proxy.NewHandler(proxy.OptionsFromConfig(cfg, logger), store, logger)
+	var prom *metrics.Registry
+	if cfg.EnableMetrics {
+		prom = metrics.NewRegistry()
+		store.SetMetrics(prom)
+		prom.StartRuntimeCollector(15 * time.Second)
+	}
+
+	proxyOpts := proxy.OptionsFromConfig(cfg, logger, prom)
+
+	chatHandler, err := proxy.NewHandler(proxyOpts, store, logger)
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("server: chat handler: %w", err)
 	}
 
-	anthropicHandler, err := proxy.NewAnthropicHandler(proxy.OptionsFromConfig(cfg, logger), store, logger)
+	anthropicHandler, err := proxy.NewAnthropicHandler(proxyOpts, store, logger)
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("server: anthropic handler: %w", err)
 	}
 
-	passthrough, err := proxy.NewPassthrough(cfg.UpstreamURL, logger)
+	passthrough, err := proxy.NewPassthrough(cfg.UpstreamURL, logger, prom)
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("server: passthrough: %w", err)
@@ -63,6 +76,10 @@ func New(cfg config.Config, logger *slog.Logger) (*Server, error) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok","service":"kortolabs-proxy"}`))
 	})
+	if cfg.EnableMetrics && prom != nil {
+		mux.Handle("/metrics", prom.Handler())
+		dashboard.New(prom).Register(mux)
+	}
 	if cfg.EnablePprof {
 		registerPprof(mux)
 	}
@@ -75,12 +92,12 @@ func New(cfg config.Config, logger *slog.Logger) (*Server, error) {
 		IdleTimeout:  cfg.IdleTimeout,
 	}
 
-	return &Server{cfg: cfg, http: srv, cache: store, logger: logger, evictCancel: evictCancel}, nil
+	return &Server{cfg: cfg, http: srv, cache: store, logger: logger, evictCancel: evictCancel, metrics: prom}, nil
 }
 
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" || strings.HasPrefix(r.URL.Path, "/debug/pprof") {
+		if r.URL.Path == "/healthz" || r.URL.Path == "/metrics" || r.URL.Path == "/dashboard" || r.URL.Path == "/api/dashboard" || strings.HasPrefix(r.URL.Path, "/debug/pprof") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -103,6 +120,8 @@ func (s *Server) ListenAndServe() error {
 		"redaction", s.cfg.EnableRedaction,
 		"compression", s.cfg.EnableCompression,
 		"pprof", s.cfg.EnablePprof,
+		"metrics", s.cfg.EnableMetrics,
+		"dashboard", s.cfg.EnableMetrics,
 		"cache_ttl", s.cfg.CacheTTL.String(),
 		"cache_eviction", s.cfg.CacheEvictionInterval.String(),
 	)
@@ -113,6 +132,9 @@ func (s *Server) ListenAndServe() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.evictCancel != nil {
 		s.evictCancel()
+	}
+	if s.metrics != nil {
+		s.metrics.Stop()
 	}
 	err := s.http.Shutdown(ctx)
 	if closeErr := s.cache.Close(); closeErr != nil && err == nil {

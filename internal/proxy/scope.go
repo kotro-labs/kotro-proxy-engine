@@ -23,11 +23,45 @@ type ScopeResolver struct {
 	TrustedProxyCIDRs    []*net.IPNet
 }
 
+// ScopeMeta describes how tenant/session scope was resolved.
+type ScopeMeta struct {
+	Mode                  string
+	TrustedPeerRejected   bool
+}
+
 func (sr ScopeResolver) FromRequest(r *http.Request) compressor.Scope {
-	if sr.TrustUpstreamGateway && sr.isTrustedPeer(r) {
-		return scopeFromTrustedHeaders(r)
+	scope, _ := sr.Resolve(r)
+	return scope
+}
+
+// Resolve derives scope and low-cardinality resolution metadata.
+func (sr ScopeResolver) Resolve(r *http.Request) (compressor.Scope, ScopeMeta) {
+	if sr.TrustUpstreamGateway {
+		if sr.isTrustedPeer(r) {
+			tenant := strings.TrimSpace(r.Header.Get(headerTenantID))
+			if tenant != "" {
+				return scopeFromTrustedHeaders(r), ScopeMeta{Mode: "gateway_header"}
+			}
+			scope := deriveScopeFromCredentials(r)
+			return scope, ScopeMeta{Mode: scopeModeForScope(scope)}
+		}
+		if strings.TrimSpace(r.Header.Get(headerTenantID)) != "" {
+			scope := deriveScopeFromCredentials(r)
+			return scope, ScopeMeta{Mode: scopeModeForScope(scope), TrustedPeerRejected: true}
+		}
 	}
-	return deriveScopeFromCredentials(r)
+	scope := deriveScopeFromCredentials(r)
+	return scope, ScopeMeta{Mode: scopeModeForScope(scope)}
+}
+
+func scopeModeForScope(scope compressor.Scope) string {
+	if scope.TenantID == defaultTenantID && scope.SessionID == defaultSessionID {
+		return "default"
+	}
+	if strings.HasPrefix(scope.TenantID, "cred:") {
+		return "credential"
+	}
+	return "gateway_header"
 }
 
 func scopeFromTrustedHeaders(r *http.Request) compressor.Scope {

@@ -120,6 +120,14 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build Go binaries for npm / VS Code (metrics + dashboard)
+        run: bash scripts/build-go-distribution.sh dist-go
+
       - name: Consolidate into distribution channels
         shell: bash
         run: |
@@ -129,12 +137,15 @@ jobs:
           RELEASE_DIR="release-assets"
           mkdir -p "$EXT_BIN" "$NPM_BIN" "$RELEASE_DIR"
 
-          for bin in artifacts/*; do
+          for bin in dist-go/*; do
             name="$(basename "$bin")"
             cp "$bin" "$EXT_BIN/$name"
             cp "$bin" "$NPM_BIN/$name"
             chmod +x "$EXT_BIN/$name" "$NPM_BIN/$name" || true
+          done
 
+          for bin in artifacts/*; do
+            name="$(basename "$bin")"
             if [[ "$name" == *.exe ]]; then
               cp "$bin" "$RELEASE_DIR/$name"
             else

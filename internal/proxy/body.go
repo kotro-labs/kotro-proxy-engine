@@ -26,3 +26,8 @@ func readLimitedBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]
 	}
 	return body, nil
 }
+
+func isBodyLimitError(err error) bool {
+	var maxErr *http.MaxBytesError
+	return errors.As(err, &maxErr)
+}
