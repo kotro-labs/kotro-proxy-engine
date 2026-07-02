@@ -2,9 +2,10 @@
   "name": "kortolabs-proxy-engine",
   "displayName": "KortoLabs Proxy Engine",
   "description": "Transparent IDE sidecar for the Korto semantic caching LLM proxy.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "kortosystems",
   "license": "MIT",
+  "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#0f172a",
     "theme": "dark"
@@ -27,8 +28,12 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
