@@ -1,16 +1,16 @@
 class KortolabsProxy < Formula
   desc "Statically linked edge AI streaming proxy gateway with Zstd cache compression"
   homepage "https://github.com/ramairwing/kotro-proxy-engine"
-  version "0.1.1"
+  version "0.1.2"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/ramairwing/kotro-proxy-engine/releases/download/v0.1.1/korto-proxy-aarch64-apple-darwin.tar.gz"
-      sha256 "25cb4b33eadf877daee4e31373e31838a554c0d1dba5fc9b10125777e9794c98"
+      url "https://github.com/ramairwing/kotro-proxy-engine/releases/download/v0.1.2/korto-proxy-aarch64-apple-darwin.tar.gz"
+      sha256 "3d24b1b4f37b263adc11827a599e9a7a217414ab5bd2be4f1e0e60ead37b664e"
     else
-      url "https://github.com/ramairwing/kotro-proxy-engine/releases/download/v0.1.1/korto-proxy-x86_64-apple-darwin.tar.gz"
-      sha256 "867f772b56d0c52beda990495ef24542c55496c8a0760ff56cdeac92a954debe"
+      url "https://github.com/ramairwing/kotro-proxy-engine/releases/download/v0.1.2/korto-proxy-x86_64-apple-darwin.tar.gz"
+      sha256 "c1f8e7700e049a18203de39818d2232085e7caed47605bbe113d0c09a85d2e2f"
     end
   end
 
