@@ -34,7 +34,17 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(cfg: &Config, store: Store, http_client: Client) -> Self {
-        let trusted_cidrs = parse_trusted_cidrs(&cfg.trusted_proxy_cidrs).unwrap_or_default();
+        let trusted_cidrs = match parse_trusted_cidrs(&cfg.trusted_proxy_cidrs) {
+            Ok(cidrs) => cidrs,
+            Err(err) => {
+                tracing::error!(
+                    error = %err,
+                    value = %cfg.trusted_proxy_cidrs,
+                    "invalid KORTO_TRUSTED_PROXY_CIDRS; failing safe with empty trusted-proxy whitelist"
+                );
+                Vec::new()
+            }
+        };
         Self {
             store,
             http_client,

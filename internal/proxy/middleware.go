@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"log/slog"
+
 	"github.com/kortolabs/proxy-engine/internal/cache"
 	"github.com/kortolabs/proxy-engine/internal/compressor"
 	"github.com/kortolabs/proxy-engine/internal/config"
@@ -23,8 +25,20 @@ type Options struct {
 }
 
 // OptionsFromConfig maps application config to proxy options.
-func OptionsFromConfig(cfg config.Config) Options {
-	cidrs, _ := parseTrustedCIDRs(cfg.TrustedProxyCIDRs)
+func OptionsFromConfig(cfg config.Config, logger *slog.Logger) Options {
+	cidrs, err := parseTrustedCIDRs(cfg.TrustedProxyCIDRs)
+	if err != nil {
+		if logger == nil {
+			logger = slog.Default()
+		}
+		logger.Error(
+			"invalid KORTO_TRUSTED_PROXY_CIDRS; failing safe with empty trusted-proxy whitelist",
+			"err", err,
+			"value", cfg.TrustedProxyCIDRs,
+		)
+		cidrs = nil
+	}
+
 	return Options{
 		UpstreamURL:         cfg.UpstreamURL,
 		EnableCache:         cfg.EnableCache,
@@ -34,7 +48,7 @@ func OptionsFromConfig(cfg config.Config) Options {
 		MaxRequestBodyBytes: cfg.MaxRequestBodyBytes,
 		Scope: ScopeResolver{
 			TrustUpstreamGateway: cfg.TrustUpstreamGateway,
-			TrustedProxyCIDRs:      cidrs,
+			TrustedProxyCIDRs:    cidrs,
 		},
 		CompressorMaxScopes: cfg.CompressorMaxScopes,
 		CompressorScopeTTL:  cfg.CompressorScopeTTL,
