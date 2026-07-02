@@ -14,12 +14,23 @@ impl FromStr for CacheKeyStrategy {
     type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s.to_lowercase().trim() {
-            "latest_only" => CacheKeyStrategy::LatestOnly,
-            "full_digest" => CacheKeyStrategy::FullDigest,
-            "window_n" | "" => CacheKeyStrategy::WindowN,
-            _ => CacheKeyStrategy::WindowN,
-        })
+        Ok(parse_cache_key_strategy(s))
+    }
+}
+
+/// Parses `KORTO_CACHE_KEY_STRATEGY`, falling back to `window_n` and logging on unknown values.
+pub fn parse_cache_key_strategy(raw: &str) -> CacheKeyStrategy {
+    match raw.to_lowercase().trim() {
+        "latest_only" => CacheKeyStrategy::LatestOnly,
+        "full_digest" => CacheKeyStrategy::FullDigest,
+        "window_n" | "" => CacheKeyStrategy::WindowN,
+        other => {
+            tracing::warn!(
+                value = other,
+                "unknown KORTO_CACHE_KEY_STRATEGY; falling back to window_n"
+            );
+            CacheKeyStrategy::WindowN
+        }
     }
 }
 
@@ -93,5 +104,13 @@ mod tests {
         let openai = generate_cache_key("default:default", "gpt-4", "openai", material);
         let anthropic = generate_cache_key("default:default", "gpt-4", "anthropic", material);
         assert_ne!(openai, anthropic);
+    }
+
+    #[test]
+    fn invalid_strategy_falls_back_to_window_n() {
+        assert_eq!(
+            super::parse_cache_key_strategy("not-a-strategy"),
+            CacheKeyStrategy::WindowN
+        );
     }
 }

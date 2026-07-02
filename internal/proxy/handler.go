@@ -73,13 +73,15 @@ func NewHandler(opts Options, store *cache.Store, logger *slog.Logger) (*Handler
 // NewHandlerFromURL is a convenience wrapper for tests.
 func NewHandlerFromURL(upstreamURL string, store *cache.Store, logger *slog.Logger) (*Handler, error) {
 	return NewHandler(Options{
-		UpstreamURL:         upstreamURL,
+		UpstreamURL:           upstreamURL,
 		EnableCache:           true,
 		EnableRedaction:       true,
 		EnableCompression:     true,
 		CacheHitDelay:         2 * time.Millisecond,
 		CompressorMaxScopes:   10_000,
 		CompressorScopeTTL:    time.Hour,
+		CacheKeyStrategy:      cache.StrategyWindowN,
+		CacheWindowSize:       4,
 	}, store, logger)
 }
 

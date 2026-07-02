@@ -47,6 +47,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Server, error) {
 	if cfg.EnableMetrics {
 		prom = metrics.NewRegistry()
 		store.SetMetrics(prom)
+		prom.SetCacheKeyStrategy(string(cfg.CacheKeyStrategy), cfg.CacheWindowSize)
 		prom.StartRuntimeCollector(15 * time.Second)
 	}
 

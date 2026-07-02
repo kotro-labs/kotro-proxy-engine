@@ -18,6 +18,7 @@ func TestRegistryHandlerExposesCoreMetrics(t *testing.T) {
 	reg.RecordCompression(2, 512)
 	reg.RecordRedaction("api_key")
 	reg.RecordScopeMode("credential")
+	reg.SetCacheKeyStrategy("window_n", 4)
 
 	rr := httptest.NewRecorder()
 	reg.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
@@ -32,6 +33,7 @@ func TestRegistryHandlerExposesCoreMetrics(t *testing.T) {
 		"korto_compressor_blocks_stripped_total",
 		"korto_redactions_total",
 		"korto_scope_mode_total",
+		"korto_cache_key_strategy",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected metric %q in exposition:\n%s", want, body)

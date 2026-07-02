@@ -79,7 +79,7 @@ curl -N http://127.0.0.1:8080/v1/messages \
 
 Cache hits return `X-KortoLabs-Cache: HIT`.
 
-Local dashboard: [http://localhost:8080/dashboard](http://localhost:8080/dashboard) (requires `KORTO_ENABLE_METRICS=true`).
+Local dashboard: [http://127.0.0.1:9090/dashboard](http://127.0.0.1:9090/dashboard) (requires `KORTO_ENABLE_METRICS=true`).
 
 ## Configuration
 
@@ -94,7 +94,30 @@ Local dashboard: [http://localhost:8080/dashboard](http://localhost:8080/dashboa
 | `KORTO_CACHE_TTL` | `24h` | Cache entry lifetime (`0` disables expiry) |
 | `KORTO_EVICTION_INTERVAL` | `10m` | Background sweep for expired keys |
 | `KORTO_ENABLE_PPROF` | `false` | Expose `/debug/pprof` for leak audits |
-| `KORTO_ENABLE_METRICS` | `true` | Expose `/metrics` and `/dashboard` for local observability |
+| `KORTO_ENABLE_METRICS` | `true` | Expose `/metrics` and `/dashboard` on `KORTO_METRICS_ADDR` (default `127.0.0.1:9090`) |
+| `KORTO_METRICS_ADDR` | `127.0.0.1:9090` | Isolated telemetry bind address |
+| `KORTO_CACHE_KEY_STRATEGY` | `window_n` | Cache key material: `latest_only`, `window_n`, `full_digest` |
+| `KORTO_CACHE_WINDOW_SIZE` | `4` | Trailing non-system turns hashed when strategy is `window_n` |
+
+### Cache key strategies
+
+| Strategy | What is hashed | Recommended for |
+|----------|----------------|-----------------|
+| **`window_n`** (default) | System prompt + last *N* user/assistant/tool turns | **Production agent loops** — balances hit rate and correctness |
+| **`full_digest`** | Entire conversation JSON | **Shared multi-tenant** or strict deterministic pipelines |
+| **`latest_only`** | System + latest user text only | Legacy compatibility only — **risky** for multi-turn agents |
+
+`latest_only` can return a cache hit when two agent sessions share the same final user phrase but different tool outputs in between (silent state corruption). Prefer `window_n` or `full_digest` in production.
+
+Prometheus exposes the active strategy as `korto_cache_key_strategy{strategy,window_size}`.
+
+### Deployment profiles
+
+| Profile | Listen | Cache strategy | Scope / trust |
+|---------|--------|----------------|---------------|
+| **Local dev** | `:8080` | `window_n` | Default credential-derived scope |
+| **Trusted gateway** | `0.0.0.0:8080` | `window_n` | `KORTO_TRUST_UPSTREAM_GATEWAY=true` + `KORTO_TRUSTED_PROXY_CIDRS` |
+| **Shared multi-tenant** | `0.0.0.0:8080` | `full_digest` | Gateway headers + trusted proxy CIDRs; telemetry on loopback only |
 
 ## Cancel-storm leak audit (k6 + pprof)
 

@@ -2,6 +2,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -66,7 +67,14 @@ type Config struct {
 // Load reads configuration from environment variables with sensible defaults
 // for local development against the mock upstream on port 9000.
 func Load() Config {
-	strategy, _ := cache.ParseStrategy(envOr("KORTO_CACHE_KEY_STRATEGY", ""))
+	strategy, err := cache.ParseStrategy(envOr("KORTO_CACHE_KEY_STRATEGY", ""))
+	if err != nil {
+		slog.Default().Warn(
+			"invalid KORTO_CACHE_KEY_STRATEGY; falling back to window_n",
+			"err", err,
+			"value", os.Getenv("KORTO_CACHE_KEY_STRATEGY"),
+		)
+	}
 
 	return Config{
 		ListenAddr:            envOr("KORTO_LISTEN_ADDR", ":8080"),

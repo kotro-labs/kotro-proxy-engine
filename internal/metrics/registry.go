@@ -40,6 +40,7 @@ type Registry struct {
 	redactionRestores     prometheus.Counter
 	scopeModeTotal        *prometheus.CounterVec
 	trustedPeerRejections prometheus.Counter
+	cacheKeyStrategy      *prometheus.GaugeVec
 	goroutines            prometheus.Gauge
 	residentMemoryBytes   prometheus.Gauge
 
@@ -135,6 +136,10 @@ func NewRegistry() *Registry {
 			Name: "korto_trusted_peer_rejections_total",
 			Help: "Gateway scope headers ignored from untrusted peers.",
 		}),
+		cacheKeyStrategy: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "korto_cache_key_strategy",
+			Help: "Active cache key strategy configuration (value is always 1).",
+		}, []string{"strategy", "window_size"}),
 		goroutines: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "korto_goroutines",
 			Help: "Current goroutine count.",
@@ -166,6 +171,7 @@ func NewRegistry() *Registry {
 		r.redactionRestores,
 		r.scopeModeTotal,
 		r.trustedPeerRejections,
+		r.cacheKeyStrategy,
 		r.goroutines,
 		r.residentMemoryBytes,
 	}
@@ -360,6 +366,14 @@ func (r *Registry) RecordTrustedPeerRejection() {
 		return
 	}
 	r.trustedPeerRejections.Inc()
+}
+
+// SetCacheKeyStrategy publishes the active cache key strategy for operators.
+func (r *Registry) SetCacheKeyStrategy(strategy string, windowSize int) {
+	if r == nil {
+		return
+	}
+	r.cacheKeyStrategy.WithLabelValues(strategy, strconv.Itoa(windowSize)).Set(1)
 }
 
 // StatusClass maps HTTP status codes to low-cardinality buckets.

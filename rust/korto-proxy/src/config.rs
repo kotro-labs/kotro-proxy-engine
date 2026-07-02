@@ -80,10 +80,9 @@ impl Config {
                 "KORTO_COMPRESSOR_SCOPE_TTL",
                 defaults.compressor_scope_ttl,
             ),
-            cache_key_strategy: env::var("KORTO_CACHE_KEY_STRATEGY")
-                .unwrap_or_default()
-                .parse()
-                .unwrap(),
+            cache_key_strategy: crate::cache::parse_cache_key_strategy(
+                &env_or("KORTO_CACHE_KEY_STRATEGY", String::new()),
+            ),
             cache_window_size: env_usize("KORTO_CACHE_WINDOW_SIZE", defaults.cache_window_size),
             metrics_addr: env_or("KORTO_METRICS_ADDR", defaults.metrics_addr),
             enable_metrics: env_bool("KORTO_ENABLE_METRICS", defaults.enable_metrics),
