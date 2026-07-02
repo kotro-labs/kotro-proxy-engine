@@ -36,13 +36,13 @@ func New(cfg config.Config, logger *slog.Logger) (*Server, error) {
 	evictCtx, evictCancel := context.WithCancel(context.Background())
 	store.StartEvictionWorker(evictCtx, cfg.CacheEvictionInterval, logger)
 
-	chatHandler, err := proxy.NewHandler(proxy.OptionsFromConfig(cfg), store, logger)
+	chatHandler, err := proxy.NewHandler(proxy.OptionsFromConfig(cfg, logger), store, logger)
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("server: chat handler: %w", err)
 	}
 
-	anthropicHandler, err := proxy.NewAnthropicHandler(proxy.OptionsFromConfig(cfg), store, logger)
+	anthropicHandler, err := proxy.NewAnthropicHandler(proxy.OptionsFromConfig(cfg, logger), store, logger)
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("server: anthropic handler: %w", err)

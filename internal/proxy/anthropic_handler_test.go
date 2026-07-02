@@ -83,6 +83,47 @@ func TestAnthropicForwardsAPIKey(t *testing.T) {
 	}
 }
 
+func TestAnthropicCacheIsolation_TenantSeparation(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		writeAnthropicSSE(w, w.(http.Flusher), "message_stop", `{"type":"message_stop"}`)
+	}))
+	defer upstream.Close()
+
+	dir := t.TempDir()
+	store, err := cache.Open(filepath.Join(dir, "cache.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	handler, err := proxy.NewAnthropicHandlerFromURL(upstream.URL, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"stream":true,"system":"sys","messages":[{"role":"user","content":"Explain Chola architecture."}]}`
+	post := func(token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
+	}
+
+	if post("sk-ant-tenant-alpha-token-11111").Header().Get("X-KortoLabs-Cache") != "" {
+		t.Fatal("tenant-alpha first request should miss cache")
+	}
+	if post("sk-ant-tenant-beta-token-22222").Header().Get("X-KortoLabs-Cache") != "" {
+		t.Fatal("tenant-beta must not hit tenant-alpha cache entry")
+	}
+	if got := post("sk-ant-tenant-alpha-token-11111").Header().Get("X-KortoLabs-Cache"); got != "HIT" {
+		t.Fatalf("tenant-alpha second request should hit cache, got %q", got)
+	}
+}
+
 func writeAnthropicSSE(w http.ResponseWriter, flusher http.Flusher, event, data string) {
 	_, _ = w.Write([]byte("event: " + event + "\ndata: " + data + "\n\n"))
 	flusher.Flush()
