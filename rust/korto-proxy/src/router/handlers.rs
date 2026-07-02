@@ -17,7 +17,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::Value;
 use tracing::{error, info};
 
-use crate::cache::key_for_request;
+use crate::cache::generate_cache_key;
 use crate::compressor::Scope;
 use crate::guardrail::{redact_chat_request, redact_messages_request, RedactionMap};
 use crate::models::{anthropic::MessagesRequest, openai::ChatCompletionRequest};
@@ -220,8 +220,8 @@ fn openai_cache_key(
     if !state.enable_cache || !req.stream {
         return String::new();
     }
-    let (system, user) = req.extract_prompt_state();
-    key_for_request(&system, &user, &req.model, "openai", &scope.key())
+    let material = req.extract_cache_key_material(state.cache_key_strategy, state.cache_window_size);
+    generate_cache_key(&scope.key(), &req.model, "openai", &material)
 }
 
 fn anthropic_cache_key(
@@ -232,8 +232,8 @@ fn anthropic_cache_key(
     if !state.enable_cache || !req.stream {
         return String::new();
     }
-    let (system, user) = req.extract_prompt_state();
-    key_for_request(&system, &user, &req.model, "anthropic", &scope.key())
+    let material = req.extract_cache_key_material(state.cache_key_strategy, state.cache_window_size);
+    generate_cache_key(&scope.key(), &req.model, "anthropic", &material)
 }
 
 async fn forward_provider<T: serde::Serialize>(

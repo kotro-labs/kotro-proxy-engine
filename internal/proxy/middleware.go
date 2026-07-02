@@ -24,6 +24,8 @@ type Options struct {
 	CompressorMaxScopes int
 	CompressorScopeTTL  time.Duration
 	Metrics             *metrics.Registry
+	CacheKeyStrategy    cache.CacheKeyStrategy
+	CacheWindowSize     int
 }
 
 // OptionsFromConfig maps application config to proxy options.
@@ -55,6 +57,8 @@ func OptionsFromConfig(cfg config.Config, logger *slog.Logger, m *metrics.Regist
 		CompressorMaxScopes: cfg.CompressorMaxScopes,
 		CompressorScopeTTL:  cfg.CompressorScopeTTL,
 		Metrics:             m,
+		CacheKeyStrategy:    cfg.CacheKeyStrategy,
+		CacheWindowSize:     cfg.CacheWindowSize,
 	}
 }
 
@@ -80,8 +84,8 @@ func (h *Handler) openAICacheKey(scope compressor.Scope, req *models.ChatComplet
 	if !h.opts.EnableCache || !req.Stream {
 		return ""
 	}
-	systemPrompt, latestUser := req.ExtractPromptState()
-	return cache.KeyForRequest(systemPrompt, latestUser, req.Model, string(StreamOpenAI), scope.Key())
+	material := req.ExtractCacheKeyMaterial(h.opts.CacheKeyStrategy, h.opts.CacheWindowSize)
+	return cache.KeyForRequestWithStrategy(scope.Key(), req.Model, string(StreamOpenAI), material)
 }
 
 func (h *AnthropicHandler) applyAnthropicMiddleware(scope compressor.Scope, req *models.MessagesRequest) (processed, cacheSource *models.MessagesRequest, rm *guardrail.RedactionMap) {
@@ -106,6 +110,6 @@ func (h *AnthropicHandler) anthropicCacheKey(scope compressor.Scope, req *models
 	if !h.opts.EnableCache || !req.Stream {
 		return ""
 	}
-	systemPrompt, latestUser := req.ExtractPromptState()
-	return cache.KeyForRequest(systemPrompt, latestUser, req.Model, string(StreamAnthropic), scope.Key())
+	material := req.ExtractCacheKeyMaterial(h.opts.CacheKeyStrategy, h.opts.CacheWindowSize)
+	return cache.KeyForRequestWithStrategy(scope.Key(), req.Model, string(StreamAnthropic), material)
 }

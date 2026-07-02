@@ -26,6 +26,7 @@ type Entry struct {
 }
 
 // KeyForRequest hashes prompt state, model, provider, and isolation scope for lookup.
+// It preserves the pre-v0.2.1 latest_only key shape for callers that still use SemanticKey chaining.
 func KeyForRequest(systemPrompt, latestUser, model, provider, isolationScope string) string {
 	base := SemanticKey(systemPrompt, latestUser)
 	if model != "" {
@@ -38,6 +39,18 @@ func KeyForRequest(systemPrompt, latestUser, model, provider, isolationScope str
 		base = SemanticKey(base, isolationScope)
 	}
 	return base
+}
+
+// KeyForRequestWithStrategy computes a cache key from strategy-derived material.
+func KeyForRequestWithStrategy(scopeKey, model, provider string, material []byte) string {
+	h := sha256.New()
+	if provider != "" {
+		h.Write([]byte(provider))
+		h.Write([]byte{0})
+	}
+	h.Write(material)
+	digest := hex.EncodeToString(h.Sum(nil))
+	return "cache:" + scopeKey + ":" + model + ":" + digest
 }
 
 // EntryID returns a human-readable cache entry identifier.

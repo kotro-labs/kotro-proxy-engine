@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { listenBaseUrl } from './listen-url';
+import { listenBaseUrl, telemetryBaseUrl } from './listen-url';
 
 export type DashboardSnapshot = {
   cache_hit_rate_5m: number;
@@ -34,12 +34,14 @@ export class ProxyStatusBar implements vscode.Disposable {
   private readonly item: vscode.StatusBarItem;
   private timer: ReturnType<typeof setInterval> | undefined;
   private listenAddr: string;
+  private telemetryAddr: string;
   private dashboardUrl: string;
   private running = false;
 
-  constructor(listenAddr: string) {
+  constructor(listenAddr: string, telemetryAddr: string) {
     this.listenAddr = listenAddr;
-    this.dashboardUrl = `${listenBaseUrl(listenAddr)}/dashboard`;
+    this.telemetryAddr = telemetryAddr;
+    this.dashboardUrl = `${telemetryBaseUrl(telemetryAddr)}/dashboard`;
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
     this.item.command = 'kortosystems.openDashboard';
     this.item.tooltip = 'Open Kotro proxy dashboard';
@@ -47,9 +49,10 @@ export class ProxyStatusBar implements vscode.Disposable {
     this.item.show();
   }
 
-  setListenAddr(listenAddr: string): void {
+  setListenAddr(listenAddr: string, telemetryAddr: string): void {
     this.listenAddr = listenAddr;
-    this.dashboardUrl = `${listenBaseUrl(listenAddr)}/dashboard`;
+    this.telemetryAddr = telemetryAddr;
+    this.dashboardUrl = `${telemetryBaseUrl(telemetryAddr)}/dashboard`;
   }
 
   markRunning(): void {
@@ -92,8 +95,8 @@ export class ProxyStatusBar implements vscode.Disposable {
       return;
     }
 
-    const base = listenBaseUrl(this.listenAddr);
-    const snapshot = await fetchDashboard(`${base}/api/dashboard`);
+    const telemetry = telemetryBaseUrl(this.telemetryAddr);
+    const snapshot = await fetchDashboard(`${telemetry}/api/dashboard`);
     if (snapshot) {
       const cache = lastCacheLabel(snapshot);
       const saved = formatBytes(snapshot.compressor_bytes_saved_total);
@@ -103,7 +106,7 @@ export class ProxyStatusBar implements vscode.Disposable {
       return;
     }
 
-    const healthy = await probeHealth(`${base}/healthz`);
+    const healthy = await probeHealth(`${listenBaseUrl(this.listenAddr)}/healthz`);
     if (healthy) {
       this.item.text = '$(sync~spin) Kotro: running';
       this.item.tooltip = 'Proxy is up (metrics API unavailable — update to Go proxy v0.2.0+ for savings panel)';

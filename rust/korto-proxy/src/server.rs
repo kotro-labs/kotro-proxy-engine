@@ -42,6 +42,8 @@ impl Server {
 
         info!(
             addr = %local,
+            metrics_addr = %self.cfg.metrics_addr,
+            metrics_enabled = self.cfg.enable_metrics,
             upstream = %self.cfg.upstream_url,
             cache_db = %self.cfg.cache_db_path,
             cache = self.cfg.enable_cache,

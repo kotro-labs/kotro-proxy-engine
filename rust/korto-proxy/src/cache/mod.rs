@@ -9,5 +9,5 @@ pub mod store;
 pub use encoding::{decode_stored_value, encode_stored_value, expiry_prefix_len, expires_at_nano};
 pub use entry::Entry;
 pub use eviction::start_eviction_worker;
-pub use semantic::key_for_request;
+pub use semantic::{generate_cache_key, key_for_request, CacheKeyStrategy};
 pub use store::{Store, StoreError, StoreOptions};

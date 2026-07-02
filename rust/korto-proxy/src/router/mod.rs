@@ -12,7 +12,7 @@ use axum::{
 };
 use reqwest::Client;
 
-use crate::cache::{Store, StoreOptions};
+use crate::cache::{Store, StoreOptions, CacheKeyStrategy};
 use crate::compressor::StateTracker;
 use crate::config::Config;
 use crate::router::scope::{parse_trusted_cidrs, ScopeResolver};
@@ -30,6 +30,8 @@ pub struct AppState {
     pub cache_hit_delay: Duration,
     pub compressor: Arc<StateTracker>,
     pub scope: ScopeResolver,
+    pub cache_key_strategy: CacheKeyStrategy,
+    pub cache_window_size: usize,
 }
 
 impl AppState {
@@ -61,6 +63,8 @@ impl AppState {
                 trust_upstream_gateway: cfg.trust_upstream_gateway,
                 trusted_proxy_cidrs: trusted_cidrs,
             },
+            cache_key_strategy: cfg.cache_key_strategy,
+            cache_window_size: cfg.cache_window_size,
         }
     }
 }

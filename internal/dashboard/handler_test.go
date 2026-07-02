@@ -34,7 +34,7 @@ func TestDashboardPageAndAPI(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Shutdown(t.Context()) })
 
 	page := httptest.NewRecorder()
-	srv.HTTPHandler().ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/dashboard", nil))
+	srv.MetricsHTTPHandler().ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/dashboard", nil))
 	if page.Code != http.StatusOK {
 		t.Fatalf("dashboard page status %d", page.Code)
 	}
@@ -43,7 +43,7 @@ func TestDashboardPageAndAPI(t *testing.T) {
 	}
 
 	api := httptest.NewRecorder()
-	srv.HTTPHandler().ServeHTTP(api, httptest.NewRequest(http.MethodGet, "/api/dashboard", nil))
+	srv.MetricsHTTPHandler().ServeHTTP(api, httptest.NewRequest(http.MethodGet, "/api/dashboard", nil))
 	if api.Code != http.StatusOK {
 		t.Fatalf("dashboard api status %d", api.Code)
 	}

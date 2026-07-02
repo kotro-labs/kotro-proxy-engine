@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::cache::CacheKeyStrategy;
 use super::openai::content_text;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -33,6 +34,52 @@ impl MessagesRequest {
             }
         }
         (system_prompt, latest_user)
+    }
+
+    pub fn extract_cache_key_material(&self, strategy: CacheKeyStrategy, window_n: usize) -> Vec<u8> {
+        let system_str = content_text(&self.system);
+
+        match strategy {
+            CacheKeyStrategy::FullDigest => {
+                #[derive(Serialize)]
+                struct FullPayload<'a> {
+                    system: &'a str,
+                    messages: &'a [AnthropicTurn],
+                }
+                serde_json::to_vec(&FullPayload {
+                    system: &system_str,
+                    messages: &self.messages,
+                })
+                .unwrap_or_default()
+            }
+            CacheKeyStrategy::LatestOnly => {
+                let mut latest_user = String::new();
+                for msg in self.messages.iter().rev() {
+                    if msg.role == "user" {
+                        latest_user = content_text(&msg.content);
+                        break;
+                    }
+                }
+                format!("{system_str}||{latest_user}").into_bytes()
+            }
+            CacheKeyStrategy::WindowN => {
+                let msg_len = self.messages.len();
+                let start_idx = msg_len.saturating_sub(window_n);
+                let window_messages = &self.messages[start_idx..msg_len];
+
+                #[derive(Serialize)]
+                struct WindowPayload<'a> {
+                    system: &'a str,
+                    window: &'a [AnthropicTurn],
+                }
+
+                serde_json::to_vec(&WindowPayload {
+                    system: &system_str,
+                    window: window_messages,
+                })
+                .unwrap_or_default()
+            }
+        }
     }
 }
 

@@ -5,6 +5,8 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/kortolabs/proxy-engine/internal/cache"
 )
 
 // ChatCompletionRequest is the inbound payload from local IDE agents.
@@ -19,8 +21,11 @@ type ChatCompletionRequest struct {
 // ChatMessage represents a single turn in the conversation array.
 // Content accepts both plain strings and multimodal part arrays from Cursor.
 type ChatMessage struct {
-	Role    string      `json:"role"`
-	Content FlexContent `json:"content"`
+	Role       string          `json:"role"`
+	Content    FlexContent     `json:"content"`
+	Name       *string         `json:"name,omitempty"`
+	ToolCalls  json.RawMessage `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
 }
 
 // FlexContent holds string or multimodal array content from agent payloads.
@@ -127,6 +132,57 @@ func (r *ChatCompletionRequest) ExtractPromptState() (systemPrompt, latestUser s
 		}
 	}
 	return systemPrompt, latestUser
+}
+
+// ExtractCacheKeyMaterial builds canonical bytes for cache key hashing per strategy.
+func (r *ChatCompletionRequest) ExtractCacheKeyMaterial(strategy cache.CacheKeyStrategy, windowN int) []byte {
+	if strategy == cache.StrategyFullDigest {
+		data, _ := json.Marshal(r.Messages)
+		return data
+	}
+
+	var systemPrompt string
+	for _, msg := range r.Messages {
+		if msg.Role == "system" {
+			systemPrompt = msg.Content.Text()
+			break
+		}
+	}
+
+	if strategy == cache.StrategyLatestOnly {
+		var latestUser string
+		for i := len(r.Messages) - 1; i >= 0; i-- {
+			if r.Messages[i].Role == "user" {
+				latestUser = r.Messages[i].Content.Text()
+				break
+			}
+		}
+		return []byte(systemPrompt + "||" + latestUser)
+	}
+
+	msgLen := len(r.Messages)
+	startIdx := msgLen - windowN
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	var contextMessages []ChatMessage
+	for i := startIdx; i < msgLen; i++ {
+		if r.Messages[i].Role != "system" {
+			contextMessages = append(contextMessages, r.Messages[i])
+		}
+	}
+
+	payload := struct {
+		System string        `json:"system"`
+		Window []ChatMessage `json:"window"`
+	}{
+		System: systemPrompt,
+		Window: contextMessages,
+	}
+
+	data, _ := json.Marshal(payload)
+	return data
 }
 
 // Clone returns a deep copy suitable for mutation by middleware.

@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { binaryBasename } from './binary-target';
 import { ProxyStatusBar } from './status-bar';
+import { addrForEnv } from './listen-url';
 
 let sidecarProcess: ChildProcess | null = null;
 let statusBar: ProxyStatusBar | null = null;
@@ -13,6 +14,7 @@ function extensionConfig() {
   const cfg = vscode.workspace.getConfiguration('kortosystems');
   return {
     listenAddr: cfg.get<string>('listenAddr', ':8080'),
+    metricsAddr: cfg.get<string>('metricsAddr', '127.0.0.1:9090'),
     upstreamUrl: cfg.get<string>('upstreamUrl', 'https://api.openai.com'),
     cacheDb: cfg.get<string>('cacheDb', ''),
     enableCache: cfg.get<boolean>('enableCache', true),
@@ -26,12 +28,12 @@ export function activate(context: vscode.ExtensionContext): void {
   output.appendLine('Initializing native proxy gateway core...');
 
   const settings = extensionConfig();
-  statusBar = new ProxyStatusBar(settings.listenAddr);
+  statusBar = new ProxyStatusBar(settings.listenAddr, settings.metricsAddr);
   context.subscriptions.push(statusBar);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('kortosystems.openDashboard', () => {
-      const url = statusBar?.getDashboardUrl() ?? 'http://127.0.0.1:8080/dashboard';
+      const url = statusBar?.getDashboardUrl() ?? 'http://127.0.0.1:9090/dashboard';
       void vscode.env.openExternal(vscode.Uri.parse(url));
     }),
   );
@@ -62,6 +64,7 @@ export function activate(context: vscode.ExtensionContext): void {
     env: {
       ...process.env,
       KORTO_LISTEN_ADDR: settings.listenAddr,
+      KORTO_METRICS_ADDR: addrForEnv(settings.metricsAddr),
       KORTO_UPSTREAM_URL: settings.upstreamUrl,
       KORTO_CACHE_DB: cacheDb,
       KORTO_ENABLE_CACHE: String(settings.enableCache),
@@ -101,8 +104,9 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBar.markRunning();
 
   const port = settings.listenAddr.replace(/^:/, '') || '8080';
+  const metricsPort = addrForEnv(settings.metricsAddr).split(':').pop() || '9090';
   void vscode.window.showInformationMessage(
-    `KortoLabs Proxy is running on port ${port}. Open the dashboard from the status bar.`,
+    `KortoLabs Proxy is running on port ${port} (telemetry on ${metricsPort}). Open the dashboard from the status bar.`,
   );
 }
 

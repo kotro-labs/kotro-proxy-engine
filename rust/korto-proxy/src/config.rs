@@ -19,6 +19,10 @@ pub struct Config {
     pub trusted_proxy_cidrs: String,
     pub compressor_max_scopes: u64,
     pub compressor_scope_ttl: Duration,
+    pub cache_key_strategy: crate::cache::CacheKeyStrategy,
+    pub cache_window_size: usize,
+    pub metrics_addr: String,
+    pub enable_metrics: bool,
 }
 
 impl Default for Config {
@@ -38,6 +42,10 @@ impl Default for Config {
             trusted_proxy_cidrs: String::new(),
             compressor_max_scopes: 10_000,
             compressor_scope_ttl: Duration::from_secs(3600),
+            cache_key_strategy: crate::cache::CacheKeyStrategy::WindowN,
+            cache_window_size: 4,
+            metrics_addr: "127.0.0.1:9090".into(),
+            enable_metrics: true,
         }
     }
 }
@@ -72,6 +80,13 @@ impl Config {
                 "KORTO_COMPRESSOR_SCOPE_TTL",
                 defaults.compressor_scope_ttl,
             ),
+            cache_key_strategy: env::var("KORTO_CACHE_KEY_STRATEGY")
+                .unwrap_or_default()
+                .parse()
+                .unwrap(),
+            cache_window_size: env_usize("KORTO_CACHE_WINDOW_SIZE", defaults.cache_window_size),
+            metrics_addr: env_or("KORTO_METRICS_ADDR", defaults.metrics_addr),
+            enable_metrics: env_bool("KORTO_ENABLE_METRICS", defaults.enable_metrics),
         }
     }
 }
@@ -90,6 +105,13 @@ fn env_bool(key: &str, fallback: bool) -> bool {
 fn env_u64(key: &str, fallback: u64) -> u64 {
     match env::var(key) {
         Ok(v) => v.parse().unwrap_or(fallback),
+        Err(_) => fallback,
+    }
+}
+
+fn env_usize(key: &str, fallback: usize) -> usize {
+    match env::var(key) {
+        Ok(v) => v.parse().ok().filter(|n| *n > 0).unwrap_or(fallback),
         Err(_) => fallback,
     }
 }

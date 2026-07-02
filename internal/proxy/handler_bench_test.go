@@ -21,7 +21,8 @@ func BenchmarkHandlerCacheLookup(b *testing.B) {
 	}
 	defer store.Close()
 
-	key := cache.KeyForRequest("sys", "ping", "gpt-4", "openai", "default:default")
+	key := cache.KeyForRequestWithStrategy("default:default", "gpt-4", "openai",
+		[]byte("sys||ping"))
 	if err := store.Put(cache.Entry{
 		Key:       key,
 		RawSSE:    []byte("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\ndata: [DONE]\n\n"),

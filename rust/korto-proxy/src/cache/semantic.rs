@@ -1,6 +1,27 @@
-//! Semantic cache keying — mirrors `internal/cache/semantic.go`.
+//! Semantic cache keying — mirrors `internal/cache/semantic.go` + `strategy.go`.
 
 use sha2::{Digest, Sha256};
+use std::str::FromStr;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheKeyStrategy {
+    LatestOnly,
+    WindowN,
+    FullDigest,
+}
+
+impl FromStr for CacheKeyStrategy {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().trim() {
+            "latest_only" => CacheKeyStrategy::LatestOnly,
+            "full_digest" => CacheKeyStrategy::FullDigest,
+            "window_n" | "" => CacheKeyStrategy::WindowN,
+            _ => CacheKeyStrategy::WindowN,
+        })
+    }
+}
 
 fn semantic_key(system_prompt: &str, latest_user: &str) -> String {
     let mut h = Sha256::new();
@@ -10,7 +31,7 @@ fn semantic_key(system_prompt: &str, latest_user: &str) -> String {
     hex_encode(h.finalize().as_slice())
 }
 
-/// Hashes prompt state, model, provider, and isolation scope for lookup.
+/// Hashes prompt state, model, provider, and isolation scope for lookup (legacy latest_only chain).
 pub fn key_for_request(
     system_prompt: &str,
     latest_user: &str,
@@ -29,6 +50,18 @@ pub fn key_for_request(
         base = semantic_key(&base, isolation_scope);
     }
     base
+}
+
+/// Computes a cache key from strategy-derived material.
+pub fn generate_cache_key(scope_key: &str, model: &str, provider: &str, material: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    if !provider.is_empty() {
+        hasher.update(provider.as_bytes());
+        hasher.update([0u8]);
+    }
+    hasher.update(material);
+    let digest = hex_encode(hasher.finalize().as_slice());
+    format!("cache:{scope_key}:{model}:{digest}")
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -52,5 +85,13 @@ mod tests {
         let a = key_for_request("sys", "hi", "gpt-4", "openai", "tenant-a:session-1");
         let b = key_for_request("sys", "hi", "gpt-4", "openai", "tenant-b:session-1");
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn generate_cache_key_splits_providers() {
+        let material = b"sys||hi";
+        let openai = generate_cache_key("default:default", "gpt-4", "openai", material);
+        let anthropic = generate_cache_key("default:default", "gpt-4", "anthropic", material);
+        assert_ne!(openai, anthropic);
     }
 }

@@ -41,9 +41,35 @@ Content-Type: text/plain; version=0.0.4
 
 - Enabled by default in v0.2.0 (no sensitive label values)
 - Disable via `KORTO_ENABLE_METRICS=false` if needed
-- Bind considerations: same as proxy listener (`KORTO_LISTEN_ADDR`)
+- **Isolated listener:** telemetry binds to `KORTO_METRICS_ADDR` (default `127.0.0.1:9090`), separate from the LLM proxy socket (`KORTO_LISTEN_ADDR`)
 
-### 3.2 Naming convention
+### 3.2 Dual-socket topology
+
+To prevent operational metrics from being scraped on a publicly bound proxy listener, Kotro uses unfused network sockets:
+
+```
+Public / VPC ingress (KORTO_LISTEN_ADDR, e.g. 0.0.0.0:8080)
+└── /v1/chat/completions
+└── /v1/messages
+└── /v1/* (passthrough)
+└── /healthz
+
+Localhost / pod-private (KORTO_METRICS_ADDR, default 127.0.0.1:9090)
+└── /metrics
+└── /dashboard
+└── /api/dashboard
+```
+
+Prometheus scrape targets must point at the telemetry socket:
+
+```yaml
+scrape_configs:
+  - job_name: 'kotro-proxy'
+    static_configs:
+      - targets: ['127.0.0.1:9090']
+```
+
+### 3.3 Naming convention
 
 Prefix: `korto_`  
 Labels: low cardinality only — never include API keys, prompts, or tenant IDs.

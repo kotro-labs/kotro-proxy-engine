@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/kortolabs/proxy-engine/internal/cache"
 )
 
 // Config holds all tunable proxy parameters.
@@ -50,11 +52,22 @@ type Config struct {
 
 	// EnableMetrics exposes GET /metrics for Prometheus scraping.
 	EnableMetrics bool
+
+	// MetricsAddr is the loopback-isolated listener for /metrics and /dashboard.
+	MetricsAddr string
+
+	// CacheKeyStrategy selects how multi-turn context is hashed into cache keys.
+	CacheKeyStrategy cache.CacheKeyStrategy
+
+	// CacheWindowSize is the number of trailing non-system turns for window_n keying.
+	CacheWindowSize int
 }
 
 // Load reads configuration from environment variables with sensible defaults
 // for local development against the mock upstream on port 9000.
 func Load() Config {
+	strategy, _ := cache.ParseStrategy(envOr("KORTO_CACHE_KEY_STRATEGY", ""))
+
 	return Config{
 		ListenAddr:            envOr("KORTO_LISTEN_ADDR", ":8080"),
 		UpstreamURL:           envOr("KORTO_UPSTREAM_URL", "http://127.0.0.1:9000"),
@@ -75,6 +88,9 @@ func Load() Config {
 		CompressorMaxScopes:   int(envInt64Or("KORTO_COMPRESSOR_MAX_SCOPES", 10_000)),
 		CompressorScopeTTL:    envFlexibleDurationOr("KORTO_COMPRESSOR_SCOPE_TTL", time.Hour),
 		EnableMetrics:         envBoolOr("KORTO_ENABLE_METRICS", true),
+		MetricsAddr:           envOr("KORTO_METRICS_ADDR", "127.0.0.1:9090"),
+		CacheKeyStrategy:      strategy,
+		CacheWindowSize:       int(envInt64Or("KORTO_CACHE_WINDOW_SIZE", 4)),
 	}
 }
 

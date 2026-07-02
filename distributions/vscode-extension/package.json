@@ -37,7 +37,12 @@
         "kortosystems.listenAddr": {
           "type": "string",
           "default": ":8080",
-          "description": "Proxy bind address (KORTO_LISTEN_ADDR)."
+          "description": "Proxy bind address for LLM traffic (KORTO_LISTEN_ADDR)."
+        },
+        "kortosystems.metricsAddr": {
+          "type": "string",
+          "default": "127.0.0.1:9090",
+          "description": "Isolated telemetry socket for /metrics and /dashboard (KORTO_METRICS_ADDR)."
         },
         "kortosystems.upstreamUrl": {
           "type": "string",
@@ -64,7 +69,7 @@
         "kortosystems.enableMetrics": {
           "type": "boolean",
           "default": true,
-          "description": "Expose /metrics and /dashboard on the local sidecar (KORTO_ENABLE_METRICS)."
+          "description": "Expose /metrics and /dashboard on the isolated telemetry socket (KORTO_ENABLE_METRICS)."
         }
       }
     },
