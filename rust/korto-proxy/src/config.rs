@@ -87,19 +87,31 @@ fn parse_go_duration(v: &str) -> Option<Duration> {
     if let Ok(secs) = v.parse::<u64>() {
         return Some(Duration::from_secs(secs));
     }
+
     let mut total = Duration::ZERO;
-    let mut num = String::new();
-    for ch in v.chars() {
-        if ch.is_ascii_digit() {
-            num.push(ch);
+    let mut i = 0;
+    let bytes = v.as_bytes();
+
+    while i < bytes.len() {
+        let start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == start {
+            return None;
+        }
+        let n: u64 = v[start..i].parse().ok()?;
+
+        if i + 1 < bytes.len() && &v[i..i + 2] == "ms" {
+            total += Duration::from_millis(n);
+            i += 2;
             continue;
         }
-        if num.is_empty() {
-            continue;
+        if i >= bytes.len() {
+            return None;
         }
-        let n: u64 = num.parse().ok()?;
-        num.clear();
-        total += match ch {
+
+        total += match bytes[i] as char {
             'h' => Duration::from_secs(n * 3600),
             'm' => Duration::from_secs(n * 60),
             's' => Duration::from_secs(n),
@@ -107,7 +119,9 @@ fn parse_go_duration(v: &str) -> Option<Duration> {
             'n' => Duration::from_nanos(n),
             _ => return None,
         };
+        i += 1;
     }
+
     if total > Duration::ZERO {
         Some(total)
     } else {
@@ -123,5 +137,7 @@ mod tests {
     fn parses_duration_suffixes() {
         assert_eq!(parse_go_duration("24h"), Some(Duration::from_secs(86400)));
         assert_eq!(parse_go_duration("10m"), Some(Duration::from_secs(600)));
+        assert_eq!(parse_go_duration("2ms"), Some(Duration::from_millis(2)));
+        assert_eq!(parse_go_duration("500ms"), Some(Duration::from_millis(500)));
     }
 }

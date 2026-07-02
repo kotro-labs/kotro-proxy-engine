@@ -32,25 +32,29 @@ type Config struct {
 
 	// CacheEvictionInterval is the background sweep cadence for expired keys.
 	CacheEvictionInterval time.Duration
+
+	// MaxRequestBodyBytes caps JSON request body size (default 10 MiB).
+	MaxRequestBodyBytes int64
 }
 
 // Load reads configuration from environment variables with sensible defaults
 // for local development against the mock upstream on port 9000.
 func Load() Config {
 	return Config{
-		ListenAddr:        envOr("KORTO_LISTEN_ADDR", ":8080"),
-		UpstreamURL:       envOr("KORTO_UPSTREAM_URL", "http://127.0.0.1:9000"),
-		CacheDBPath:         envOr("KORTO_CACHE_DB", "./kortolabs-cache.db"),
-		ReadTimeout:         envDurationOr("KORTO_READ_TIMEOUT", 30*time.Second),
-		WriteTimeout:        envDurationOr("KORTO_WRITE_TIMEOUT", 0),
-		IdleTimeout:         envDurationOr("KORTO_IDLE_TIMEOUT", 120*time.Second),
-		EnableCache:         envBoolOr("KORTO_ENABLE_CACHE", true),
-		EnableRedaction:     envBoolOr("KORTO_ENABLE_REDACTION", true),
-		EnableCompression:   envBoolOr("KORTO_ENABLE_COMPRESSION", true),
-		CacheHitDelay:       envDurationOr("KORTO_CACHE_HIT_DELAY_MS", 2*time.Millisecond),
-		EnablePprof:             envBoolOr("KORTO_ENABLE_PPROF", false),
-		CacheTTL:                  envFlexibleDurationOr("KORTO_CACHE_TTL", 24*time.Hour),
-		CacheEvictionInterval:   envFlexibleDurationOr("KORTO_EVICTION_INTERVAL", 10*time.Minute),
+		ListenAddr:            envOr("KORTO_LISTEN_ADDR", ":8080"),
+		UpstreamURL:           envOr("KORTO_UPSTREAM_URL", "http://127.0.0.1:9000"),
+		CacheDBPath:           envOr("KORTO_CACHE_DB", "./kortolabs-cache.db"),
+		ReadTimeout:           envDurationOr("KORTO_READ_TIMEOUT", 30*time.Second),
+		WriteTimeout:          envDurationOr("KORTO_WRITE_TIMEOUT", 0),
+		IdleTimeout:           envDurationOr("KORTO_IDLE_TIMEOUT", 120*time.Second),
+		EnableCache:           envBoolOr("KORTO_ENABLE_CACHE", true),
+		EnableRedaction:       envBoolOr("KORTO_ENABLE_REDACTION", true),
+		EnableCompression:     envBoolOr("KORTO_ENABLE_COMPRESSION", true),
+		CacheHitDelay:         envDurationOr("KORTO_CACHE_HIT_DELAY_MS", 2*time.Millisecond),
+		EnablePprof:           envBoolOr("KORTO_ENABLE_PPROF", false),
+		CacheTTL:              envFlexibleDurationOr("KORTO_CACHE_TTL", 24*time.Hour),
+		CacheEvictionInterval: envFlexibleDurationOr("KORTO_EVICTION_INTERVAL", 10*time.Minute),
+		MaxRequestBodyBytes:   envInt64Or("KORTO_MAX_REQUEST_BODY_BYTES", 10<<20),
 	}
 }
 
@@ -95,4 +99,16 @@ func envFlexibleDurationOr(key string, fallback time.Duration) time.Duration {
 		return d
 	}
 	return envDurationOr(key, fallback)
+}
+
+func envInt64Or(key string, fallback int64) int64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }

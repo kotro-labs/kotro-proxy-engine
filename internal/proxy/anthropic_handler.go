@@ -86,12 +86,10 @@ func (h *AnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := readLimitedBody(w, r, h.opts.MaxRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "read body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
 	req, err := models.ParseMessagesRequest(body)
 	if err != nil {
@@ -99,8 +97,9 @@ func (h *AnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	processed, cacheSource, redactionMap := h.applyAnthropicMiddleware(req)
-	cacheKey := h.anthropicCacheKey(cacheSource)
+	scope := scopeFromRequest(r)
+	processed, cacheSource, redactionMap := h.applyAnthropicMiddleware(scope, req)
+	cacheKey := h.anthropicCacheKey(scope, cacheSource)
 
 	if cacheKey != "" {
 		if entry, err := h.cache.Get(cacheKey); err != nil {

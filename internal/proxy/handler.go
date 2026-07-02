@@ -87,12 +87,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := readLimitedBody(w, r, h.opts.MaxRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "read body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
 	req, err := models.ParseChatCompletionRequest(body)
 	if err != nil {
@@ -100,8 +98,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	processed, cacheSource, redactionMap := h.applyOpenAIMiddleware(req)
-	cacheKey := h.openAICacheKey(cacheSource)
+	scope := scopeFromRequest(r)
+	processed, cacheSource, redactionMap := h.applyOpenAIMiddleware(scope, req)
+	cacheKey := h.openAICacheKey(scope, cacheSource)
 
 	if cacheKey != "" {
 		if entry, err := h.cache.Get(cacheKey); err != nil {

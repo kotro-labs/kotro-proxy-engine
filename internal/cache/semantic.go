@@ -25,14 +25,17 @@ type Entry struct {
 	CreatedAt  int64
 }
 
-// KeyForRequest hashes prompt state, model, and provider namespace for lookup.
-func KeyForRequest(systemPrompt, latestUser, model, provider string) string {
+// KeyForRequest hashes prompt state, model, provider, and isolation scope for lookup.
+func KeyForRequest(systemPrompt, latestUser, model, provider, isolationScope string) string {
 	base := SemanticKey(systemPrompt, latestUser)
 	if model != "" {
 		base = SemanticKey(base, model)
 	}
 	if provider != "" {
 		base = SemanticKey(base, provider)
+	}
+	if isolationScope != "" {
+		base = SemanticKey(base, isolationScope)
 	}
 	return base
 }

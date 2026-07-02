@@ -10,17 +10,17 @@ import (
 	"github.com/kortolabs/proxy-engine/internal/models"
 )
 
-// StateTracker remembers the prior turn's context blocks to strip unchanged
-// MCP schemas, directory trees, and other repeated blank-line-delimited blocks.
+// StateTracker remembers prior-turn context blocks per tenant/session scope to
+// strip unchanged MCP schemas, directory trees, and other repeated blocks.
 type StateTracker struct {
-	mu         sync.Mutex
-	lastBlocks map[string]string // hash -> content from the immediately previous turn
+	mu     sync.Mutex
+	scopes map[string]map[string]string // scope key -> block hash -> content
 }
 
 // NewStateTracker creates an empty per-process context diff tracker.
 func NewStateTracker() *StateTracker {
 	return &StateTracker{
-		lastBlocks: make(map[string]string),
+		scopes: make(map[string]map[string]string),
 	}
 }
 
@@ -44,8 +44,8 @@ func SplitBlocks(content string) []string {
 	return blocks
 }
 
-// CompressMessage removes blocks identical to the previous turn's payload.
-func (st *StateTracker) CompressMessage(content string) (string, bool) {
+// CompressMessage removes blocks identical to the previous turn for the scope.
+func (st *StateTracker) CompressMessage(scope Scope, content string) (string, bool) {
 	blocks := SplitBlocks(content)
 	if len(blocks) == 0 {
 		return content, false
@@ -54,6 +54,12 @@ func (st *StateTracker) CompressMessage(content string) (string, bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
+	scopeKey := scope.Key()
+	lastBlocks := st.scopes[scopeKey]
+	if lastBlocks == nil {
+		lastBlocks = make(map[string]string)
+	}
+
 	var kept []string
 	changed := false
 	current := make(map[string]string, len(blocks))
@@ -61,14 +67,14 @@ func (st *StateTracker) CompressMessage(content string) (string, bool) {
 	for _, block := range blocks {
 		hash := blockHash(block)
 		current[hash] = block
-		if prev, ok := st.lastBlocks[hash]; ok && prev == block {
+		if prev, ok := lastBlocks[hash]; ok && prev == block {
 			changed = true
 			continue
 		}
 		kept = append(kept, block)
 	}
 
-	st.lastBlocks = current
+	st.scopes[scopeKey] = current
 	if !changed {
 		return content, false
 	}
@@ -79,14 +85,14 @@ func (st *StateTracker) CompressMessage(content string) (string, bool) {
 }
 
 // CompressRequest prunes redundant system/user message blocks across turns.
-func (st *StateTracker) CompressRequest(req *models.ChatCompletionRequest) *models.ChatCompletionRequest {
+func (st *StateTracker) CompressRequest(scope Scope, req *models.ChatCompletionRequest) *models.ChatCompletionRequest {
 	out := req.Clone()
 	for i, msg := range out.Messages {
 		if msg.Role != "system" && msg.Role != "user" {
 			continue
 		}
 		text := msg.Content.Text()
-		if pruned, ok := st.CompressMessage(text); ok {
+		if pruned, ok := st.CompressMessage(scope, text); ok {
 			content, err := msg.Content.WithText(pruned)
 			if err == nil {
 				out.Messages[i].Content = content
@@ -97,11 +103,11 @@ func (st *StateTracker) CompressRequest(req *models.ChatCompletionRequest) *mode
 }
 
 // CompressAnthropicRequest prunes redundant system and user blocks across turns.
-func (st *StateTracker) CompressAnthropicRequest(req *models.MessagesRequest) *models.MessagesRequest {
+func (st *StateTracker) CompressAnthropicRequest(scope Scope, req *models.MessagesRequest) *models.MessagesRequest {
 	out := req.Clone()
 
 	if out.System.Text() != "" {
-		if pruned, ok := st.CompressMessage(out.System.Text()); ok {
+		if pruned, ok := st.CompressMessage(scope, out.System.Text()); ok {
 			if content, err := out.System.WithText(pruned); err == nil {
 				out.System = content
 			}
@@ -113,7 +119,7 @@ func (st *StateTracker) CompressAnthropicRequest(req *models.MessagesRequest) *m
 			continue
 		}
 		text := msg.Content.Text()
-		if pruned, ok := st.CompressMessage(text); ok {
+		if pruned, ok := st.CompressMessage(scope, text); ok {
 			content, err := msg.Content.WithText(pruned)
 			if err == nil {
 				out.Messages[i].Content = content

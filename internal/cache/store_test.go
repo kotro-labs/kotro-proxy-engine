@@ -20,10 +20,18 @@ func TestSemanticKeyDeterministic(t *testing.T) {
 }
 
 func TestKeyForRequestProviderIsolation(t *testing.T) {
-	openai := cache.KeyForRequest("sys", "hi", "gpt-4", "openai")
-	anthropic := cache.KeyForRequest("sys", "hi", "gpt-4", "anthropic")
+	openai := cache.KeyForRequest("sys", "hi", "gpt-4", "openai", "default:default")
+	anthropic := cache.KeyForRequest("sys", "hi", "gpt-4", "anthropic", "default:default")
 	if openai == anthropic {
 		t.Fatal("openai and anthropic keys must not collide")
+	}
+}
+
+func TestKeyForRequestTenantIsolation(t *testing.T) {
+	tenantA := cache.KeyForRequest("sys", "hi", "gpt-4", "openai", "tenant-a:session-1")
+	tenantB := cache.KeyForRequest("sys", "hi", "gpt-4", "openai", "tenant-b:session-1")
+	if tenantA == tenantB {
+		t.Fatal("different tenant scopes must not share cache keys")
 	}
 }
 
