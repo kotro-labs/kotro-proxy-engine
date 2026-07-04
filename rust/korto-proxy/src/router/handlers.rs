@@ -26,6 +26,7 @@ use crate::models::{anthropic::MessagesRequest, openai::ChatCompletionRequest};
 use crate::proxy::pipeline::{create_processing_pipeline, PipelineOptions, StreamFormat};
 use crate::proxy::replay::create_cached_replay_stream;
 use crate::router::AppState;
+use crate::router::upstream;
 
 const UPSTREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -180,38 +181,19 @@ fn create_primed_miss_stream(
         yield crate::proxy::bootstrap::bootstrap_bytes();
 
         let base_url = get_upstream_url(&state, &pipeline_opts.model);
-        let upstream_endpoint = format!("{}{}", base_url, path);
-        let upstream_req = with_forwarded_headers(
-            state.http_client.post(upstream_endpoint).body(payload_bytes),
-            &headers,
-        );
-
         let start_upstream = Instant::now();
-        let upstream_response = match tokio::time::timeout(UPSTREAM_TIMEOUT, upstream_req.send()).await {
-            Ok(Ok(resp)) => resp,
-            Ok(Err(err)) => {
-                error!(error = %err, "upstream network failure");
-                state.metrics.record_error(
-                    match pipeline_opts.format {
-                        StreamFormat::OpenAI => "openai",
-                        StreamFormat::Anthropic => "anthropic",
-                    },
-                    "upstream",
-                );
-                let err_msg = format!("data: {{\"error\": \"Upstream network failure: {err}\"}}\n\n");
-                yield Bytes::from(err_msg);
-                return;
-            }
-            Err(_) => {
-                error!("upstream network timeout");
-                state.metrics.record_error(
-                    match pipeline_opts.format {
-                        StreamFormat::OpenAI => "openai",
-                        StreamFormat::Anthropic => "anthropic",
-                    },
-                    "timeout",
-                );
-                let err_msg = "data: {\"error\": \"Gateway timeout: Upstream provider did not respond in time\"}\n\n".to_string();
+        let upstream_response = match post_with_failover(&state, &headers, base_url, &path, payload_bytes.clone()).await {
+            Ok(resp) => resp,
+            Err(kind) => {
+                let provider_str = match pipeline_opts.format {
+                    StreamFormat::OpenAI => "openai",
+                    StreamFormat::Anthropic => "anthropic",
+                };
+                state.metrics.record_error(provider_str, kind);
+                let err_msg = match kind {
+                    "timeout" => "data: {\"error\": \"Gateway timeout: Upstream provider did not respond in time\"}\n\n".to_string(),
+                    _ => format!("data: {{\"error\": \"Upstream network failure\"}}\n\n"),
+                };
                 yield Bytes::from(err_msg);
                 return;
             }
@@ -253,6 +235,43 @@ fn create_primed_miss_stream(
     }
 }
 
+async fn post_with_failover(
+    state: &AppState,
+    headers: &HeaderMap,
+    primary_base: &str,
+    path: &str,
+    body: Vec<u8>,
+) -> Result<reqwest::Response, &'static str> {
+    let primary = format!("{}{}", primary_base, path);
+    let primary_req =
+        with_forwarded_headers(state.http_client.post(primary).body(body.clone()), headers);
+
+    match tokio::time::timeout(UPSTREAM_TIMEOUT, primary_req.send()).await {
+        Ok(Ok(resp)) if !upstream::should_failover(resp.status(), false) => return Ok(resp),
+        Ok(Ok(resp)) => {
+            let _ = resp.bytes().await;
+        }
+        Ok(Err(_)) if state.fallback_url.is_none() => return Err("upstream"),
+        Ok(Err(_)) => {}
+        Err(_) if state.fallback_url.is_none() => return Err("timeout"),
+        Err(_) => {}
+    }
+
+    let Some(fallback_base) = state.fallback_url.as_deref() else {
+        return Err("upstream");
+    };
+
+    let fallback = format!("{}{}", fallback_base, path);
+    let fallback_req =
+        with_forwarded_headers(state.http_client.post(fallback).body(body), headers);
+
+    match tokio::time::timeout(UPSTREAM_TIMEOUT, fallback_req.send()).await {
+        Ok(Ok(resp)) => Ok(resp),
+        Ok(Err(_)) => Err("upstream"),
+        Err(_) => Err("timeout"),
+    }
+}
+
 
 
 pub async fn handle_chat_completions(
@@ -262,13 +281,15 @@ pub async fn handle_chat_completions(
     Json(payload): Json<Value>,
 ) -> Response {
     let start_time = Instant::now();
-    let req: ChatCompletionRequest = match serde_json::from_value(payload) {
+    let mut req: ChatCompletionRequest = match serde_json::from_value(payload) {
         Ok(req) => req,
         Err(err) => {
             state.metrics.record_error("openai", "parse");
             return problem_response(StatusCode::BAD_REQUEST, "Invalid Request", &format!("invalid json: {err}"));
         }
     };
+
+    crate::optimizer::enforce_cache_matrix(&mut req);
 
     let body_str = serde_json::to_string(&req).unwrap_or_default();
     state.metrics.record_request_body("openai", body_str.len());
@@ -540,31 +561,23 @@ async fn forward_provider(
     }
 
     let base_url = get_upstream_url(&state, &model);
-    let upstream_endpoint = format!("{}{}", base_url, path);
-    let upstream_req = with_forwarded_headers(
-        state.http_client.post(upstream_endpoint).body(payload_bytes),
-        headers,
-    );
-
     let start_upstream = Instant::now();
-    let upstream_response = match tokio::time::timeout(UPSTREAM_TIMEOUT, upstream_req.send()).await {
-        Ok(Ok(resp)) => resp,
-        Ok(Err(err)) => {
-            error!(error = %err, "upstream network failure");
-            state.metrics.record_error(provider, "upstream");
+    let upstream_response = match post_with_failover(state, headers, base_url, path, payload_bytes).await {
+        Ok(resp) => resp,
+        Err(kind) => {
+            state.metrics.record_error(provider, kind);
             return problem_response(
-                StatusCode::BAD_GATEWAY,
-                "Upstream Error",
-                &format!("Upstream network failure: {err}")
-            );
-        }
-        Err(_) => {
-            error!("upstream network timeout");
-            state.metrics.record_error(provider, "timeout");
-            return problem_response(
-                StatusCode::GATEWAY_TIMEOUT,
-                "Gateway Timeout",
-                "Upstream provider did not respond in time"
+                if kind == "timeout" {
+                    StatusCode::GATEWAY_TIMEOUT
+                } else {
+                    StatusCode::BAD_GATEWAY
+                },
+                if kind == "timeout" { "Gateway Timeout" } else { "Upstream Error" },
+                if kind == "timeout" {
+                    "Upstream provider did not respond in time"
+                } else {
+                    "Upstream network failure"
+                },
             );
         }
     };

@@ -41,6 +41,7 @@ type Registry struct {
 	scopeModeTotal        *prometheus.CounterVec
 	trustedPeerRejections prometheus.Counter
 	cacheKeyStrategy      *prometheus.GaugeVec
+	failoverAttempts      *prometheus.CounterVec
 	goroutines            prometheus.Gauge
 	residentMemoryBytes   prometheus.Gauge
 
@@ -140,6 +141,10 @@ func NewRegistry() *Registry {
 			Name: "korto_cache_key_strategy",
 			Help: "Active cache key strategy configuration (value is always 1).",
 		}, []string{"strategy", "window_size"}),
+		failoverAttempts: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "korto_failover_attempts_total",
+			Help: "Upstream failover attempts after primary errors or retryable status codes.",
+		}, []string{"result"}),
 		goroutines: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "korto_goroutines",
 			Help: "Current goroutine count.",
@@ -172,6 +177,7 @@ func NewRegistry() *Registry {
 		r.scopeModeTotal,
 		r.trustedPeerRejections,
 		r.cacheKeyStrategy,
+		r.failoverAttempts,
 		r.goroutines,
 		r.residentMemoryBytes,
 	}
@@ -374,6 +380,18 @@ func (r *Registry) SetCacheKeyStrategy(strategy string, windowSize int) {
 		return
 	}
 	r.cacheKeyStrategy.WithLabelValues(strategy, strconv.Itoa(windowSize)).Set(1)
+}
+
+// RecordFailoverAttempt increments failover counters.
+func (r *Registry) RecordFailoverAttempt(success bool) {
+	if r == nil {
+		return
+	}
+	result := "failure"
+	if success {
+		result = "success"
+	}
+	r.failoverAttempts.WithLabelValues(result).Inc()
 }
 
 // StatusClass maps HTTP status codes to low-cardinality buckets.

@@ -3,6 +3,7 @@ package config
 
 import (
 	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -89,15 +90,34 @@ func Load() Config {
 		enableCompression = true
 	case "copilot":
 		strategy = cache.StrategyFullDigest
-		enableRedaction = false
 	case "continue":
 		strategy = cache.StrategyWindowN
+	}
+
+	if !enableRedaction {
+		slog.Default().Warn(
+			"PII redaction is disabled; secrets may be forwarded upstream",
+			"profile", profile,
+			"KORTO_ENABLE_REDACTION", os.Getenv("KORTO_ENABLE_REDACTION"),
+		)
+	}
+
+	fallbackURL := envOr("KORTO_FALLBACK_URL", "")
+	if os.Getenv("KORTO_FALLBACK_URL") != "" {
+		if _, err := url.Parse(fallbackURL); err != nil {
+			slog.Default().Warn(
+				"invalid KORTO_FALLBACK_URL; failover disabled",
+				"err", err,
+				"value", fallbackURL,
+			)
+			fallbackURL = ""
+		}
 	}
 
 	return Config{
 		ListenAddr:            envOr("KORTO_LISTEN_ADDR", ":8080"),
 		UpstreamURL:           envOr("KORTO_UPSTREAM_URL", "http://127.0.0.1:9000"),
-		FallbackURL:           envOr("KORTO_FALLBACK_URL", ""),
+		FallbackURL:           fallbackURL,
 		CacheDBPath:           envOr("KORTO_CACHE_DB", "./kortolabs-cache.db"),
 		ReadTimeout:           envDurationOr("KORTO_READ_TIMEOUT", 30*time.Second),
 		WriteTimeout:          envDurationOr("KORTO_WRITE_TIMEOUT", 0),

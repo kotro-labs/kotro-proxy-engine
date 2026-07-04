@@ -24,7 +24,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Info("Optimization Engine Active", "token_reduction_potential", "up to 99%", "profile", os.Getenv("KORTO_PROFILE"))
+	logger.Info("kortolabs proxy starting",
+		"listen", cfg.ListenAddr,
+		"metrics", cfg.MetricsAddr,
+		"upstream", cfg.UpstreamURL,
+		"fallback_configured", cfg.FallbackURL != "",
+		"profile", os.Getenv("KORTO_PROFILE"),
+		"cache_strategy", cfg.CacheKeyStrategy,
+		"cache_window", cfg.CacheWindowSize,
+		"redaction", cfg.EnableRedaction,
+		"compression", cfg.EnableCompression,
+	)
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

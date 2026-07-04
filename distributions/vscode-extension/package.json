@@ -46,7 +46,7 @@
           "enumDescriptions": [
             "Advanced (Manual toggle control)",
             "Cursor AI (Optimizes for Composer context streaming)",
-            "GitHub Copilot (Disables redaction for strict autocompletion)",
+            "GitHub Copilot (full_digest cache keys for strict autocompletion)",
             "Continue.dev (Standard semantic engine)"
           ],
           "description": "Pre-configured deployment profile for IDEs (KORTO_PROFILE)."

@@ -61,7 +61,9 @@ func NewHandler(opts Options, store *cache.Store, logger *slog.Logger) (*Handler
 	var fallback *url.URL
 	if opts.FallbackURL != "" {
 		f, err := url.Parse(opts.FallbackURL)
-		if err == nil {
+		if err != nil {
+			logger.Warn("invalid fallback URL in handler options; failover disabled", "err", err)
+		} else {
 			fallback = f
 		}
 	}
@@ -70,6 +72,7 @@ func NewHandler(opts Options, store *cache.Store, logger *slog.Logger) (*Handler
 		next:        http.DefaultTransport,
 		fallbackURL: fallback,
 		logger:      logger,
+		metrics:     opts.Metrics,
 	}
 
 	originalDirector := rp.Director

@@ -12,6 +12,7 @@ pub mod sse;
 
 pub mod compressor;
 pub mod guardrail;
+pub mod optimizer;
 pub mod proxy;
 pub mod metrics;
 pub mod dashboard_assets;

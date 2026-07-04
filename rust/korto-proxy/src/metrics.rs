@@ -36,6 +36,8 @@ pub struct DashboardSnapshot {
     pub cache_hit_rate_5m: f64,
     pub cache_hits_5m: usize,
     pub cache_misses_5m: usize,
+    pub estimated_dollars_saved: f64,
+    pub cache_replay_bytes_total: f64,
     pub compressor_bytes_saved_total: f64,
     pub compressor_blocks_stripped_total: f64,
     pub compressor_scopes_active: f64,
@@ -453,12 +455,19 @@ impl MetricsRegistry {
 
         let totals = self.gather_totals();
 
+        let comp_bytes = *totals.get("korto_compressor_bytes_saved_total").unwrap_or(&0.0);
+        let cache_bytes = *totals.get("korto_cache_replay_bytes_total").unwrap_or(&0.0);
+        let tokens_saved = (comp_bytes + cache_bytes) / 4.0;
+        let dollars_saved = tokens_saved * 0.000003;
+
         DashboardSnapshot {
             updated_at: format_iso_time(now),
             cache_hit_rate_5m: rate,
             cache_hits_5m: hits,
             cache_misses_5m: misses,
-            compressor_bytes_saved_total: *totals.get("korto_compressor_bytes_saved_total").unwrap_or(&0.0),
+            estimated_dollars_saved: dollars_saved,
+            cache_replay_bytes_total: cache_bytes,
+            compressor_bytes_saved_total: comp_bytes,
             compressor_blocks_stripped_total: *totals.get("korto_compressor_blocks_stripped_total").unwrap_or(&0.0),
             compressor_scopes_active: *totals.get("korto_compressor_scopes_active").unwrap_or(&0.0),
             redactions_total: *totals.get("korto_redactions_total").unwrap_or(&0.0),
@@ -471,6 +480,7 @@ impl MetricsRegistry {
     fn gather_totals(&self) -> std::collections::HashMap<String, f64> {
         let mut out = std::collections::HashMap::new();
         out.insert("korto_compressor_bytes_saved_total".to_string(), 0.0);
+        out.insert("korto_cache_replay_bytes_total".to_string(), 0.0);
         out.insert("korto_compressor_blocks_stripped_total".to_string(), 0.0);
         out.insert("korto_compressor_scopes_active".to_string(), 0.0);
         out.insert("korto_redactions_total".to_string(), 0.0);

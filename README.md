@@ -129,7 +129,7 @@ You can use the `KORTO_PROFILE` environment variable for zero-friction setup:
 | Profile | Listen | Cache strategy | Recommended IDE |
 |---------|--------|----------------|-----------------|
 | `cursor` | `:8080` | `window_n` | **Cursor** (Automatically handles Composer context) |
-| `copilot` | `:8080` | `full_digest` | **GitHub Copilot** (Disables redaction for strict autocompletion) |
+| `copilot` | `:8080` | `full_digest` | **GitHub Copilot** (strict full-context cache keys) |
 | `continue` | `:8080` | `window_n` | **Continue.dev** |
 
 For advanced control:

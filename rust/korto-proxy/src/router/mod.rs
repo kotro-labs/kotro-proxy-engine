@@ -2,6 +2,7 @@
 
 mod handlers;
 mod scope;
+mod upstream;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,6 +29,7 @@ pub struct AppState {
     pub store: Store,
     pub http_client: Client,
     pub upstream_url: String,
+    pub fallback_url: Option<String>,
     pub enable_cache: bool,
     pub enable_redaction: bool,
     pub enable_compression: bool,
@@ -58,6 +60,7 @@ impl AppState {
             store,
             http_client,
             upstream_url: cfg.upstream_url.trim_end_matches('/').to_string(),
+            fallback_url: cfg.fallback_url.clone().map(|u| u.trim_end_matches('/').to_string()),
             enable_cache: cfg.enable_cache,
             enable_redaction: cfg.enable_redaction,
             enable_compression: cfg.enable_compression,

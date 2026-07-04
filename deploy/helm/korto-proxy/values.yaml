@@ -1,6 +1,6 @@
 image:
   repository: kortosystems/proxy-engine
-  tag: "0.2.0"
+  tag: "0.2.5"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
