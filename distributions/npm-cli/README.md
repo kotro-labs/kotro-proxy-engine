@@ -6,6 +6,15 @@
 
 npm distribution for the [Korto Proxy Engine](https://github.com/ramairwing/kotro-proxy-engine) — a local AI reverse proxy with streaming semantic cache, PII redaction, and context compression for OpenAI and Anthropic SDKs.
 
+## Features
+
+- **Zero-config startup** — precompiled binary with no dependencies
+- **Semantic SSE cache** — faster repeat prompts; `X-KortoLabs-Cache: HIT` on cache hits
+- **Enterprise failover** — dynamic routing on 429/503 upstream errors
+- **Operator dashboard** — local UI for observability (`http://127.0.0.1:9090/dashboard`)
+- **Isolated telemetry** — `/metrics` binds to loopback by default, separate from LLM traffic
+- **Context-aware cache keys** — prevents false cache hits in multi-turn agent loops
+
 ## Install
 
 ```bash
@@ -31,6 +40,13 @@ curl -N http://127.0.0.1:8080/v1/chat/completions \
 ```
 
 Cache hits return the `X-KortoLabs-Cache: HIT` header.
+
+## Architecture
+
+```text
+AI client  →  localhost:8080/v1/*     (LLM proxy — may bind 0.0.0.0 in cluster mode)
+Operator   →  127.0.0.1:9090/dashboard  (telemetry — loopback only by default)
+```
 
 ## Configuration
 
