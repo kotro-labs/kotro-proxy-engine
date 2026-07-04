@@ -10,18 +10,26 @@ use bytes::Bytes;
 use futures_util::Stream;
 use tokio::time::sleep;
 
-use crate::guardrail::{restore_payload, RedactionMap};
+use crate::guardrail::RedactionMap;
 use crate::proxy::bootstrap::bootstrap_bytes;
+use crate::proxy::pipeline::StreamFormat;
 use crate::sse::frame::{transform_data_line, Frame, ReaderError};
 use crate::sse::Reader;
 
 fn client_frame_bytes(
     frame: &Frame,
     redaction_map: Option<&Arc<RedactionMap>>,
+    format: StreamFormat,
+    metrics: &crate::metrics::MetricsRegistry,
 ) -> Bytes {
     if let Some(map) = redaction_map.filter(|m| !m.is_empty()) {
         let map = Arc::clone(map);
-        return transform_data_line(frame, |payload| restore_payload(payload, &map)).to_bytes();
+        let metrics = metrics.clone();
+        return transform_data_line(frame, |payload| {
+            let (restored, count) = crate::guardrail::restore_payload_counted(payload, &map, format);
+            metrics.record_redaction_restores(count);
+            restored
+        }).to_bytes();
     }
     frame.to_bytes()
 }
@@ -31,6 +39,8 @@ pub fn create_cached_replay_stream(
     raw_sse: Vec<u8>,
     redaction_map: Option<Arc<RedactionMap>>,
     hit_delay: Duration,
+    format: StreamFormat,
+    metrics: crate::metrics::MetricsRegistry,
 ) -> Pin<Box<dyn Stream<Item = Result<Bytes, io::Error>> + Send + 'static>> {
     Box::pin(try_stream! {
         yield bootstrap_bytes();
@@ -42,7 +52,7 @@ pub fn create_cached_replay_stream(
         loop {
             match reader.next() {
                 Ok(frame) => {
-                    yield client_frame_bytes(&frame, redaction_map.as_ref());
+                    yield client_frame_bytes(&frame, redaction_map.as_ref(), format, &metrics);
                     if !hit_delay.is_zero() {
                         sleep(hit_delay).await;
                     }
@@ -54,6 +64,7 @@ pub fn create_cached_replay_stream(
     })
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,7 +73,13 @@ mod tests {
     #[tokio::test]
     async fn replays_cached_frames_with_bootstrap() {
         let raw = b"data: {\"x\":1}\n\ndata: [DONE]\n\n".to_vec();
-        let mut stream = create_cached_replay_stream(raw, None, Duration::ZERO);
+        let mut stream = create_cached_replay_stream(
+            raw,
+            None,
+            Duration::ZERO,
+            StreamFormat::OpenAI,
+            crate::metrics::MetricsRegistry::new(),
+        );
         let first = stream.next().await.unwrap().unwrap();
         assert!(first.starts_with(b": kortolabs"));
     }

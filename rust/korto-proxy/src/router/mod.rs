@@ -17,10 +17,14 @@ use crate::compressor::StateTracker;
 use crate::config::Config;
 use crate::router::scope::{parse_trusted_cidrs, ScopeResolver};
 
-use handlers::{handle_chat_completions, handle_healthz, handle_messages, handle_passthrough};
+use handlers::{
+    handle_chat_completions, handle_healthz, handle_messages, handle_passthrough,
+    handle_api_dashboard, handle_dashboard, handle_icon, handle_metrics,
+};
 
 #[derive(Clone)]
 pub struct AppState {
+
     pub store: Store,
     pub http_client: Client,
     pub upstream_url: String,
@@ -32,10 +36,11 @@ pub struct AppState {
     pub scope: ScopeResolver,
     pub cache_key_strategy: CacheKeyStrategy,
     pub cache_window_size: usize,
+    pub metrics: crate::metrics::MetricsRegistry,
 }
 
 impl AppState {
-    pub fn new(cfg: &Config, store: Store, http_client: Client) -> Self {
+    pub fn new(cfg: &Config, store: Store, http_client: Client, metrics: crate::metrics::MetricsRegistry) -> Self {
         let trusted_cidrs = match parse_trusted_cidrs(&cfg.trusted_proxy_cidrs) {
             Ok(cidrs) => cidrs,
             Err(err) => {
@@ -65,9 +70,11 @@ impl AppState {
             },
             cache_key_strategy: cfg.cache_key_strategy,
             cache_window_size: cfg.cache_window_size,
+            metrics,
         }
     }
 }
+
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
@@ -77,6 +84,17 @@ pub fn create_router(state: AppState) -> Router {
         .fallback(handle_passthrough)
         .with_state(Arc::new(state))
 }
+
+pub fn create_telemetry_router(state: AppState) -> Router {
+    Router::new()
+        .route("/metrics", get(handle_metrics))
+        .route("/dashboard", get(handle_dashboard))
+        .route("/api/dashboard", get(handle_api_dashboard))
+        .route("/favicon.ico", get(handle_icon))
+        .route("/dashboard/icon.png", get(handle_icon))
+        .with_state(Arc::new(state))
+}
+
 
 pub fn open_store(cfg: &Config) -> Result<Store, crate::cache::StoreError> {
     Store::open_with_options(
@@ -111,7 +129,7 @@ mod tests {
 
         let store = open_store(&cfg).unwrap();
         let client = build_http_client().unwrap();
-        let app = create_router(AppState::new(&cfg, store, client));
+        let app = create_router(AppState::new(&cfg, store, client, crate::metrics::MetricsRegistry::new()));
 
         let response = app
             .oneshot(

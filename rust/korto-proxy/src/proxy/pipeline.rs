@@ -11,7 +11,7 @@ use futures_util::{Stream, StreamExt};
 use tracing::{debug, error};
 
 use crate::cache::{Entry, Store};
-use crate::guardrail::{restore_payload, RedactionMap};
+use crate::guardrail::RedactionMap;
 use crate::proxy::bootstrap::bootstrap_bytes;
 use crate::sse::frame::{parse_frame_bytes, transform_data_line, Frame, FrameParseResult};
 use crate::sse::SseFrameParser;
@@ -30,6 +30,7 @@ pub struct PipelineOptions {
     pub model: String,
     pub format: StreamFormat,
     pub redaction_map: Option<Arc<RedactionMap>>,
+    pub metrics: crate::metrics::MetricsRegistry,
 }
 
 fn frame_complete(frame: &Frame, format: StreamFormat) -> bool {
@@ -43,11 +44,18 @@ fn client_frame_bytes(frame: &Frame, opts: &PipelineOptions) -> Bytes {
     if let Some(map) = &opts.redaction_map {
         if !map.is_empty() {
             let map = Arc::clone(map);
-            return transform_data_line(frame, |payload| restore_payload(payload, &map)).to_bytes();
+            let format = opts.format;
+            let metrics = opts.metrics.clone();
+            return transform_data_line(frame, |payload| {
+                let (restored, count) = crate::guardrail::restore_payload_counted(payload, &map, format);
+                metrics.record_redaction_restores(count);
+                restored
+            }).to_bytes();
         }
     }
     frame.to_bytes()
 }
+
 
 /// Transforms an upstream byte stream: bootstrap → frame parse → optional restore → cache tee.
 ///
@@ -97,6 +105,11 @@ where
 
         if is_complete && !cache_accumulator.is_empty() {
             let store_clone = store.clone();
+            let metrics = opts.metrics.clone();
+            let format_str = match opts.format {
+                StreamFormat::OpenAI => "openai",
+                StreamFormat::Anthropic => "anthropic",
+            };
             let entry = Entry {
                 key: opts.cache_key.clone(),
                 raw_sse: cache_accumulator,
@@ -107,14 +120,19 @@ where
                     .as_secs() as i64,
             };
 
-            std::thread::spawn(move || {
+            tokio::task::spawn_blocking(move || {
                 if let Err(err) = store_clone.put(entry) {
                     error!(error = %err, "cache put failed");
                 } else {
                     debug!("cache stored after stream completion");
+                    metrics.record_cache_store(format_str);
+                    if let Ok(count) = store_clone.count() {
+                        metrics.set_cache_entries(count);
+                    }
                 }
             });
         }
+
     })
 }
 
@@ -153,6 +171,7 @@ mod tests {
             model: "gpt-4".into(),
             format: StreamFormat::OpenAI,
             redaction_map: None,
+            metrics: crate::metrics::MetricsRegistry::new(),
         };
 
         let out = collect_pipeline(upstream, store, opts).await;
@@ -172,6 +191,7 @@ mod tests {
             model: "gpt-4".into(),
             format: StreamFormat::OpenAI,
             redaction_map: None,
+            metrics: crate::metrics::MetricsRegistry::new(),
         };
 
         collect_pipeline(upstream, store.clone(), opts).await;
@@ -191,6 +211,7 @@ mod tests {
             model: "gpt-4".into(),
             format: StreamFormat::OpenAI,
             redaction_map: None,
+            metrics: crate::metrics::MetricsRegistry::new(),
         };
 
         collect_pipeline(upstream, store.clone(), opts).await;
@@ -210,6 +231,7 @@ mod tests {
             model: "gpt-4".into(),
             format: StreamFormat::OpenAI,
             redaction_map: None,
+            metrics: crate::metrics::MetricsRegistry::new(),
         };
 
         let out = collect_pipeline(upstream, store.clone(), opts).await;
@@ -227,7 +249,7 @@ mod tests {
 
         let upstream = stream::iter(vec![
             Ok(Bytes::from(
-                "data: {\"content\":\"[REDACTED_SECRET_1]\"}\n\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"[REDACTED_SECRET_1]\"}}]}\n\n",
             )),
             Ok(Bytes::from("data: [DONE]\n\n")),
         ]);
@@ -236,6 +258,7 @@ mod tests {
             model: "gpt-4".into(),
             format: StreamFormat::OpenAI,
             redaction_map: Some(map),
+            metrics: crate::metrics::MetricsRegistry::new(),
         };
 
         let out = collect_pipeline(upstream, store.clone(), opts).await;
@@ -263,6 +286,7 @@ mod tests {
             model: "gpt-4".into(),
             format: StreamFormat::OpenAI,
             redaction_map: None,
+            metrics: crate::metrics::MetricsRegistry::new(),
         };
 
         let mut pipeline = create_processing_pipeline(upstream, store.clone(), opts);

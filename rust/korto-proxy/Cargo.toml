@@ -30,6 +30,8 @@ regex = "1"
 zstd = "0.13"
 moka = { version = "0.12", features = ["sync"] }
 ipnet = "2"
+prometheus = "0.13"
+
 
 [dev-dependencies]
 tempfile = "3"

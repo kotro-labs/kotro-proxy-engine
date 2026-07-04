@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use redb::{Database, TableDefinition, TableError};
+use redb::{Database, ReadableTableMetadata, TableDefinition, TableError};
 use serde_json;
 use thiserror::Error;
 
@@ -112,11 +112,19 @@ impl Store {
         if expired {
             let db = Arc::clone(&self.db);
             let key_owned = key.to_string();
-            std::thread::spawn(move || {
-                let _ = delete_key(&db, &key_owned);
-            });
+            if tokio::runtime::Handle::try_current().is_ok() {
+                tokio::task::spawn_blocking(move || {
+                    let _ = delete_key(&db, &key_owned);
+                });
+            } else {
+                std::thread::spawn(move || {
+                    let _ = delete_key(&db, &key_owned);
+                });
+            }
             return Ok(None);
         }
+
+
 
         let Some(payload) = payload else {
             return Ok(None);
@@ -178,11 +186,24 @@ impl Store {
         &self.path
     }
 
+    /// Returns the number of cached entries.
+    pub fn count(&self) -> Result<usize, StoreError> {
+        let read_txn = self.db.begin_read()?;
+        let table = match read_txn.open_table(CACHE_TABLE) {
+            Ok(t) => t,
+            Err(TableError::TableDoesNotExist(_)) => return Ok(0),
+            Err(e) => return Err(e.into()),
+        };
+        let len = table.len()?;
+        Ok(len as usize)
+    }
+
     /// Shared database handle for background eviction sweeps.
     pub(crate) fn db_handle(&self) -> &Arc<Database> {
         &self.db
     }
 }
+
 
 fn now_unix_nano() -> i64 {
     SystemTime::now()

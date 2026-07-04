@@ -3,7 +3,6 @@
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::{
     body::Body,
@@ -13,8 +12,10 @@ use axum::{
     Json,
 };
 use bytes::Bytes;
+use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::Value;
+use std::time::Instant;
 use tracing::{error, info};
 
 use crate::cache::generate_cache_key;
@@ -24,6 +25,7 @@ use crate::models::{anthropic::MessagesRequest, openai::ChatCompletionRequest};
 use crate::proxy::pipeline::{create_processing_pipeline, PipelineOptions, StreamFormat};
 use crate::proxy::replay::create_cached_replay_stream;
 use crate::router::AppState;
+
 
 const SSE_HEADERS: [(&str, &str); 4] = [
     ("content-type", "text/event-stream"),
@@ -40,18 +42,197 @@ pub async fn handle_healthz() -> impl IntoResponse {
     )
 }
 
+pub async fn handle_metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "text/plain; version=0.0.4; charset=utf-8")],
+        state.metrics.gather_to_string(),
+    )
+}
+
+pub async fn handle_dashboard(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "text/html; charset=utf-8")],
+        crate::dashboard_assets::PAGE_HTML,
+    )
+}
+
+pub async fn handle_api_dashboard(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let snap = state.metrics.snapshot();
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::to_string_pretty(&snap).unwrap_or_default(),
+    )
+}
+
+pub async fn handle_icon(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [
+            (CONTENT_TYPE.as_str(), "image/png"),
+            ("cache-control", "public, max-age=86400"),
+        ],
+        crate::dashboard_assets::ICON_PNG,
+    )
+}
+
+struct StreamGuard {
+    metrics: crate::metrics::MetricsRegistry,
+    provider: &'static str,
+    route: &'static str,
+    stream_flag: bool,
+    cache_status: &'static str,
+    start_time: Instant,
+    recorded: bool,
+}
+
+impl StreamGuard {
+    fn record(&mut self) {
+        if !self.recorded {
+            let elapsed = self.start_time.elapsed();
+            self.metrics.record_request(
+                self.provider,
+                self.route,
+                self.stream_flag,
+                self.cache_status,
+                elapsed,
+            );
+            self.recorded = true;
+        }
+    }
+}
+
+impl Drop for StreamGuard {
+    fn drop(&mut self) {
+        self.record();
+    }
+}
+
+fn instrument_stream<S>(
+    stream: S,
+    metrics: crate::metrics::MetricsRegistry,
+    provider: &'static str,
+    route: &'static str,
+    stream_flag: bool,
+    cache_status: &'static str,
+    start_time: Instant,
+) -> impl futures_util::Stream<Item = Result<Bytes, io::Error>> + Send + 'static
+where
+    S: futures_util::Stream<Item = Result<Bytes, io::Error>> + Send + 'static,
+{
+    let mut guard = StreamGuard {
+        metrics,
+        provider,
+        route,
+        stream_flag,
+        cache_status,
+        start_time,
+        recorded: false,
+    };
+
+    async_stream::try_stream! {
+        tokio::pin!(stream);
+
+        while let Some(item) = stream.next().await {
+            let bytes = item?;
+            yield bytes;
+        }
+
+        guard.record();
+    }
+}
+
+fn create_primed_miss_stream(
+    state: Arc<AppState>,
+    headers: HeaderMap,
+    path: String,
+    payload_bytes: Vec<u8>,
+    pipeline_opts: PipelineOptions,
+) -> impl futures_util::Stream<Item = Result<Bytes, io::Error>> + Send + 'static {
+    async_stream::try_stream! {
+        yield crate::proxy::bootstrap::bootstrap_bytes();
+
+        let upstream_endpoint = format!("{}{}", state.upstream_url, path);
+        let upstream_req = with_forwarded_headers(
+            state.http_client.post(upstream_endpoint).body(payload_bytes),
+            &headers,
+        );
+
+        let start_upstream = Instant::now();
+        let upstream_response = match upstream_req.send().await {
+            Ok(resp) => resp,
+            Err(err) => {
+                error!(error = %err, "upstream network failure");
+                state.metrics.record_error(
+                    match pipeline_opts.format {
+                        StreamFormat::OpenAI => "openai",
+                        StreamFormat::Anthropic => "anthropic",
+                    },
+                    "upstream",
+                );
+                let err_msg = format!("data: {{\"error\": \"Upstream network failure: {err}\"}}\n\n");
+                yield Bytes::from(err_msg);
+                return;
+            }
+        };
+
+        let status = upstream_response.status();
+        let provider_str = match pipeline_opts.format {
+            StreamFormat::OpenAI => "openai",
+            StreamFormat::Anthropic => "anthropic",
+        };
+        state.metrics.record_upstream(provider_str, status.as_u16(), start_upstream.elapsed());
+
+        if !status.is_success() {
+            let err_bytes = upstream_response.bytes().await.unwrap_or_default();
+            state.metrics.record_error(provider_str, "upstream");
+            yield err_bytes;
+            return;
+        }
+
+        let upstream_byte_stream = upstream_response.bytes_stream();
+        let outbound = create_processing_pipeline(
+            upstream_byte_stream,
+            state.store.clone(),
+            pipeline_opts,
+        );
+
+        tokio::pin!(outbound);
+        let mut first = true;
+        while let Some(chunk_result) = outbound.next().await {
+            let chunk = chunk_result?;
+            if first {
+                first = false;
+                if chunk.starts_with(b": kortolabs bootstrap") {
+                    continue;
+                }
+            }
+            yield chunk;
+        }
+    }
+}
+
+
+
 pub async fn handle_chat_completions(
     State(state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
+    let start_time = Instant::now();
     let req: ChatCompletionRequest = match serde_json::from_value(payload) {
         Ok(req) => req,
         Err(err) => {
+            state.metrics.record_error("openai", "parse");
             return (StatusCode::BAD_REQUEST, format!("invalid json: {err}")).into_response();
         }
     };
+
+    let body_str = serde_json::to_string(&req).unwrap_or_default();
+    state.metrics.record_request_body("openai", body_str.len());
 
     let scope = state.scope.from_request(&headers, peer.ip());
     let (processed, cache_source, redaction_map) =
@@ -61,26 +242,41 @@ pub async fn handle_chat_completions(
     if !cache_key.is_empty() {
         if let Ok(Some(entry)) = state.store.get(&cache_key) {
             info!(key = %cache_key, format = "openai", "cache hit");
-            return sse_cached_response(
+            state.metrics.record_cache_hit("openai", entry.raw_sse.len());
+            let stream = create_cached_replay_stream(
                 entry.raw_sse,
                 redaction_map,
                 state.cache_hit_delay,
-                true,
+                StreamFormat::OpenAI,
+                state.metrics.clone(),
             );
+            let instrumented = instrument_stream(
+                stream,
+                state.metrics.clone(),
+                "openai",
+                "/v1/chat/completions",
+                true,
+                "hit",
+                start_time,
+            );
+            return sse_stream_response(instrumented, true);
         }
         info!(key = %cache_key, format = "openai", "cache miss");
+        state.metrics.record_cache_miss("openai");
     }
 
     forward_provider(
         &state,
         &headers,
         "/v1/chat/completions",
-        &processed,
+        serde_json::to_vec(&processed).unwrap_or_default(),
         processed.stream,
         cache_key,
         processed.model.clone(),
         StreamFormat::OpenAI,
         redaction_map,
+        start_time,
+        "openai",
     )
     .await
 }
@@ -91,12 +287,17 @@ pub async fn handle_messages(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
+    let start_time = Instant::now();
     let req: MessagesRequest = match serde_json::from_value(payload) {
         Ok(req) => req,
         Err(err) => {
+            state.metrics.record_error("anthropic", "parse");
             return (StatusCode::BAD_REQUEST, format!("invalid json: {err}")).into_response();
         }
     };
+
+    let body_str = serde_json::to_string(&req).unwrap_or_default();
+    state.metrics.record_request_body("anthropic", body_str.len());
 
     let scope = state.scope.from_request(&headers, peer.ip());
     let (processed, cache_source, redaction_map) =
@@ -106,29 +307,45 @@ pub async fn handle_messages(
     if !cache_key.is_empty() {
         if let Ok(Some(entry)) = state.store.get(&cache_key) {
             info!(key = %cache_key, format = "anthropic", "cache hit");
-            return sse_cached_response(
+            state.metrics.record_cache_hit("anthropic", entry.raw_sse.len());
+            let stream = create_cached_replay_stream(
                 entry.raw_sse,
                 redaction_map,
                 state.cache_hit_delay,
-                true,
+                StreamFormat::Anthropic,
+                state.metrics.clone(),
             );
+            let instrumented = instrument_stream(
+                stream,
+                state.metrics.clone(),
+                "anthropic",
+                "/v1/messages",
+                true,
+                "hit",
+                start_time,
+            );
+            return sse_stream_response(instrumented, true);
         }
         info!(key = %cache_key, format = "anthropic", "cache miss");
+        state.metrics.record_cache_miss("anthropic");
     }
 
     forward_provider(
         &state,
         &headers,
         "/v1/messages",
-        &processed,
+        serde_json::to_vec(&processed).unwrap_or_default(),
         processed.stream,
         cache_key,
         processed.model.clone(),
         StreamFormat::Anthropic,
         redaction_map,
+        start_time,
+        "anthropic",
     )
     .await
 }
+
 
 pub async fn handle_passthrough(State(state): State<Arc<AppState>>, req: Request) -> Response {
     let method = req.method().clone();
@@ -236,27 +453,61 @@ fn anthropic_cache_key(
     generate_cache_key(&scope.key(), &req.model, "anthropic", &material)
 }
 
-async fn forward_provider<T: serde::Serialize>(
-    state: &AppState,
+async fn forward_provider(
+    state: &Arc<AppState>,
     headers: &HeaderMap,
-    path: &str,
-    payload: &T,
+    path: &'static str,
+    payload_bytes: Vec<u8>,
     request_streaming: bool,
     cache_key: String,
     model: String,
     format: StreamFormat,
     redaction_map: Option<Arc<RedactionMap>>,
+    start_time: Instant,
+    provider: &'static str,
 ) -> Response {
+    if request_streaming {
+        let pipeline_opts = PipelineOptions {
+            cache_key,
+            model,
+            format,
+            redaction_map,
+            metrics: state.metrics.clone(),
+        };
+
+        let miss_stream = create_primed_miss_stream(
+            Arc::clone(state),
+            headers.clone(),
+            path.to_string(),
+            payload_bytes,
+            pipeline_opts,
+        );
+
+        let instrumented = instrument_stream(
+            miss_stream,
+            state.metrics.clone(),
+            provider,
+            path,
+            true,
+            "miss",
+            start_time,
+        );
+
+        return sse_stream_response(instrumented, false);
+    }
+
     let upstream_endpoint = format!("{}{}", state.upstream_url, path);
     let upstream_req = with_forwarded_headers(
-        state.http_client.post(upstream_endpoint).json(payload),
+        state.http_client.post(upstream_endpoint).body(payload_bytes),
         headers,
     );
 
+    let start_upstream = Instant::now();
     let upstream_response = match upstream_req.send().await {
         Ok(resp) => resp,
         Err(err) => {
             error!(error = %err, "upstream network failure");
+            state.metrics.record_error(provider, "upstream");
             return (
                 StatusCode::BAD_GATEWAY,
                 format!("Upstream network failure: {err}"),
@@ -265,49 +516,19 @@ async fn forward_provider<T: serde::Serialize>(
         }
     };
 
-    let status =
-        StatusCode::from_u16(upstream_response.status().as_u16()).unwrap_or(StatusCode::OK);
+    let status = upstream_response.status();
+    state.metrics.record_upstream(provider, status.as_u16(), start_upstream.elapsed());
+
     if !status.is_success() {
         let err_bytes = upstream_response.bytes().await.unwrap_or_default();
-        return (status, err_bytes).into_response();
-    }
-
-    let upstream_sse = upstream_response
-        .headers()
-        .get(CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|ct| ct.contains("text/event-stream"));
-
-    if request_streaming && upstream_sse {
-        let upstream_byte_stream = upstream_response.bytes_stream();
-        let pipeline_opts = PipelineOptions {
-            cache_key,
-            model,
-            format,
-            redaction_map,
-        };
-
-        let outbound = create_processing_pipeline(
-            upstream_byte_stream,
-            state.store.clone(),
-            pipeline_opts,
-        );
-
-        return sse_stream_response(outbound, false);
+        state.metrics.record_error(provider, "upstream");
+        return (StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK), err_bytes).into_response();
     }
 
     let full_bytes = upstream_response.bytes().await.unwrap_or_default();
-    (status, full_bytes).into_response()
-}
-
-fn sse_cached_response(
-    raw_sse: Vec<u8>,
-    redaction_map: Option<Arc<RedactionMap>>,
-    hit_delay: Duration,
-    cache_hit: bool,
-) -> Response {
-    let stream = create_cached_replay_stream(raw_sse, redaction_map, hit_delay);
-    sse_stream_response(stream, cache_hit)
+    let elapsed = start_time.elapsed();
+    state.metrics.record_request(provider, path, false, "miss", elapsed);
+    (StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK), full_bytes).into_response()
 }
 
 fn sse_stream_response<S>(stream: S, cache_hit: bool) -> Response
@@ -325,6 +546,7 @@ where
     }
     response
 }
+
 
 async fn proxy_response(upstream: reqwest::Response) -> Response {
     let status =

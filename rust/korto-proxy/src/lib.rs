@@ -13,6 +13,9 @@ pub mod sse;
 pub mod compressor;
 pub mod guardrail;
 pub mod proxy;
+pub mod metrics;
+pub mod dashboard_assets;
+
 
 pub use config::Config;
 pub use sse::{Frame, Reader, SseFrameParser};
