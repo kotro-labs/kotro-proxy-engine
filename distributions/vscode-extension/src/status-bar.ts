@@ -4,6 +4,8 @@ import { listenBaseUrl, telemetryBaseUrl } from './listen-url';
 export type DashboardSnapshot = {
   cache_hit_rate_5m: number;
   compressor_bytes_saved_total: number;
+  cache_replay_bytes_total: number;
+  estimated_dollars_saved: number;
   recent_requests: Array<{
     cache_status: string;
   }>;
@@ -20,6 +22,21 @@ function formatBytes(n: number): string {
     return `${(n / 1024).toFixed(1)}KB`;
   }
   return `${Math.round(n)}B`;
+}
+
+function formatTokens(bytes: number): string {
+  const tokens = Math.round(bytes / 4);
+  if (tokens >= 1000000) {
+    return `${(tokens / 1000000).toFixed(1)}M`;
+  }
+  if (tokens >= 1000) {
+    return `${(tokens / 1000).toFixed(1)}k`;
+  }
+  return `${tokens}`;
+}
+
+function formatDollars(d: number): string {
+  return `$${d.toFixed(3)}`;
 }
 
 function lastCacheLabel(snapshot: DashboardSnapshot | null): string {
@@ -99,10 +116,12 @@ export class ProxyStatusBar implements vscode.Disposable {
     const snapshot = await fetchDashboard(`${telemetry}/api/dashboard`);
     if (snapshot) {
       const cache = lastCacheLabel(snapshot);
-      const saved = formatBytes(snapshot.compressor_bytes_saved_total);
+      const totalBytes = snapshot.compressor_bytes_saved_total + snapshot.cache_replay_bytes_total;
+      const tokensSaved = formatTokens(totalBytes);
+      const dollarsSaved = formatDollars(snapshot.estimated_dollars_saved);
       const hitRate = `${(snapshot.cache_hit_rate_5m * 100).toFixed(0)}%`;
-      this.item.text = `$(pulse) Kotro: ${cache} · ${saved} saved`;
-      this.item.tooltip = `Cache (5m): ${hitRate} hit rate · ${saved} compressor savings\nClick to open dashboard`;
+      this.item.text = `$(pulse) Kotro: ${cache} · ${tokensSaved} saved`;
+      this.item.tooltip = `Total Saved: ${tokensSaved} tokens (${dollarsSaved})\nCache Hit Rate (5m): ${hitRate}\nClick to open dashboard`;
       return;
     }
 
