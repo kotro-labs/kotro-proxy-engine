@@ -76,6 +76,23 @@ func Load() Config {
 		)
 	}
 
+	profile := envOr("KORTO_PROFILE", "")
+
+	enableRedaction := envBoolOr("KORTO_ENABLE_REDACTION", true)
+	enableCompression := envBoolOr("KORTO_ENABLE_COMPRESSION", true)
+
+	// Apply IDE Profile Presets
+	switch profile {
+	case "cursor":
+		strategy = cache.StrategyWindowN
+		enableCompression = true
+	case "copilot":
+		strategy = cache.StrategyFullDigest
+		enableRedaction = false
+	case "continue":
+		strategy = cache.StrategyWindowN
+	}
+
 	return Config{
 		ListenAddr:            envOr("KORTO_LISTEN_ADDR", ":8080"),
 		UpstreamURL:           envOr("KORTO_UPSTREAM_URL", "http://127.0.0.1:9000"),
@@ -84,8 +101,8 @@ func Load() Config {
 		WriteTimeout:          envDurationOr("KORTO_WRITE_TIMEOUT", 0),
 		IdleTimeout:           envDurationOr("KORTO_IDLE_TIMEOUT", 120*time.Second),
 		EnableCache:           envBoolOr("KORTO_ENABLE_CACHE", true),
-		EnableRedaction:       envBoolOr("KORTO_ENABLE_REDACTION", true),
-		EnableCompression:     envBoolOr("KORTO_ENABLE_COMPRESSION", true),
+		EnableRedaction:       enableRedaction,
+		EnableCompression:     enableCompression,
 		CacheHitDelay:         envDurationOr("KORTO_CACHE_HIT_DELAY_MS", 2*time.Millisecond),
 		EnablePprof:           envBoolOr("KORTO_ENABLE_PPROF", false),
 		CacheTTL:              envFlexibleDurationOr("KORTO_CACHE_TTL", 24*time.Hour),

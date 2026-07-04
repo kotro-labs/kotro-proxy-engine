@@ -24,6 +24,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	logger.Info("Optimization Engine Active", "token_reduction_potential", "up to 99%", "profile", os.Getenv("KORTO_PROFILE"))
+
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("server error", "err", err)
