@@ -23,6 +23,8 @@ pub struct Config {
     pub cache_window_size: usize,
     pub metrics_addr: String,
     pub enable_metrics: bool,
+    pub local_model_pattern: Option<String>,
+    pub local_upstream_url: Option<String>,
 }
 
 impl Default for Config {
@@ -46,6 +48,8 @@ impl Default for Config {
             cache_window_size: 4,
             metrics_addr: "127.0.0.1:9090".into(),
             enable_metrics: true,
+            local_model_pattern: None,
+            local_upstream_url: None,
         }
     }
 }
@@ -86,12 +90,18 @@ impl Config {
             cache_window_size: env_usize("KORTO_CACHE_WINDOW_SIZE", defaults.cache_window_size),
             metrics_addr: env_or("KORTO_METRICS_ADDR", defaults.metrics_addr),
             enable_metrics: env_bool("KORTO_ENABLE_METRICS", defaults.enable_metrics),
+            local_model_pattern: env_opt("KORTO_LOCAL_MODEL_PATTERN"),
+            local_upstream_url: env_opt("KORTO_LOCAL_UPSTREAM_URL"),
         }
     }
 }
 
 fn env_or(key: &str, fallback: String) -> String {
     env::var(key).unwrap_or(fallback)
+}
+
+fn env_opt(key: &str) -> Option<String> {
+    env::var(key).ok().filter(|s| !s.is_empty())
 }
 
 fn env_bool(key: &str, fallback: bool) -> bool {

@@ -37,6 +37,8 @@ pub struct AppState {
     pub cache_key_strategy: CacheKeyStrategy,
     pub cache_window_size: usize,
     pub metrics: crate::metrics::MetricsRegistry,
+    pub local_model_pattern: Option<regex::Regex>,
+    pub local_upstream_url: Option<String>,
 }
 
 impl AppState {
@@ -71,6 +73,8 @@ impl AppState {
             cache_key_strategy: cfg.cache_key_strategy,
             cache_window_size: cfg.cache_window_size,
             metrics,
+            local_model_pattern: cfg.local_model_pattern.as_ref().and_then(|p| regex::Regex::new(p).ok()),
+            local_upstream_url: cfg.local_upstream_url.clone().map(|u| u.trim_end_matches('/').to_string()),
         }
     }
 }

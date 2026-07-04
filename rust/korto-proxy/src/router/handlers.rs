@@ -179,7 +179,8 @@ fn create_primed_miss_stream(
     async_stream::try_stream! {
         yield crate::proxy::bootstrap::bootstrap_bytes();
 
-        let upstream_endpoint = format!("{}{}", state.upstream_url, path);
+        let base_url = get_upstream_url(&state, &pipeline_opts.model);
+        let upstream_endpoint = format!("{}{}", base_url, path);
         let upstream_req = with_forwarded_headers(
             state.http_client.post(upstream_endpoint).body(payload_bytes),
             &headers,
@@ -538,7 +539,8 @@ async fn forward_provider(
         return sse_stream_response(instrumented, false);
     }
 
-    let upstream_endpoint = format!("{}{}", state.upstream_url, path);
+    let base_url = get_upstream_url(&state, &model);
+    let upstream_endpoint = format!("{}{}", base_url, path);
     let upstream_req = with_forwarded_headers(
         state.http_client.post(upstream_endpoint).body(payload_bytes),
         headers,
@@ -639,4 +641,13 @@ fn copy_response_headers(src: &reqwest::header::HeaderMap, dst: &mut HeaderMap) 
     if let Some(ct) = src.get(CONTENT_TYPE) {
         dst.insert(CONTENT_TYPE, ct.clone());
     }
+}
+
+fn get_upstream_url<'a>(state: &'a AppState, model: &str) -> &'a str {
+    if let (Some(pattern), Some(local_url)) = (&state.local_model_pattern, &state.local_upstream_url) {
+        if pattern.is_match(model) {
+            return local_url.as_str();
+        }
+    }
+    &state.upstream_url
 }
