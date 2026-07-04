@@ -15,6 +15,7 @@ import (
 // Options configures the chat-completions interceptor pipeline.
 type Options struct {
 	UpstreamURL         string
+	FallbackURL         string
 	EnableCache         bool
 	EnableRedaction     bool
 	EnableCompression   bool
@@ -45,6 +46,7 @@ func OptionsFromConfig(cfg config.Config, logger *slog.Logger, m *metrics.Regist
 
 	return Options{
 		UpstreamURL:         cfg.UpstreamURL,
+		FallbackURL:         cfg.FallbackURL,
 		EnableCache:         cfg.EnableCache,
 		EnableRedaction:     cfg.EnableRedaction,
 		EnableCompression:   cfg.EnableCompression,

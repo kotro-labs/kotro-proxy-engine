@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "korto-proxy.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "korto-proxy.name" . }}
+    helm.sh/chart: {{ include "korto-proxy.chart" . }}
+data:
+  KORTO_LISTEN_ADDR: ":8080"
+  KORTO_METRICS_ADDR: "0.0.0.0:9090"
+  KORTO_UPSTREAM_URL: {{ .Values.proxy.upstreamUrl | quote }}
+  KORTO_FALLBACK_URL: {{ .Values.proxy.fallbackUrl | quote }}
+  KORTO_ENABLE_CACHE: {{ .Values.proxy.enableCache | quote }}
+  KORTO_ENABLE_REDACTION: {{ .Values.proxy.enableRedaction | quote }}
+  KORTO_ENABLE_COMPRESSION: {{ .Values.proxy.enableCompression | quote }}
+  KORTO_CACHE_KEY_STRATEGY: {{ .Values.proxy.cacheKeyStrategy | quote }}

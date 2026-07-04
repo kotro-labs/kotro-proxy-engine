@@ -1,0 +1,27 @@
+image:
+  repository: kortosystems/proxy-engine
+  tag: "0.2.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+proxy:
+  upstreamUrl: "https://api.openai.com"
+  fallbackUrl: ""
+  enableCache: true
+  enableRedaction: true
+  enableCompression: true
+  cacheKeyStrategy: "window_n"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+service:
+  type: ClusterIP
+  port: 8080
+  metricsPort: 9090

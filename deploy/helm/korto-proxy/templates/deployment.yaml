@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "korto-proxy.fullname" . }}
+  labels:
+    {{- include "korto-proxy.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "korto-proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "korto-proxy.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: proxy
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http-proxy
+              containerPort: 8080
+              protocol: TCP
+            - name: http-metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "korto-proxy.fullname" . }}
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: http-metrics
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: http-metrics
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

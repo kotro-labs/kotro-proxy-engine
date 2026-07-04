@@ -14,6 +14,7 @@ import (
 type Config struct {
 	ListenAddr   string
 	UpstreamURL  string
+	FallbackURL  string
 	CacheDBPath  string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
@@ -96,6 +97,7 @@ func Load() Config {
 	return Config{
 		ListenAddr:            envOr("KORTO_LISTEN_ADDR", ":8080"),
 		UpstreamURL:           envOr("KORTO_UPSTREAM_URL", "http://127.0.0.1:9000"),
+		FallbackURL:           envOr("KORTO_FALLBACK_URL", ""),
 		CacheDBPath:           envOr("KORTO_CACHE_DB", "./kortolabs-cache.db"),
 		ReadTimeout:           envDurationOr("KORTO_READ_TIMEOUT", 30*time.Second),
 		WriteTimeout:          envDurationOr("KORTO_WRITE_TIMEOUT", 0),

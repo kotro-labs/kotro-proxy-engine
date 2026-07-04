@@ -58,6 +58,20 @@ func NewHandler(opts Options, store *cache.Store, logger *slog.Logger) (*Handler
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 	}
 
+	var fallback *url.URL
+	if opts.FallbackURL != "" {
+		f, err := url.Parse(opts.FallbackURL)
+		if err == nil {
+			fallback = f
+		}
+	}
+
+	rp.Transport = &failoverTransport{
+		next:        http.DefaultTransport,
+		fallbackURL: fallback,
+		logger:      logger,
+	}
+
 	originalDirector := rp.Director
 	rp.Director = func(req *http.Request) {
 		originalDirector(req)
