@@ -25,6 +25,8 @@ type DashboardSnapshot struct {
 	CacheHitRate5m         float64         `json:"cache_hit_rate_5m"`
 	CacheHits5m            int             `json:"cache_hits_5m"`
 	CacheMisses5m          int             `json:"cache_misses_5m"`
+	EstimatedDollarsSaved  float64         `json:"estimated_dollars_saved"`
+	CacheReplayBytesTotal  float64         `json:"cache_replay_bytes_total"`
 	CompressorBytesSaved   float64         `json:"compressor_bytes_saved_total"`
 	CompressorBlocksStripped float64       `json:"compressor_blocks_stripped_total"`
 	CompressorScopesActive float64         `json:"compressor_scopes_active"`
@@ -102,13 +104,20 @@ func (r *Registry) Snapshot() DashboardSnapshot {
 	r.dashboardMu.Unlock()
 
 	totals := r.gatherTotals()
+	
+	compBytes := totals["korto_compressor_bytes_saved_total"]
+	cacheBytes := totals["korto_cache_replay_bytes_total"]
+	tokensSaved := (compBytes + cacheBytes) / 4.0
+	dollarsSaved := tokensSaved * 0.000003
 
 	return DashboardSnapshot{
 		UpdatedAt:                time.Now().UTC(),
 		CacheHitRate5m:           rate,
 		CacheHits5m:              hits,
 		CacheMisses5m:            misses,
-		CompressorBytesSaved:     totals["korto_compressor_bytes_saved_total"],
+		EstimatedDollarsSaved:    dollarsSaved,
+		CacheReplayBytesTotal:    cacheBytes,
+		CompressorBytesSaved:     compBytes,
 		CompressorBlocksStripped: totals["korto_compressor_blocks_stripped_total"],
 		CompressorScopesActive:   totals["korto_compressor_scopes_active"],
 		RedactionsTotal:          totals["korto_redactions_total"],
@@ -121,6 +130,7 @@ func (r *Registry) Snapshot() DashboardSnapshot {
 func (r *Registry) gatherTotals() map[string]float64 {
 	out := map[string]float64{
 		"korto_compressor_bytes_saved_total":     0,
+		"korto_cache_replay_bytes_total":         0,
 		"korto_compressor_blocks_stripped_total": 0,
 		"korto_compressor_scopes_active":       0,
 		"korto_redactions_total":               0,
@@ -135,6 +145,7 @@ func (r *Registry) gatherTotals() map[string]float64 {
 		name := mf.GetName()
 		switch name {
 		case "korto_compressor_bytes_saved_total",
+			"korto_cache_replay_bytes_total",
 			"korto_compressor_blocks_stripped_total",
 			"korto_compressor_scopes_active",
 			"korto_cache_entries":

@@ -107,6 +107,10 @@
   <main>
     <div class="grid">
       <div class="card">
+        <div class="label" style="color: var(--hit);">Estimated Savings</div>
+        <div class="value" id="dollars-saved" style="color: var(--hit);">—</div>
+      </div>
+      <div class="card">
         <div class="label">Cache hit rate (5m)</div>
         <div class="value" id="hit-rate">—</div>
       </div>
@@ -160,11 +164,15 @@
     function fmtPct(n) {
       return (n * 100).toFixed(1) + '%';
     }
+    function fmtCurrency(n) {
+      return '$' + n.toFixed(2);
+    }
     function pill(status) {
       const cls = status === 'hit' ? 'hit' : status === 'miss' ? 'miss' : 'bypass';
       return '<span class="pill ' + cls + '">' + status.toUpperCase() + '</span>';
     }
     function render(data) {
+      document.getElementById('dollars-saved').textContent = fmtCurrency(data.estimated_dollars_saved);
       document.getElementById('hit-rate').textContent =
         fmtPct(data.cache_hit_rate_5m) + ' (' + data.cache_hits_5m + 'H / ' + data.cache_misses_5m + 'M)';
       document.getElementById('bytes-saved').textContent = fmtBytes(data.compressor_bytes_saved_total);
