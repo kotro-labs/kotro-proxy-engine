@@ -13,6 +13,7 @@ const output = vscode.window.createOutputChannel('KortoLabs Proxy Engine');
 function extensionConfig() {
   const cfg = vscode.workspace.getConfiguration('kortosystems');
   return {
+    profile: cfg.get<string>('profile', 'custom'),
     listenAddr: cfg.get<string>('listenAddr', ':8080'),
     metricsAddr: cfg.get<string>('metricsAddr', '127.0.0.1:9090'),
     upstreamUrl: cfg.get<string>('upstreamUrl', 'https://api.openai.com'),
@@ -63,6 +64,7 @@ export function activate(context: vscode.ExtensionContext): void {
   sidecarProcess = spawn(binaryPath, [], {
     env: {
       ...process.env,
+      KORTO_PROFILE: settings.profile === 'custom' ? '' : settings.profile,
       KORTO_LISTEN_ADDR: settings.listenAddr,
       KORTO_METRICS_ADDR: addrForEnv(settings.metricsAddr),
       KORTO_UPSTREAM_URL: settings.upstreamUrl,

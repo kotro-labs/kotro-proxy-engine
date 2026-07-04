@@ -39,6 +39,18 @@
     "configuration": {
       "title": "Korto Proxy",
       "properties": {
+        "kortosystems.profile": {
+          "type": "string",
+          "default": "custom",
+          "enum": ["custom", "cursor", "copilot", "continue"],
+          "enumDescriptions": [
+            "Advanced (Manual toggle control)",
+            "Cursor AI (Optimizes for Composer context streaming)",
+            "GitHub Copilot (Disables redaction for strict autocompletion)",
+            "Continue.dev (Standard semantic engine)"
+          ],
+          "description": "Pre-configured deployment profile for IDEs (KORTO_PROFILE)."
+        },
         "kortosystems.listenAddr": {
           "type": "string",
           "default": ":8080",
