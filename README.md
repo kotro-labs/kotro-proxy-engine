@@ -31,7 +31,7 @@ In a standard 3-turn codebase benchmark:
 | **Streaming semantic cache** | Captures complete SSE streams on miss; replays on identical prompt state (system + latest user + model). |
 | **Privacy guardrail** | Redacts secrets before upstream; restores placeholders in streaming responses. |
 | **Context compressor** | Strips unchanged MCP schemas / directory trees across turns. |
-| **Dual provider support** | OpenAI `POST /v1/chat/completions` and Anthropic `POST /v1/messages`. |
+| **Universal provider support** | OpenAI-compatible APIs (DeepSeek, Groq, Ollama, etc.) and Anthropic `POST /v1/messages`. |
 | **Offline test harness** | Mock upstream simulates chunked OpenAI + Anthropic SSE without network. |
 | **Load benchmarks** | k6 and vegeta scripts for cache hit/miss and mixed workloads. |
 
@@ -69,7 +69,7 @@ make dev
 
 Point your IDE or SDK at `http://localhost:8080/v1`.
 
-### OpenAI (streaming)
+### OpenAI-Compatible (DeepSeek, Groq, Ollama)
 
 ```bash
 curl -N http://127.0.0.1:8080/v1/chat/completions \
