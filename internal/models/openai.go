@@ -105,6 +105,15 @@ type StreamChunk struct {
 	Created int64          `json:"created,omitempty"`
 	Model   string         `json:"model,omitempty"`
 	Choices []StreamChoice `json:"choices"`
+	Usage   *DeepSeekUsage `json:"usage,omitempty"`
+}
+
+// DeepSeekUsage handles telemetry for cache hit tracking.
+type DeepSeekUsage struct {
+	PromptTokens          int `json:"prompt_tokens"`
+	PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
+	CompletionTokens      int `json:"completion_tokens"`
 }
 
 // StreamChoice holds the delta fragment for one streaming choice.

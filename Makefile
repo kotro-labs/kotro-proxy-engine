@@ -42,8 +42,8 @@ rust-cancel-audit:
 # Run both audits sequentially (never in parallel — they share :8080/:9000).
 audit: cancel-audit rust-cancel-audit
 
-eval-suite: build
-	bash benchmarks/eval-suite/run.sh
+eval-suite:
+	go run benchmarks/eval-suite/main.go
 
 update-homebrew-shas:
 	bash scripts/update-homebrew-shas.sh $(VERSION)

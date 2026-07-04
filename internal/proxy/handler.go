@@ -16,6 +16,7 @@ import (
 	"github.com/kortolabs/proxy-engine/internal/cache"
 	"github.com/kortolabs/proxy-engine/internal/compressor"
 	"github.com/kortolabs/proxy-engine/internal/models"
+	"github.com/kortolabs/proxy-engine/internal/optimizer"
 )
 
 // Handler intercepts OpenAI-compatible POST /v1/chat/completions streams.
@@ -114,6 +115,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	obs.setStream(req.Stream)
+
+	// Intercept and restructure the payload to the DeepSeek server-side caching matrix
+	optimizer.EnforceCacheMatrix(req)
 
 	scope, scopeMeta := h.opts.Scope.Resolve(r)
 	recordScopeMetrics(h.opts.Metrics, scopeMeta)
