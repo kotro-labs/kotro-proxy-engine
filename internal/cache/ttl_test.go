@@ -36,8 +36,12 @@ func TestStoreTTLExpiresOnRead(t *testing.T) {
 
 func TestStoreTTLShortLivedEntry(t *testing.T) {
 	dir := t.TempDir()
+	// Use a generous TTL: expiresAt is stamped at encode time, before bbolt write.
+	// On slow CI runners the write can exceed very short TTLs (15ms), making the
+	// immediate Get look like a false miss.
+	const ttl = 200 * time.Millisecond
 	store, err := cache.OpenWithOptions(filepath.Join(dir, "short.db"), cache.StoreOptions{
-		TTL: 15 * time.Millisecond,
+		TTL: ttl,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +50,7 @@ func TestStoreTTLShortLivedEntry(t *testing.T) {
 
 	if err := store.Put(cache.Entry{
 		Key:    "short",
-		RawSSE: []byte("data: [DONE]\n\n"),
+			RawSSE: []byte("data: [DONE]\n\n"),
 		Model:  "gpt-4",
 	}); err != nil {
 		t.Fatal(err)
@@ -57,7 +61,7 @@ func TestStoreTTLShortLivedEntry(t *testing.T) {
 		t.Fatalf("expected fresh hit, got %v err %v", got, err)
 	}
 
-	time.Sleep(25 * time.Millisecond)
+	time.Sleep(ttl + 100*time.Millisecond)
 
 	got, err = store.Get("short")
 	if err != nil {
@@ -67,7 +71,7 @@ func TestStoreTTLShortLivedEntry(t *testing.T) {
 		t.Fatal("expected expired entry to behave as cache miss")
 	}
 
-	time.Sleep(15 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	got, err = store.Get("short")
 	if err != nil {
 		t.Fatal(err)
