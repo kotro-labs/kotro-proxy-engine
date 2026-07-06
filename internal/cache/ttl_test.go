@@ -50,7 +50,7 @@ func TestStoreTTLShortLivedEntry(t *testing.T) {
 
 	if err := store.Put(cache.Entry{
 		Key:    "short",
-			RawSSE: []byte("data: [DONE]\n\n"),
+		RawSSE: []byte("data: [DONE]\n\n"),
 		Model:  "gpt-4",
 	}); err != nil {
 		t.Fatal(err)
