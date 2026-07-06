@@ -83,6 +83,18 @@
           "type": "boolean",
           "default": true
         },
+        "kortosystems.enableShrink": {
+          "type": "boolean",
+          "default": true
+        },
+        "kortosystems.fallbackUrl": {
+          "type": "string",
+          "default": ""
+        },
+        "kortosystems.fallbackModel": {
+          "type": "string",
+          "default": ""
+        },
         "kortosystems.enableMetrics": {
           "type": "boolean",
           "default": true,

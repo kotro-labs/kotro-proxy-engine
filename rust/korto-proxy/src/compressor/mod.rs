@@ -1,5 +1,7 @@
 //! Context block dedup — mirrors `internal/compressor/context.go`.
 
+pub mod shrink;
+
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -97,6 +99,7 @@ impl StateTracker {
         &self,
         scope: &Scope,
         mut req: ChatCompletionRequest,
+        enable_shrink: bool,
     ) -> ChatCompletionRequest {
         for msg in &mut req.messages {
             if msg.role != "system" && msg.role != "user" {
@@ -104,7 +107,8 @@ impl StateTracker {
             }
             match &mut msg.content {
                 serde_json::Value::String(text) => {
-                    let (pruned, ok) = self.compress_message(scope, text);
+                    let text = if enable_shrink { shrink::shrink_text(text) } else { text.to_string() };
+                    let (pruned, ok) = self.compress_message(scope, &text);
                     if ok {
                         msg.content = serde_json::Value::String(pruned);
                     }
@@ -113,7 +117,8 @@ impl StateTracker {
                     for part in parts {
                         if part.get("type").and_then(serde_json::Value::as_str) == Some("text") {
                             if let Some(text) = part.get("text").and_then(serde_json::Value::as_str) {
-                                let (pruned, ok) = self.compress_message(scope, text);
+                                let text = if enable_shrink { shrink::shrink_text(text) } else { text.to_string() };
+                    let (pruned, ok) = self.compress_message(scope, &text);
                                 if ok {
                                     if let Some(obj) = part.as_object_mut() {
                                         obj.insert("text".to_string(), serde_json::Value::String(pruned));
@@ -133,11 +138,13 @@ impl StateTracker {
         &self,
         scope: &Scope,
         mut req: MessagesRequest,
+        enable_shrink: bool,
     ) -> MessagesRequest {
         if !req.system.is_null() {
             match &mut req.system {
                 serde_json::Value::String(text) => {
-                    let (pruned, ok) = self.compress_message(scope, text);
+                    let text = if enable_shrink { shrink::shrink_text(text) } else { text.to_string() };
+                    let (pruned, ok) = self.compress_message(scope, &text);
                     if ok {
                         req.system = serde_json::Value::String(pruned);
                     }
@@ -146,7 +153,8 @@ impl StateTracker {
                     for part in parts {
                         if part.get("type").and_then(serde_json::Value::as_str) == Some("text") {
                             if let Some(text) = part.get("text").and_then(serde_json::Value::as_str) {
-                                let (pruned, ok) = self.compress_message(scope, text);
+                                let text = if enable_shrink { shrink::shrink_text(text) } else { text.to_string() };
+                    let (pruned, ok) = self.compress_message(scope, &text);
                                 if ok {
                                     if let Some(obj) = part.as_object_mut() {
                                         obj.insert("text".to_string(), serde_json::Value::String(pruned));
@@ -166,7 +174,8 @@ impl StateTracker {
             }
             match &mut msg.content {
                 serde_json::Value::String(text) => {
-                    let (pruned, ok) = self.compress_message(scope, text);
+                    let text = if enable_shrink { shrink::shrink_text(text) } else { text.to_string() };
+                    let (pruned, ok) = self.compress_message(scope, &text);
                     if ok {
                         msg.content = serde_json::Value::String(pruned);
                     }
@@ -175,7 +184,8 @@ impl StateTracker {
                     for part in parts {
                         if part.get("type").and_then(serde_json::Value::as_str) == Some("text") {
                             if let Some(text) = part.get("text").and_then(serde_json::Value::as_str) {
-                                let (pruned, ok) = self.compress_message(scope, text);
+                                let text = if enable_shrink { shrink::shrink_text(text) } else { text.to_string() };
+                    let (pruned, ok) = self.compress_message(scope, &text);
                                 if ok {
                                     if let Some(obj) = part.as_object_mut() {
                                         obj.insert("text".to_string(), serde_json::Value::String(pruned));
@@ -273,8 +283,8 @@ mod tests {
         }))
         .unwrap();
 
-        tracker.compress_messages_request(&s, req.clone());
-        let second = tracker.compress_messages_request(&s, req);
+        tracker.compress_messages_request(&s, req.clone(), false);
+        let second = tracker.compress_messages_request(&s, req, false);
         assert_eq!(
             second.messages[0].content,
             serde_json::Value::String(String::new())

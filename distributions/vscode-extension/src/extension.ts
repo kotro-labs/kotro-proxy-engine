@@ -22,6 +22,9 @@ function extensionConfig() {
     enableCache: cfg.get<boolean>('enableCache', true),
     enableRedaction: cfg.get<boolean>('enableRedaction', true),
     enableCompression: cfg.get<boolean>('enableCompression', true),
+    enableShrink: cfg.get<boolean>('enableShrink', true),
+    fallbackUrl: cfg.get<string>('fallbackUrl', ''),
+    fallbackModel: cfg.get<string>('fallbackModel', ''),
     enableMetrics: cfg.get<boolean>('enableMetrics', true),
   };
 }
@@ -174,6 +177,9 @@ export function activate(context: vscode.ExtensionContext): void {
       KORTO_ENABLE_CACHE: String(settings.enableCache),
       KORTO_ENABLE_REDACTION: String(settings.enableRedaction),
       KORTO_ENABLE_COMPRESSION: String(settings.enableCompression),
+      KORTO_ENABLE_SHRINK: String(settings.enableShrink),
+      KORTO_FALLBACK_URL: fbUrl,
+      KORTO_FALLBACK_MODEL: fbModel,
       KORTO_ENABLE_METRICS: String(settings.enableMetrics),
       RUST_LOG: process.env.RUST_LOG ?? 'info',
     },

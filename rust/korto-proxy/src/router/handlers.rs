@@ -459,7 +459,7 @@ fn apply_openai_middleware(
 
     let cache_source = redacted.clone();
     let processed = if state.enable_compression {
-        state.compressor.compress_chat_request(scope, redacted)
+        state.compressor.compress_chat_request(scope, redacted, state.enable_shrink)
     } else {
         redacted
     };
@@ -485,7 +485,7 @@ fn apply_anthropic_middleware(
 
     let cache_source = redacted.clone();
     let processed = if state.enable_compression {
-        state.compressor.compress_messages_request(scope, redacted)
+        state.compressor.compress_messages_request(scope, redacted, state.enable_shrink)
     } else {
         redacted
     };
