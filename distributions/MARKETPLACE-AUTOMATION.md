@@ -1,5 +1,7 @@
 # VS Code Marketplace automation
 
+> **Stuck on `VSCE_PAT`?** Skip automation — use **[MARKETPLACE-MANUAL.md](MARKETPLACE-MANUAL.md)** (download VSIX from GitHub Release → upload on publisher page). That is the supported path when Azure blocks token creation.
+
 Manual VSIX upload is **not required** once `VSCE_PAT` is configured in this repository.
 
 ## Recommended setup (same repo — no second git repo)
