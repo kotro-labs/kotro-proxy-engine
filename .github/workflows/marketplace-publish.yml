@@ -1,0 +1,77 @@
+# Publishes the VSIX from a GitHub Release to the VS Code Marketplace.
+#
+# Triggers automatically when a release is published (after release.yml uploads
+# the VSIX). Use workflow_dispatch to republish an older tag without re-releasing.
+#
+# Required secret: VSCE_PAT (Marketplace → Manage scope)
+# Setup: distributions/SECRETS.md
+
+name: Publish VS Code Marketplace
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.2.7). Defaults to latest GitHub release.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  marketplace:
+    name: Publish kortolabs-proxy-engine
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName)"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "Could not resolve release tag" >&2
+            exit 1
+          fi
+          echo "Publishing Marketplace package for $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download VSIX from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release-assets
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern 'kortolabs-proxy-engine.vsix' \
+            --dir release-assets
+          ls -la release-assets/
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "::error::VSCE_PAT is not set. Add it at:"
+            echo "  https://github.com/${{ github.repository }}/settings/secrets/actions"
+            echo "See distributions/SECRETS.md for PAT creation steps."
+            exit 1
+          fi
+          npx @vscode/vsce@latest publish \
+            --packagePath release-assets/kortolabs-proxy-engine.vsix \
+            --no-dependencies \
+            -p "$VSCE_PAT"

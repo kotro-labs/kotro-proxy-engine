@@ -189,18 +189,8 @@ jobs:
           fi
           npm publish --access public
 
-      - name: Publish to VS Code Marketplace
-        if: github.ref_type == 'tag'
-        continue-on-error: true
-        working-directory: distributions/vscode-extension
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: |
-          if [ -z "${VSCE_PAT:-}" ]; then
-            echo "VSCE_PAT not set — skipping Marketplace publish"
-            exit 0
-          fi
-          npx @vscode/vsce@latest publish --no-dependencies -p "$VSCE_PAT"
+      # Marketplace publish runs in marketplace-publish.yml on release:published
+      # so the exact GitHub Release VSIX is uploaded (not a second build).
 
       - name: Create GitHub release
         if: github.ref_type == 'tag'

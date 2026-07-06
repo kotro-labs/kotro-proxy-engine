@@ -46,7 +46,7 @@ In a standard 3-turn codebase benchmark:
 | **GitHub Release** | [Download binary](https://github.com/ramairwing/kotro-proxy-engine/releases) for your platform |
 | **From source** | `make build` or `cd rust && cargo run -p korto-proxy` |
 
-Registry publish runs automatically on `v*` tags when `NPM_TOKEN` and `VSCE_PAT` secrets are configured. See [distributions/SECRETS.md](distributions/SECRETS.md).
+Registry publish runs automatically on `v*` tags when `NPM_TOKEN` and `VSCE_PAT` secrets are configured. Marketplace uses [marketplace-publish.yml](.github/workflows/marketplace-publish.yml) (see [distributions/MARKETPLACE-AUTOMATION.md](distributions/MARKETPLACE-AUTOMATION.md)).
 
 ## Quick start
 

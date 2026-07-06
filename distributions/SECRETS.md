@@ -7,7 +7,7 @@ Configure these in **GitHub → Settings → Secrets and variables → Actions**
 | `NPM_TOKEN` | Publish `@kortosystems/proxy-engine` on tag push | [npmjs.com](https://www.npmjs.com) → Access Tokens → **Automation** token |
 | `VSCE_PAT` | Publish `kortosystems.kortolabs-proxy-engine` to VS Code Marketplace | [Azure DevOps PAT](https://dev.azure.com/_users/settings/tokens) with **Marketplace → Manage** scope |
 
-**Publisher:** `kortosystems` — [Manage publisher](https://marketplace.visualstudio.com/manage/publishers/kortosystems)
+**Automated Marketplace publish:** add `VSCE_PAT` once, then every `v*` tag triggers [marketplace-publish.yml](../.github/workflows/marketplace-publish.yml) after the GitHub Release is created. See [MARKETPLACE-AUTOMATION.md](MARKETPLACE-AUTOMATION.md).
 
 ## VSCE_PAT — when you need it (and when you don't)
 
