@@ -5,208 +5,504 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Kotro Proxy Dashboard</title>
   <link rel="icon" href="/favicon.ico" type="image/png" sizes="128x128" />
+  <!-- Use Inter font for a premium look -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       color-scheme: dark;
-      --bg: #0f1419;
-      --panel: #1a2332;
-      --border: #2d3a4f;
+      /* Deep animated gradient background */
+      --bg-color: #0b0f16;
+      --panel: rgba(26, 35, 50, 0.45);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-highlight: rgba(255, 255, 255, 0.15);
       --text: #e8eef7;
       --muted: #8fa3bf;
-      --accent: #3dd6c3;
-      --hit: #5ee08d;
-      --miss: #f0a060;
-      --bypass: #8fa3bf;
+      
+      /* Vibrant HSL Accents */
+      --accent: hsl(172, 66%, 54%); /* #3dd6c3 */
+      --hit: hsl(141, 71%, 62%); /* #5ee08d */
+      --hit-glow: hsla(141, 71%, 62%, 0.4);
+      --hit-bg: hsla(141, 71%, 62%, 0.15);
+      
+      --miss: hsl(27, 85%, 66%); /* #f0a060 */
+      --miss-glow: hsla(27, 85%, 66%, 0.4);
+      --miss-bg: hsla(27, 85%, 66%, 0.15);
+      
+      --bypass: hsl(215, 27%, 65%); /* #8fa3bf */
+      --bypass-glow: hsla(215, 27%, 65%, 0.4);
+      --bypass-bg: hsla(215, 27%, 65%, 0.12);
     }
+
     * { box-sizing: border-box; }
+    
     body {
       margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-      background: var(--bg);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-color);
+      background-image: 
+        radial-gradient(circle at 15% 50%, rgba(61, 214, 195, 0.06), transparent 25%),
+        radial-gradient(circle at 85% 30%, rgba(94, 224, 141, 0.04), transparent 25%);
+      background-attachment: fixed;
       color: var(--text);
       line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
     }
+
+    /* Glassmorphism utility */
+    .glass {
+      background: var(--panel);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    }
+
     header {
-      padding: 1.25rem 1.5rem;
+      padding: 1.25rem 2rem;
       border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 1rem;
       flex-wrap: wrap;
+      background: rgba(11, 15, 22, 0.7);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
+
     .brand {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 1rem;
     }
+
     .brand img {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
       display: block;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
     }
-    h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
-    .sub { color: var(--muted); font-size: 0.85rem; }
-    main { padding: 1.25rem 1.5rem 2rem; max-width: 1100px; }
+
+    h1 { margin: 0; font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); font-size: 0.85rem; font-weight: 500; }
+    
+    main { padding: 2rem; max-width: 1200px; margin: 0 auto; }
+    
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem;
-      margin-bottom: 1.25rem;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 2rem;
     }
+
     .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1rem 1.1rem;
+      border-radius: 14px;
+      padding: 1.25rem 1.5rem;
+      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease;
+      position: relative;
+      overflow: hidden;
     }
-    .label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
-    .value { font-size: 1.65rem; font-weight: 700; margin-top: 0.35rem; }
-    .value small { font-size: 0.95rem; font-weight: 500; color: var(--muted); }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.92rem;
+    
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-highlight);
     }
-    th, td {
-      text-align: left;
-      padding: 0.65rem 0.75rem;
-      border-bottom: 1px solid var(--border);
+
+    /* Subtle top-light gradient for cards */
+    .card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
     }
-    th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; }
-    .pill {
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
-      border-radius: 999px;
-      font-size: 0.75rem;
+
+    .label { 
+      color: var(--muted); 
+      font-size: 0.75rem; 
+      text-transform: uppercase; 
+      letter-spacing: 0.06em; 
       font-weight: 600;
     }
-    .pill.hit { background: rgba(94, 224, 141, 0.15); color: var(--hit); }
-    .pill.miss { background: rgba(240, 160, 96, 0.15); color: var(--miss); }
-    .pill.bypass { background: rgba(143, 163, 191, 0.12); color: var(--bypass); }
-    .links a { color: var(--accent); text-decoration: none; margin-right: 1rem; }
-    .links a:hover { text-decoration: underline; }
-    .err { color: #ff7b7b; margin-top: 0.75rem; font-size: 0.9rem; }
+    
+    .value { 
+      font-size: 1.85rem; 
+      font-weight: 700; 
+      margin-top: 0.5rem; 
+      letter-spacing: -0.03em;
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+    }
+    
+    .value small { font-size: 0.95rem; font-weight: 500; color: var(--muted); }
+    
+    .hero-card {
+      grid-column: 1 / -1;
+      background: linear-gradient(135deg, rgba(94, 224, 141, 0.1), rgba(61, 214, 195, 0.05));
+      border: 1px solid hsla(141, 71%, 62%, 0.3);
+    }
+    
+    .hero-card:hover {
+      border-color: hsla(141, 71%, 62%, 0.6);
+      box-shadow: 0 0 20px hsla(141, 71%, 62%, 0.15);
+    }
+
+    .hero-value {
+      font-size: 3.5rem;
+      color: var(--hit);
+      text-shadow: 0 0 30px var(--hit-glow);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.92rem;
+    }
+    
+    th, td {
+      text-align: left;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    th { 
+      color: var(--muted); 
+      font-weight: 600; 
+      font-size: 0.75rem; 
+      text-transform: uppercase; 
+      letter-spacing: 0.05em;
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(12px);
+      background: rgba(26, 35, 50, 0.8);
+      z-index: 10;
+    }
+    
+    tbody tr {
+      transition: background-color 0.15s ease;
+      animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    
+    /* Staggered animation for initial load */
+    tbody tr:nth-child(1) { animation-delay: 0.05s; }
+    tbody tr:nth-child(2) { animation-delay: 0.10s; }
+    tbody tr:nth-child(3) { animation-delay: 0.15s; }
+    tbody tr:nth-child(4) { animation-delay: 0.20s; }
+    tbody tr:nth-child(5) { animation-delay: 0.25s; }
+    
+    @keyframes slideIn {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    tbody tr:hover {
+      background-color: rgba(255, 255, 255, 0.03);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      border: 1px solid transparent;
+      box-shadow: 0 0 10px transparent;
+    }
+    
+    .pill.hit { 
+      background: var(--hit-bg); 
+      color: var(--hit); 
+      border-color: hsla(141, 71%, 62%, 0.3);
+      box-shadow: 0 0 12px var(--hit-glow);
+    }
+    
+    .pill.miss { 
+      background: var(--miss-bg); 
+      color: var(--miss); 
+      border-color: hsla(27, 85%, 66%, 0.3);
+    }
+    
+    .pill.bypass { 
+      background: var(--bypass-bg); 
+      color: var(--bypass); 
+      border-color: hsla(215, 27%, 65%, 0.3);
+    }
+
+    .links a { 
+      color: var(--accent); 
+      text-decoration: none; 
+      margin-left: 1.5rem; 
+      font-weight: 600;
+      transition: color 0.2s ease, text-shadow 0.2s ease;
+    }
+    
+    .links a:hover { 
+      color: #fff; 
+      text-shadow: 0 0 12px rgba(61, 214, 195, 0.8);
+    }
+
+    .err { 
+      color: #ff7b7b; 
+      margin-top: 1rem; 
+      font-size: 0.9rem;
+      background: rgba(255, 123, 123, 0.1);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 123, 123, 0.3);
+    }
+
+    /* Data table container for scrolling */
+    .table-container {
+      max-height: 400px;
+      overflow-y: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    
+    /* Scrollbar styling */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+
+    /* Number rolling animation classes */
+    .rolling-number {
+      display: inline-block;
+      font-variant-numeric: tabular-nums;
+    }
   </style>
 </head>
 <body>
   <header>
     <div class="brand">
-      <img src="/dashboard/icon.png" alt="Kotro" width="32" height="32" />
+      <img src="/dashboard/icon.png" alt="Kotro" width="36" height="36" />
       <div>
-        <h1>Kotro Proxy Dashboard</h1>
-        <div class="sub">Local sidecar observability · refreshes every 5s</div>
+        <h1>Kotro Proxy</h1>
+        <div class="sub">Local telemetry · Polling active</div>
       </div>
     </div>
     <div class="links sub">
-      <a href="/metrics">Prometheus</a>
-      <a href="/healthz">Health</a>
+      <a href="/metrics" target="_blank">Prometheus</a>
+      <a href="/healthz" target="_blank">Health</a>
     </div>
   </header>
   <main>
     <div class="grid">
-      <div class="card">
+      <!-- Hero Card -->
+      <div class="card glass hero-card">
         <div class="label" style="color: var(--hit);">Estimated Savings</div>
-        <div class="value" id="dollars-saved" style="color: var(--hit);">—</div>
+        <div class="value hero-value" id="dollars-saved">
+          <span class="rolling-number" data-val="0">$0.00</span>
+        </div>
       </div>
-      <div class="card">
+      
+      <!-- Standard Cards -->
+      <div class="card glass">
         <div class="label">Cache hit rate (5m)</div>
-        <div class="value" id="hit-rate">—</div>
+        <div class="value" id="hit-rate">
+          <span class="rolling-number" data-val="0">0.0%</span>
+          <small id="hit-rate-details">(0H / 0M)</small>
+        </div>
       </div>
-      <div class="card">
-        <div class="label">Compressor bytes saved</div>
-        <div class="value" id="bytes-saved">—</div>
+      <div class="card glass">
+        <div class="label">Tokens Saved (approx)</div>
+        <div class="value">
+          <span class="rolling-number" id="tokens-saved" data-val="0">0</span>
+          <small>tokens</small>
+        </div>
       </div>
-      <div class="card">
-        <div class="label">Redactions (session)</div>
-        <div class="value" id="redactions">—</div>
+      <div class="card glass">
+        <div class="label">Bandwidth Saved</div>
+        <div class="value" id="bytes-saved">
+          <span class="rolling-number" data-val="0">0 B</span>
+        </div>
       </div>
-      <div class="card">
-        <div class="label">Active compressor scopes</div>
-        <div class="value" id="scopes">—</div>
+      <div class="card glass">
+        <div class="label">Active Scopes</div>
+        <div class="value">
+          <span class="rolling-number" id="scopes" data-val="0">0</span>
+        </div>
       </div>
-      <div class="card">
-        <div class="label">Cache entries</div>
-        <div class="value" id="cache-entries">—</div>
+      <div class="card glass">
+        <div class="label">Redactions</div>
+        <div class="value">
+          <span class="rolling-number" id="redactions" data-val="0">0</span>
+        </div>
       </div>
-      <div class="card">
-        <div class="label">Requests (session)</div>
-        <div class="value" id="requests">—</div>
+      <div class="card glass">
+        <div class="label">Requests</div>
+        <div class="value">
+          <span class="rolling-number" id="requests" data-val="0">0</span>
+        </div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="label" style="margin-bottom: 0.75rem;">Recent requests</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Time (UTC)</th>
-            <th>Provider</th>
-            <th>Route</th>
-            <th>Cache</th>
-          </tr>
-        </thead>
-        <tbody id="recent-body">
-          <tr><td colspan="4" class="sub">Waiting for traffic…</td></tr>
-        </tbody>
-      </table>
-      <div class="sub" style="margin-top: 0.75rem;" id="updated-at">—</div>
+    <div class="card glass">
+      <div class="label" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+        <span>Recent Traffic</span>
+        <span class="sub" style="text-transform: none; letter-spacing: normal;" id="updated-at">Waiting for data...</span>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Time (Local)</th>
+              <th>Provider</th>
+              <th>Route</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="recent-body">
+            <tr><td colspan="4" class="sub" style="text-align: center; padding: 2rem;">Awaiting first request...</td></tr>
+          </tbody>
+        </table>
+      </div>
       <div class="err" id="error" hidden></div>
     </div>
   </main>
+  
   <script>
+    // Utility Formatting
     function fmtBytes(n) {
       if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
       if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
       return Math.round(n) + ' B';
     }
+    
     function fmtPct(n) {
       return (n * 100).toFixed(1) + '%';
     }
+    
     function fmtCurrency(n) {
-      return '$' + n.toFixed(2);
+      return '$' + n.toFixed(4); // Show sub-cents for dopamine
     }
+    
     function pill(status) {
       const cls = status === 'hit' ? 'hit' : status === 'miss' ? 'miss' : 'bypass';
       return '<span class="pill ' + cls + '">' + status.toUpperCase() + '</span>';
     }
-    function render(data) {
-      document.getElementById('dollars-saved').textContent = fmtCurrency(data.estimated_dollars_saved);
-      document.getElementById('hit-rate').textContent =
-        fmtPct(data.cache_hit_rate_5m) + ' (' + data.cache_hits_5m + 'H / ' + data.cache_misses_5m + 'M)';
-      document.getElementById('bytes-saved').textContent = fmtBytes(data.compressor_bytes_saved_total);
-      document.getElementById('redactions').textContent = Math.round(data.redactions_total);
-      document.getElementById('scopes').textContent = Math.round(data.compressor_scopes_active);
-      document.getElementById('cache-entries').textContent = Math.round(data.cache_entries);
-      document.getElementById('requests').textContent = Math.round(data.requests_total);
-      document.getElementById('updated-at').textContent = 'Updated ' + data.updated_at;
 
-      const body = document.getElementById('recent-body');
-      if (!data.recent_requests || data.recent_requests.length === 0) {
-        body.innerHTML = '<tr><td colspan="4" class="sub">No proxied requests yet</td></tr>';
+    // Number Rolling Animation
+    const DURATION = 1000; // ms
+    function easeOutExpo(t) {
+      return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
+    }
+
+    function animateValue(el, start, end, formatFn) {
+      if (start === end) {
+        el.textContent = formatFn(end);
         return;
       }
-      body.innerHTML = data.recent_requests.map(function (r) {
-        const t = new Date(r.at).toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
-        return '<tr><td>' + t + '</td><td>' + r.provider + '</td><td>' + r.route + '</td><td>' + pill(r.cache_status) + '</td></tr>';
-      }).join('');
+      
+      let startTimestamp = null;
+      const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = Math.min((timestamp - startTimestamp) / DURATION, 1);
+        const current = start + (end - start) * easeOutExpo(progress);
+        
+        el.textContent = formatFn(current);
+        
+        if (progress < 1) {
+          window.requestAnimationFrame(step);
+        } else {
+          el.textContent = formatFn(end);
+          el.dataset.val = end;
+        }
+      };
+      window.requestAnimationFrame(step);
     }
+
+    function updateCounter(id, newValue, formatFn) {
+      const el = document.getElementById(id);
+      if(!el) return;
+      let target = el;
+      if (el.classList.contains('rolling-number')) {
+          target = el;
+      } else {
+          target = el.querySelector('.rolling-number');
+      }
+      
+      if(!target) return;
+      
+      const start = parseFloat(target.dataset.val) || 0;
+      target.dataset.val = newValue;
+      animateValue(target, start, newValue, formatFn);
+    }
+
+    // Render Data
+    function render(data) {
+      // Animate scalar values
+      updateCounter('dollars-saved', data.estimated_dollars_saved, fmtCurrency);
+      
+      const hitRateEl = document.querySelector('#hit-rate .rolling-number');
+      const startHit = parseFloat(hitRateEl.dataset.val) || 0;
+      hitRateEl.dataset.val = data.cache_hit_rate_5m;
+      animateValue(hitRateEl, startHit, data.cache_hit_rate_5m, fmtPct);
+      document.getElementById('hit-rate-details').textContent = 
+        '(' + data.cache_hits_5m + 'H / ' + data.cache_misses_5m + 'M)';
+        
+      updateCounter('bytes-saved', data.compressor_bytes_saved_total, fmtBytes);
+      updateCounter('tokens-saved', data.compressor_bytes_saved_total / 4, Math.round);
+      updateCounter('redactions', data.redactions_total, Math.round);
+      updateCounter('scopes', data.compressor_scopes_active, Math.round);
+      updateCounter('requests', data.requests_total, Math.round);
+      
+      const d = new Date();
+      document.getElementById('updated-at').textContent = 'Live • ' + d.toLocaleTimeString();
+
+      // Render table
+      const body = document.getElementById('recent-body');
+      if (!data.recent_requests || data.recent_requests.length === 0) {
+        if(body.children.length <= 1 && body.textContent.includes('Awaiting')) return;
+        body.innerHTML = '<tr><td colspan="4" class="sub" style="text-align: center; padding: 2rem;">No proxied requests yet</td></tr>';
+        return;
+      }
+      
+      // Build new HTML rows
+      const html = data.recent_requests.map(function (r) {
+        // Convert UTC to local browser time
+        const t = new Date(r.at).toLocaleTimeString([], {hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit'}) + '.' + new Date(r.at).getMilliseconds().toString().padStart(3, '0');
+        return '<tr><td>' + t + '</td><td>' + r.provider + '</td><td style="font-family: monospace;">' + r.route + '</td><td>' + pill(r.cache_status) + '</td></tr>';
+      }).join('');
+      
+      // Only inject if changed to allow animations to settle, or do a smart diff (simple approach: just replace)
+      // To keep it simple but aesthetic, we just replace.
+      if (body.dataset.lastJson !== JSON.stringify(data.recent_requests)) {
+          body.innerHTML = html;
+          body.dataset.lastJson = JSON.stringify(data.recent_requests);
+      }
+    }
+
+    // Polling Loop
     async function refresh() {
       try {
         const res = await fetch('/api/dashboard', { cache: 'no-store' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         render(data);
-        document.getElementById('error').hidden = true;
+        const errEl = document.getElementById('error');
+        errEl.hidden = true;
       } catch (err) {
         const el = document.getElementById('error');
         el.hidden = false;
-        el.textContent = 'Failed to load dashboard: ' + err.message;
+        el.textContent = 'Connection lost. Retrying... (' + err.message + ')';
       }
     }
+    
+    // Initial fetch
     refresh();
-    setInterval(refresh, 5000);
+    // Poll every 2 seconds for higher dopamine frequency (since UI is now buttery smooth)
+    setInterval(refresh, 2000);
   </script>
 </body>
 </html>
