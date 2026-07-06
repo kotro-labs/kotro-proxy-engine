@@ -13,7 +13,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REPO="${GITHUB_REPO:-kotro/kotro-proxy-engine}"
+REPO="${GITHUB_REPO:-kotro-labs/kotro-proxy-engine}"
 FORMULAS=(
   "${ROOT}/distributions/homebrew/Formula/kortolabs-proxy.rb"
   "${ROOT}/distributions/homebrew-tap/Formula/kortolabs-proxy.rb"

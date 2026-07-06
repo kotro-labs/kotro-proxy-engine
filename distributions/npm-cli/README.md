@@ -4,7 +4,7 @@
   <img src="media/icon.png" alt="Korto" width="72" height="72" />
 </p>
 
-npm distribution for the [Korto Proxy Engine](https://github.com/kotro/kotro-proxy-engine) — a local AI reverse proxy with streaming semantic cache, PII redaction, and context compression for OpenAI and Anthropic SDKs.
+npm distribution for the [Korto Proxy Engine](https://github.com/kotro-labs/kotro-proxy-engine) — a local AI reverse proxy with streaming semantic cache, PII redaction, and context compression for OpenAI and Anthropic SDKs.
 
 ## Features
 
@@ -59,13 +59,13 @@ Operator   →  127.0.0.1:9090/dashboard  (telemetry — loopback only by defaul
 | `KORTO_ENABLE_COMPRESSION` | `true` | Context block dedup |
 | `KORTO_TRUST_UPSTREAM_GATEWAY` | `false` | Honor `X-Tenant-ID` only from trusted proxy CIDRs |
 
-Full documentation: [github.com/kotro/kotro-proxy-engine](https://github.com/kotro/kotro-proxy-engine)
+Full documentation: [github.com/kotro-labs/kotro-proxy-engine](https://github.com/kotro-labs/kotro-proxy-engine)
 
 ## Other install channels
 
-- **Homebrew:** `brew tap kotro/tap && brew install kortolabs-proxy`
+- **Homebrew:** `brew tap kotro-labs/tap && brew install kortolabs-proxy`
 - **VS Code / Cursor:** [Marketplace extension](https://marketplace.visualstudio.com/items?itemName=kortosystems.kortolabs-proxy-engine)
-- **GitHub Releases:** [Download binaries](https://github.com/kotro/kotro-proxy-engine/releases)
+- **GitHub Releases:** [Download binaries](https://github.com/kotro-labs/kotro-proxy-engine/releases)
 
 ## License
 

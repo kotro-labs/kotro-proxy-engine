@@ -19,7 +19,7 @@ A separate repository is usually **unnecessary**. Marketplace publish only needs
    (see [SECRETS.md](SECRETS.md) → VSCE_PAT section)
 
 2. Add GitHub secret **`VSCE_PAT`**  
-   [Repository secrets](https://github.com/kotro/kotro-proxy-engine/settings/secrets/actions) → **New repository secret**
+   [Repository secrets](https://github.com/kotro-labs/kotro-proxy-engine/settings/secrets/actions) → **New repository secret**
 
 3. Verify locally (optional):
 
@@ -52,7 +52,7 @@ The Marketplace workflow publishes the **exact VSIX** attached to the GitHub Rel
 
 If a release already exists but Marketplace was skipped (e.g. before `VSCE_PAT` was added):
 
-1. Open [Actions → Publish VS Code Marketplace](https://github.com/kotro/kotro-proxy-engine/actions/workflows/marketplace-publish.yml)
+1. Open [Actions → Publish VS Code Marketplace](https://github.com/kotro-labs/kotro-proxy-engine/actions/workflows/marketplace-publish.yml)
 2. **Run workflow** → enter tag `v0.2.7` (or leave empty for latest release)
 3. Workflow downloads that release's VSIX and publishes
 

@@ -4,13 +4,13 @@ Public Homebrew tap for installing the Korto proxy on macOS.
 
 This directory is a **standalone tap repository scaffold**. Publish it as:
 
-`https://github.com/kotro/homebrew-tap`
+`https://github.com/kotro-labs/homebrew-tap`
 
 ## One-time setup
 
 ```bash
 # Create the tap repo on GitHub, then:
-git clone git@github.com:kotro/homebrew-tap.git
+git clone git@github.com:kotro-labs/homebrew-tap.git
 cp distributions/homebrew-tap/Formula/kortolabs-proxy.rb homebrew-tap/Formula/
 cd homebrew-tap && git add Formula && git commit -m "Add kortolabs-proxy formula" && git push
 ```
@@ -18,7 +18,7 @@ cd homebrew-tap && git add Formula && git commit -m "Add kortolabs-proxy formula
 ## Install for end users
 
 ```bash
-brew tap kotro/tap
+brew tap kotro-labs/tap
 brew install kortolabs-proxy
 kortolabs-proxy --version
 ```
@@ -51,4 +51,4 @@ homebrew-tap/
     └── kortolabs-proxy.rb
 ```
 
-Homebrew expects the repo name `homebrew-tap` (or `homebrew-*`) so `brew tap kotro/tap` resolves to `github.com/kotro/homebrew-tap`.
+Homebrew expects the repo name `homebrew-tap` (or `homebrew-*`) so `brew tap kotro-labs/tap` resolves to `github.com/kotro-labs/homebrew-tap`.

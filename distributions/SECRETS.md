@@ -1,6 +1,6 @@
 # Distribution registry secrets
 
-Configure these in **GitHub → Settings → Secrets and variables → Actions** on `kotro/kotro-proxy-engine`.
+Configure these in **GitHub → Settings → Secrets and variables → Actions** on `kotro-labs/kotro-proxy-engine`.
 
 | Secret | Purpose | How to obtain |
 |--------|---------|---------------|
@@ -84,7 +84,7 @@ and upload `kortolabs-proxy-engine.vsix` from GitHub Releases.
 
 ### 0. Add secrets
 
-[Repository secrets dashboard](https://github.com/kotro/kotro-proxy-engine/settings/secrets/actions)
+[Repository secrets dashboard](https://github.com/kotro-labs/kotro-proxy-engine/settings/secrets/actions)
 
 ### 1. Re-dispatch tag (after secrets are live)
 
@@ -94,7 +94,7 @@ make go-live VERSION=v0.1.0
 
 ### 2. Monitor CI
 
-https://github.com/kotro/kotro-proxy-engine/actions/workflows/release.yml
+https://github.com/kotro-labs/kotro-proxy-engine/actions/workflows/release.yml
 
 ### 3. Stamp Homebrew checksums (after release assets upload)
 
@@ -107,7 +107,7 @@ git push origin main
 
 | Surface | URL |
 |---------|-----|
-| GitHub Release | https://github.com/kotro/kotro-proxy-engine/releases |
+| GitHub Release | https://github.com/kotro-labs/kotro-proxy-engine/releases |
 | npm | https://www.npmjs.com/package/@kortosystems/proxy-engine |
 | VS Code Marketplace | https://marketplace.visualstudio.com/items?itemName=kortosystems.kortolabs-proxy-engine |
 
@@ -119,4 +119,4 @@ If secrets are absent, the release workflow **skips** registry publish and still
 scripts/update-homebrew-shas.sh v0.1.0
 ```
 
-Sync `distributions/homebrew-tap/Formula/` into `github.com/kotro/homebrew-tap`.
+Sync `distributions/homebrew-tap/Formula/` into `github.com/kotro-labs/homebrew-tap`.

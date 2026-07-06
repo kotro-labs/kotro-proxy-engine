@@ -11,7 +11,7 @@ distributions/
 ├── vscode-extension/           # Cursor / VS Code IDE sidecar
 ├── npm-cli/                    # npm install -g @kortosystems/proxy-engine
 ├── homebrew/Formula/           # In-repo formula reference
-└── homebrew-tap/               # Standalone tap repo scaffold (copy to github.com/kotro/homebrew-tap)
+└── homebrew-tap/               # Standalone tap repo scaffold (copy to github.com/kotro-labs/homebrew-tap)
 ```
 
 ## Release asset layout
@@ -69,7 +69,7 @@ scripts/update-homebrew-shas.sh v0.1.0
 make update-homebrew-shas VERSION=v0.1.0
 ```
 
-Copy the stamped tap formula into `github.com/kotro/homebrew-tap` — see [homebrew-tap/README.md](homebrew-tap/README.md).
+Copy the stamped tap formula into `github.com/kotro-labs/homebrew-tap` — see [homebrew-tap/README.md](homebrew-tap/README.md).
 
 ## Brand icon
 

@@ -6,7 +6,7 @@
   "author": "Ramesh Pandian",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kotro/kotro-proxy-engine.git",
+    "url": "git+https://github.com/kotro-labs/kotro-proxy-engine.git",
     "directory": "distributions/npm-cli"
   },
   "bin": {

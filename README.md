@@ -4,8 +4,8 @@
   <img src="distributions/shared/media/icon.png" alt="Korto" width="96" height="96" />
 </p>
 
-[![CI](https://github.com/kotro/kotro-proxy-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/kotro/kotro-proxy-engine/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/kotro/kotro-proxy-engine)](https://github.com/kotro/kotro-proxy-engine/releases)
+[![CI](https://github.com/kotro-labs/kotro-proxy-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/kotro-labs/kotro-proxy-engine/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kotro-labs/kotro-proxy-engine)](https://github.com/kotro-labs/kotro-proxy-engine/releases)
 [![npm](https://img.shields.io/npm/v/@kortosystems/proxy-engine)](https://www.npmjs.com/package/@kortosystems/proxy-engine)
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/kortosystems.kortolabs-proxy-engine?label=VS%20Code)](https://marketplace.visualstudio.com/items?itemName=kortosystems.kortolabs-proxy-engine)
 
@@ -41,9 +41,9 @@ In a standard 3-turn codebase benchmark:
 |---------|---------|
 | **Docker** | `docker-compose up` (mock upstream + Rust proxy) |
 | **npm** | `npm install -g @kortosystems/proxy-engine` → `kortolabs-proxy` |
-| **Homebrew** | `brew tap kotro/tap && brew trust kotro/tap && brew install kortolabs-proxy` |
+| **Homebrew** | `brew tap kotro-labs/tap && brew trust kotro-labs/tap && brew install kortolabs-proxy` |
 | **VS Code / Cursor** | [Marketplace extension](https://marketplace.visualstudio.com/items?itemName=kortosystems.kortolabs-proxy-engine) (status bar + dashboard link) |
-| **GitHub Release** | [Download binary](https://github.com/kotro/kotro-proxy-engine/releases) for your platform |
+| **GitHub Release** | [Download binary](https://github.com/kotro-labs/kotro-proxy-engine/releases) for your platform |
 | **From source** | `make build` or `cd rust && cargo run -p korto-proxy` |
 
 Registry publish runs automatically on `v*` tags when `NPM_TOKEN` and `VSCE_PAT` secrets are configured. Marketplace uses [marketplace-publish.yml](.github/workflows/marketplace-publish.yml) (see [distributions/MARKETPLACE-AUTOMATION.md](distributions/MARKETPLACE-AUTOMATION.md)).
@@ -51,7 +51,7 @@ Registry publish runs automatically on `v*` tags when `NPM_TOKEN` and `VSCE_PAT`
 ## Quick start
 
 ```bash
-git clone git@github.com:kotro/kotro-proxy-engine.git
+git clone git@github.com:kotro-labs/kotro-proxy-engine.git
 cd korto-proxy-engine
 
 make build

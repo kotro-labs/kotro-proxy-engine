@@ -14,9 +14,9 @@ No `VSCE_PAT`, no `vsce login`, no separate git repo.
 
 After you push a tag, CI builds and attaches the VSIX:
 
-https://github.com/kotro/kotro-proxy-engine/releases
+https://github.com/kotro-labs/kotro-proxy-engine/releases
 
-Example: [v0.2.7](https://github.com/kotro/kotro-proxy-engine/releases/tag/v0.2.7) → download **`kortolabs-proxy-engine.vsix`**
+Example: [v0.2.7](https://github.com/kotro-labs/kotro-proxy-engine/releases/tag/v0.2.7) → download **`kortolabs-proxy-engine.vsix`**
 
 ### 2. Upload on Marketplace
 
@@ -65,6 +65,6 @@ If you ever want full automation:
 1. Marketplace profile → Personal access tokens (or Azure DevOps with billing card)
 2. Scope: **Marketplace → Manage**
 3. GitHub secret: `VSCE_PAT`
-4. Re-run [Publish VS Code Marketplace](https://github.com/kotro/kotro-proxy-engine/actions/workflows/marketplace-publish.yml) for `v0.2.7`
+4. Re-run [Publish VS Code Marketplace](https://github.com/kotro-labs/kotro-proxy-engine/actions/workflows/marketplace-publish.yml) for `v0.2.7`
 
 Until then, manual upload after each release is **official and fine** — many publishers do this.

@@ -99,7 +99,7 @@ export function activate(context: vscode.ExtensionContext): void {
       } else if (pick === 'Use Continue.dev instead') {
         void vscode.commands.executeCommand('korto.setupContinue');
       } else if (pick === 'Learn More') {
-        void vscode.env.openExternal(vscode.Uri.parse('https://github.com/kotro/kotro-proxy-engine/blob/main/distributions/vscode-extension/README.md#verify-it-works-2-minutes'));
+        void vscode.env.openExternal(vscode.Uri.parse('https://github.com/kotro-labs/kotro-proxy-engine/blob/main/distributions/vscode-extension/README.md#verify-it-works-2-minutes'));
       }
     })
   );

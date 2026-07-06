@@ -4,10 +4,10 @@
      relative paths to repo-root /media/* which does not exist. -->
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kotro/kotro-proxy-engine/main/distributions/vscode-extension/media/icon.png" alt="Korto" width="96" height="96" />
+  <img src="https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/distributions/vscode-extension/media/icon.png" alt="Korto" width="96" height="96" />
 </p>
 
-Transparent **IDE sidecar** for the [Kotro Proxy Engine](https://github.com/kotro/kotro-proxy-engine) — a local LLM gateway with streaming semantic cache, PII redaction, and context compression for **OpenAI** and **Anthropic** APIs.
+Transparent **IDE sidecar** for the [Kotro Proxy Engine](https://github.com/kotro-labs/kotro-proxy-engine) — a local LLM gateway with streaming semantic cache, PII redaction, and context compression for **OpenAI** and **Anthropic** APIs.
 
 Works in **VS Code**, **Cursor**, and other VS Code–compatible editors.
 
@@ -24,11 +24,11 @@ Works in **VS Code**, **Cursor**, and other VS Code–compatible editors.
 
 ### Status bar
 
-![Kotro status bar showing cache hit and bytes saved](https://raw.githubusercontent.com/kotro/kotro-proxy-engine/main/distributions/vscode-extension/media/status-bar.png)
+![Kotro status bar showing cache hit and bytes saved](https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/distributions/vscode-extension/media/status-bar.png)
 
 ### Dashboard
 
-![Kotro proxy operator dashboard](https://raw.githubusercontent.com/kotro/kotro-proxy-engine/main/distributions/vscode-extension/media/dashboard.png)
+![Kotro proxy operator dashboard](https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/distributions/vscode-extension/media/dashboard.png)
 
 ## Install
 
@@ -92,12 +92,12 @@ Operator   →  127.0.0.1:9090/dashboard  (telemetry — loopback only by defaul
 ## Other install channels
 
 - **npm:** `npm install -g @kortosystems/proxy-engine`
-- **Homebrew:** `brew tap kotro/tap && brew install kortolabs-proxy`
-- **GitHub Releases:** [kotro/kotro-proxy-engine](https://github.com/kotro/kotro-proxy-engine/releases)
+- **Homebrew:** `brew tap kotro-labs/tap && brew install kortolabs-proxy`
+- **GitHub Releases:** [kotro-labs/kotro-proxy-engine](https://github.com/kotro-labs/kotro-proxy-engine/releases)
 
 ## Documentation
 
-Full engine docs, threat model, and observability spec: [github.com/kotro/kotro-proxy-engine](https://github.com/kotro/kotro-proxy-engine)
+Full engine docs, threat model, and observability spec: [github.com/kotro-labs/kotro-proxy-engine](https://github.com/kotro-labs/kotro-proxy-engine)
 
 ## License
 
