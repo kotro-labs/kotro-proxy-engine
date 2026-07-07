@@ -323,6 +323,19 @@ pub async fn handle_chat_completions(
         }
         info!(key = %cache_key, format = "openai", "cache miss");
         state.metrics.record_cache_miss("openai");
+        
+        let count = state.circuit_breaker.get(&cache_key).unwrap_or(0) + 1;
+        state.circuit_breaker.insert(cache_key.clone(), count);
+        if count >= 4 {
+            tracing::warn!(key = %cache_key, count = count, "circuit breaker tripped");
+            if processed.stream {
+                let err_msg = "data: {\"choices\": [{\"delta\": {\"content\": \"\\n\\n🚨 [KOTRO CIRCUIT BREAKER TRIPPED]: Infinite error loop detected. Halting execution to prevent API credit drain. Please ask the human operator for guidance.\"}}]}\n\ndata: [DONE]\n\n";
+                let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(err_msg)) });
+                return sse_stream_response(stream, false);
+            } else {
+                return problem_response(StatusCode::TOO_MANY_REQUESTS, "Circuit Breaker Tripped", "Infinite error loop detected. Halting execution to prevent API credit drain.");
+            }
+        }
     }
 
     forward_provider(
@@ -388,6 +401,19 @@ pub async fn handle_messages(
         }
         info!(key = %cache_key, format = "anthropic", "cache miss");
         state.metrics.record_cache_miss("anthropic");
+
+        let count = state.circuit_breaker.get(&cache_key).unwrap_or(0) + 1;
+        state.circuit_breaker.insert(cache_key.clone(), count);
+        if count >= 4 {
+            tracing::warn!(key = %cache_key, count = count, "circuit breaker tripped");
+            if processed.stream {
+                let err_msg = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"\\n\\n🚨 [KOTRO CIRCUIT BREAKER TRIPPED]: Infinite error loop detected. Halting execution to prevent API credit drain. Please ask the human operator for guidance.\"}}\n\n";
+                let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(err_msg)) });
+                return sse_stream_response(stream, false);
+            } else {
+                return problem_response(StatusCode::TOO_MANY_REQUESTS, "Circuit Breaker Tripped", "Infinite error loop detected. Halting execution to prevent API credit drain.");
+            }
+        }
     }
 
     forward_provider(
