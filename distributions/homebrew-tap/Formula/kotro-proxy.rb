@@ -7,10 +7,10 @@ class KotroProxy < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.3.0/kotro-proxy-aarch64-apple-darwin.tar.gz"
-      sha256 "a069dc4314c28e8eb53235dfad58601ef79af6ae36e460e254779383da4c3bcf"
+      sha256 "aaa6874552fe02e07ac1bfeb6e44a3a4b419c16180e2edc6588d5fae457dc027"
     else
       url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.3.0/kotro-proxy-x86_64-apple-darwin.tar.gz"
-      sha256 "49ea16a1c5b333f5a68028acbef44938c7de029472fe325d4c95654f511f7346"
+      sha256 "738f4e5a735e786b89890266239f94e59f5f61c362a6232a51a72ac5d69a76be"
     end
   end
 
