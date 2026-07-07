@@ -17,6 +17,7 @@ pub struct Config {
     pub enable_redaction: bool,
     pub enable_compression: bool,
     pub enable_shrink: bool,
+    pub enable_vector_cache: bool,
     pub enable_pprof: bool,
     pub trust_upstream_gateway: bool,
     pub trusted_proxy_cidrs: String,
@@ -46,6 +47,7 @@ impl Default for Config {
             enable_redaction: true,
             enable_compression: true,
             enable_shrink: true,
+            enable_vector_cache: true,
             enable_pprof: false,
             trust_upstream_gateway: false,
             trusted_proxy_cidrs: String::new(),
@@ -122,6 +124,7 @@ impl Config {
             enable_redaction,
             enable_compression,
             enable_shrink: env_bool("KOTRO_ENABLE_SHRINK", defaults.enable_shrink),
+            enable_vector_cache: env_bool("KOTRO_ENABLE_VECTOR_CACHE", defaults.enable_vector_cache),
             enable_pprof: env_bool("KOTRO_ENABLE_PPROF", defaults.enable_pprof),
             trust_upstream_gateway: env_bool(
                 "KOTRO_TRUST_UPSTREAM_GATEWAY",

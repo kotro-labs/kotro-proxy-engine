@@ -3,6 +3,7 @@
 pub mod encoding;
 pub mod entry;
 pub mod eviction;
+pub mod vector;
 pub mod semantic;
 pub mod store;
 

@@ -45,6 +45,8 @@ pub struct AppState {
     pub local_model_pattern: Option<regex::Regex>,
     pub local_upstream_url: Option<String>,
     pub moe_default_model: String,
+    pub vector_encoder: Arc<crate::cache::vector::SemanticEncoder>,
+    pub vector_index: Arc<crate::cache::vector::VectorIndex>,
     pub circuit_breaker: moka::sync::Cache<String, u32>,
 }
 
@@ -86,6 +88,8 @@ impl AppState {
             local_model_pattern: cfg.local_model_pattern.as_ref().and_then(|p| regex::Regex::new(p).ok()),
             local_upstream_url: cfg.local_upstream_url.clone().map(|u| u.trim_end_matches('/').to_string()),
             moe_default_model: cfg.moe_default_model.clone(),
+            vector_encoder: Arc::new(crate::cache::vector::SemanticEncoder::new(cfg.enable_vector_cache)),
+            vector_index: Arc::new(crate::cache::vector::VectorIndex::new()),
             circuit_breaker: moka::sync::Cache::builder()
                 .time_to_live(Duration::from_secs(60))
                 .build(),

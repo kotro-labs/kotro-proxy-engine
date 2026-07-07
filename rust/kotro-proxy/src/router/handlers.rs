@@ -313,7 +313,7 @@ pub async fn handle_chat_completions(
             state.metrics.record_cache_hit("openai", entry.raw_sse.len());
             let stream = create_cached_replay_stream(
                 entry.raw_sse,
-                redaction_map,
+                redaction_map.clone(),
                 state.cache_hit_delay,
                 StreamFormat::OpenAI,
                 state.metrics.clone(),
@@ -330,6 +330,35 @@ pub async fn handle_chat_completions(
             return sse_stream_response(instrumented, true);
         }
         info!(key = %cache_key, format = "openai", "cache miss");
+        
+        if let Some(user_emb) = state.vector_encoder.embed(&latest_user) {
+            let context_key = format!("{}:{}:openai", scope.key(), processed.model);
+            if let Some(similar_key) = state.vector_index.find_closest(&context_key, &user_emb, 0.94) {
+                if let Ok(Some(entry)) = state.store.get(&similar_key) {
+                    tracing::info!(key = %similar_key, "Semantic cache HIT via vector index for similar intent!");
+                    state.metrics.record_cache_hit("openai", entry.raw_sse.len());
+                    let stream = create_cached_replay_stream(
+                        entry.raw_sse,
+                        redaction_map.clone(),
+                        state.cache_hit_delay,
+                        StreamFormat::OpenAI,
+                        state.metrics.clone(),
+                    );
+                    let instrumented = instrument_stream(
+                        stream,
+                        state.metrics.clone(),
+                        "openai",
+                        "/v1/chat/completions",
+                        true,
+                        "hit",
+                        start_time,
+                    );
+                    return sse_stream_response(instrumented, true);
+                }
+            }
+            state.vector_index.insert(context_key, cache_key.clone(), latest_user.clone(), user_emb);
+        }
+
         state.metrics.record_cache_miss("openai");
         
         let count = state.circuit_breaker.get(&cache_key).unwrap_or(0) + 1;
@@ -415,6 +444,35 @@ pub async fn handle_messages(
             return sse_stream_response(instrumented, true);
         }
         info!(key = %cache_key, format = "anthropic", "cache miss");
+
+        if let Some(user_emb) = state.vector_encoder.embed(&latest_user) {
+            let context_key = format!("{}:{}:anthropic", scope.key(), processed.model);
+            if let Some(similar_key) = state.vector_index.find_closest(&context_key, &user_emb, 0.94) {
+                if let Ok(Some(entry)) = state.store.get(&similar_key) {
+                    tracing::info!(key = %similar_key, "Semantic cache HIT via vector index for similar intent!");
+                    state.metrics.record_cache_hit("anthropic", entry.raw_sse.len());
+                    let stream = create_cached_replay_stream(
+                        entry.raw_sse,
+                        redaction_map.clone(),
+                        state.cache_hit_delay,
+                        StreamFormat::Anthropic,
+                        state.metrics.clone(),
+                    );
+                    let instrumented = instrument_stream(
+                        stream,
+                        state.metrics.clone(),
+                        "anthropic",
+                        "/v1/messages",
+                        true,
+                        "hit",
+                        start_time,
+                    );
+                    return sse_stream_response(instrumented, true);
+                }
+            }
+            state.vector_index.insert(context_key, cache_key.clone(), latest_user.clone(), user_emb);
+        }
+
         state.metrics.record_cache_miss("anthropic");
 
         let count = state.circuit_breaker.get(&cache_key).unwrap_or(0) + 1;
