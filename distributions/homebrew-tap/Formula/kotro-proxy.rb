@@ -1,16 +1,16 @@
-class KotrolabsProxy < Formula
-  desc "Statically linked edge AI streaming proxy gateway with Zstd cache compression"
+class KotroProxy < Formula
+  desc "Local LLM streaming proxy with semantic SSE cache, PII redaction, and context compression"
   homepage "https://github.com/kotro-labs/kotro-proxy-engine"
-  version "0.2.7"
+  version "0.3.0"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.2.7/kotro-proxy-aarch64-apple-darwin.tar.gz"
-      sha256 "730f0dec5d44148422f6d43d3938f14ada5bf08470c85aeb2a373bf7c73fdefd"
+      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.3.0/kotro-proxy-aarch64-apple-darwin.tar.gz"
+      sha256 "PLACEHOLDER_SHA256_AARCH64_APPLE_DARWIN"
     else
-      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.2.7/kotro-proxy-x86_64-apple-darwin.tar.gz"
-      sha256 "8ad608e3a53170828dce7e4f9a120a691a976d73e7c4aaa4b05dea0bfcb658e2"
+      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.3.0/kotro-proxy-x86_64-apple-darwin.tar.gz"
+      sha256 "PLACEHOLDER_SHA256_X86_64_APPLE_DARWIN"
     end
   end
 

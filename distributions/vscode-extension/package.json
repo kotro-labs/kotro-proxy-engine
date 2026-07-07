@@ -2,7 +2,7 @@
   "name": "kotro-proxy-engine",
   "displayName": "Kotro Proxy Engine",
   "description": "Transparent IDE sidecar for the Kotro semantic caching LLM proxy.",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "publisher": "kotrolabs",
   "license": "MIT",
   "icon": "media/icon.png",

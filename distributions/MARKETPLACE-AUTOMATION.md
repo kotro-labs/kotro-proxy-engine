@@ -53,7 +53,7 @@ The Marketplace workflow publishes the **exact VSIX** attached to the GitHub Rel
 If a release already exists but Marketplace was skipped (e.g. before `VSCE_PAT` was added):
 
 1. Open [Actions → Publish VS Code Marketplace](https://github.com/kotro-labs/kotro-proxy-engine/actions/workflows/marketplace-publish.yml)
-2. **Run workflow** → enter tag `v0.2.7` (or leave empty for latest release)
+2. **Run workflow** → enter tag `v0.3.0` (or leave empty for latest release)
 3. Workflow downloads that release's VSIX and publishes
 
 ## Why not a separate git repo?
