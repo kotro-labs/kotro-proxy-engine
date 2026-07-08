@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use moka::sync::Cache;
+use std::sync::Arc;
 use parking_lot::RwLock;
 
 // In a real implementation we would import candle-core and hf-hub to load BERT weights.
@@ -57,26 +58,26 @@ impl SemanticEncoder {
 pub struct VectorIndex {
     // Maps ContextKey -> list of (ExactCacheKey, UserPrompt, Vector)
     // ContextKey is a hash of (scope, provider, model, system_prompt).
-    buckets: RwLock<HashMap<String, Vec<(String, String, Vec<f32>)>>>,
+    buckets: Cache<String, Arc<RwLock<Vec<(String, String, Vec<f32>)>>>>,
 }
 
 impl VectorIndex {
     pub fn new() -> Self {
         Self {
-            buckets: RwLock::new(HashMap::new()),
+            buckets: Cache::builder().max_capacity(10_000).build(),
         }
     }
 
     pub fn insert(&self, context_key: String, exact_cache_key: String, user_prompt: String, vector: Vec<f32>) {
-        let mut buckets = self.buckets.write();
-        let bucket = buckets.entry(context_key).or_insert_with(Vec::new);
+        let bucket = self.buckets.get_with(context_key, || Arc::new(RwLock::new(Vec::new())));
+        let mut bucket_guard = bucket.write();
         
         // Keep bucket size bounded to prevent memory leaks (e.g., max 1000 items)
-        if bucket.len() >= 1000 {
-            bucket.remove(0); // evict oldest
+        if bucket_guard.len() >= 1000 {
+            bucket_guard.remove(0); // evict oldest
         }
         
-        bucket.push((exact_cache_key, user_prompt, vector));
+        bucket_guard.push((exact_cache_key, user_prompt, vector));
     }
 
     /// Finds the closest semantic match within the same context. 
@@ -87,13 +88,13 @@ impl VectorIndex {
         target_vector: &[f32],
         threshold: f32,
     ) -> Option<String> {
-        let buckets = self.buckets.read();
-        let bucket = buckets.get(context_key)?;
+        let bucket = self.buckets.get(context_key)?;
+        let bucket_guard = bucket.read();
 
         let mut best_score = -1.0;
         let mut best_key = None;
 
-        for (exact_cache_key, _prompt, vector) in bucket {
+        for (exact_cache_key, _prompt, vector) in bucket_guard.iter() {
             let score = cosine_similarity(target_vector, vector);
             if score > best_score {
                 best_score = score;

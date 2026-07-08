@@ -3,6 +3,10 @@ use tree_sitter::{Node, Parser};
 /// Prune comments and docstrings from a Rust or Python code block.
 /// Unrecognized languages are returned unchanged.
 pub fn prune_code_block(lang: &str, code: &str) -> String {
+    if code.len() > 500 * 1024 {
+        return code.to_string(); // Skip AST parsing for massive files to prevent CPU locking
+    }
+
     let language = match lang {
         "rust" => tree_sitter_rust::LANGUAGE.into(),
         "python" => tree_sitter_python::LANGUAGE.into(),

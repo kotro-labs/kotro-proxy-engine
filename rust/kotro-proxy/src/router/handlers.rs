@@ -412,11 +412,6 @@ pub async fn handle_messages(
     let scope = state.scope.from_request(&headers, peer.ip());
     let (_, latest_user) = req.extract_prompt_state();
 
-    if classifier::is_trivial_prompt(&latest_user) && state.local_upstream_url.is_some() {
-        tracing::info!("MoE triggered: routed trivial prompt to {}", state.moe_default_model);
-        req.model = state.moe_default_model.clone();
-    }
-
     let (processed, cache_source, redaction_map) =
         apply_anthropic_middleware(&state, req, &scope);
     let cache_key = anthropic_cache_key(&state, &scope, &cache_source);
