@@ -213,15 +213,24 @@ mod tests {
     }
 
     #[test]
-    fn standard_moderate_length() {
-        let prompt = "Explain the microservice architecture and how the proxy intercepts requests.";
+    fn standard_with_inline_code() {
+        // Inline backtick code counts as code → Standard, not Micro
+        let prompt = "Explain how `Arc<Mutex<T>>` differs from `Rc<RefCell<T>>` in Rust, and when you would choose each.";
         assert_eq!(classify(prompt), PromptComplexity::Standard);
     }
 
     #[test]
     fn standard_long_question_no_reasoning() {
-        // ~300 char, no code, no reasoning phrase → Standard (not Micro, too long)
-        let prompt = "I need to understand how the Rust borrow checker works with mutable references. Can you walk me through what happens when you have two mutable borrows and why the compiler rejects this?";
+        // >600 chars, no code, no reasoning phrase → Standard (length alone exceeds Micro threshold)
+        let prompt = "I need to understand how the Rust borrow checker works with mutable references. \
+            Can you walk me through what happens when you have two mutable borrows active at the \
+            same time, and why the compiler rejects this pattern? I have a vector of structs where \
+            I want to mutably borrow one element while reading another element in the same loop \
+            iteration. The compiler says I cannot have both borrows active simultaneously. Is there \
+            a standard pattern for working around this? Should I use indices instead of iterators, \
+            or is there a way to convince the borrow checker that these borrows do not alias? I \
+            have tried splitting the slice but the ergonomics are awkward for my use case.";
+        assert!(prompt.len() > 600, "test prompt must be >600 chars to exceed Micro threshold");
         assert_eq!(classify(prompt), PromptComplexity::Standard);
     }
 
