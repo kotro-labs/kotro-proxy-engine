@@ -1,4 +1,6 @@
-//! Cache matrix normalizer — mirrors `internal/optimizer/normalizer.go`.
+//! Cache matrix normalizer and reasoning budget controller.
+
+pub mod reasoning;
 
 use crate::models::openai::{ChatCompletionRequest, ChatMessage};
 
@@ -81,6 +83,7 @@ mod tests {
                 msg("user", "latest"),
             ],
             stream: false,
+            max_completion_tokens: None,
         };
 
         enforce_cache_matrix(&mut req);

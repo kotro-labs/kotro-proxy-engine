@@ -191,6 +191,7 @@ impl Into<ChatCompletionRequest> for UnifiedRequest {
             model: self.model,
             messages: openai_messages,
             stream: self.stream,
+            max_completion_tokens: None,
         }
     }
 }
@@ -216,6 +217,7 @@ impl Into<MessagesRequest> for UnifiedRequest {
             messages: anthropic_messages,
             stream: self.stream,
             max_tokens: self.max_tokens.unwrap_or(4096),
+            thinking: None,
         }
     }
 }

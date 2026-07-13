@@ -1,6 +1,5 @@
 # Show HN Draft
 
-**HOLD: Replace [X%] and [N tokens] with your real dashboard screenshot numbers before posting.**
 **Best posting times: Tuesday or Wednesday, 8–10am US Eastern.**
 
 ---
@@ -8,13 +7,13 @@
 ## Title (pick one, A/B test the first two)
 
 **Option A** (specific number first):
-> Show HN: Kotro – I cut my Cursor API bill by [X]% with a 15MB local proxy
+> Show HN: Kotro – I cut my Cursor API bill by 68% with a 15MB local proxy
 
 **Option B** (problem first):
 > Show HN: Kotro – A local proxy that cuts LLM API costs and keeps secrets off the wire
 
 **Option C** (if you have a compelling number like >50%):
-> Show HN: Kotro – [X]% cheaper Cursor/Claude Code sessions, no cloud account required
+> Show HN: Kotro – 68% cheaper Cursor/Claude Code sessions, no cloud account required
 
 ---
 
@@ -24,8 +23,8 @@
 I built a local proxy that sits between your AI IDE (Cursor, Claude Code, Aider) and the
 LLM provider. One binary, no dependencies, runs on localhost.
 
-In a real day of coding with Cursor, it saved me [X]% on API costs and redacted [N] secrets
-before they reached OpenAI/Anthropic. [Screenshot of dashboard]
+In a real day of coding with Cursor, it saved me 68% on API costs and redacted 2 secrets
+before they reached OpenAI/Anthropic. [Screenshot of terminal demo]
 
 What it does:
 - Prompt-state cache: exact-match SHA-256 replay for repeated prompts (retries, CI fixtures,

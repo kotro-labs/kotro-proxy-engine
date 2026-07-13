@@ -11,6 +11,11 @@ pub struct ChatCompletionRequest {
     pub messages: Vec<ChatMessage>,
     #[serde(default)]
     pub stream: bool,
+    /// Token cap for reasoning models (o1/o3 family).
+    /// `None` = not set (provider default). The reasoning budget controller sets or
+    /// reduces this field when `KOTRO_MAX_THINKING_TOKENS` is configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -163,6 +168,7 @@ mod tests {
                 },
             ],
             stream: true,
+            max_completion_tokens: None,
         };
 
         let req_css = ChatCompletionRequest {
@@ -198,6 +204,7 @@ mod tests {
                 },
             ],
             stream: true,
+            max_completion_tokens: None,
         };
 
         let mat_w1 = req_db.extract_cache_key_material(CacheKeyStrategy::WindowN, 4);

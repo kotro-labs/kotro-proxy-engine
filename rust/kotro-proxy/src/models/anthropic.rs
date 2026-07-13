@@ -6,6 +6,19 @@ use serde_json::Value;
 use crate::cache::CacheKeyStrategy;
 use super::openai::content_text;
 
+/// Anthropic extended-thinking configuration.
+///
+/// Injected or enforced by the reasoning budget controller when
+/// `KOTRO_MAX_THINKING_TOKENS` is set and the model is a known reasoning model.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ThinkingConfig {
+    /// Always `"enabled"` when Kotro injects this field.
+    #[serde(rename = "type")]
+    pub thinking_type: String,
+    /// Maximum thinking tokens Anthropic may use for this request.
+    pub budget_tokens: u64,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MessagesRequest {
     pub model: String,
@@ -16,6 +29,10 @@ pub struct MessagesRequest {
     pub stream: bool,
     #[serde(default)]
     pub max_tokens: u32,
+    /// Extended-thinking budget. `None` = not set (Anthropic default: no thinking).
+    /// The reasoning budget controller injects or caps this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<ThinkingConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

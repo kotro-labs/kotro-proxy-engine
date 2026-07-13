@@ -581,7 +581,31 @@ pub async fn handle_chat_completions(
         }
     }
 
-    let final_req: ChatCompletionRequest = processed.clone().into();
+    let mut final_req: ChatCompletionRequest = processed.clone().into();
+
+    // ── Reasoning model budget controller (OpenAI path) ───────────────────────
+    if state.reasoning_block
+        && crate::optimizer::reasoning::is_openai_reasoning_model(&final_req.model)
+    {
+        return problem_response(
+            StatusCode::FORBIDDEN,
+            "Reasoning Model Blocked",
+            "Requests to reasoning models are blocked by policy (KOTRO_REASONING_BLOCK=true). \
+             Use a non-reasoning model or disable KOTRO_REASONING_BLOCK.",
+        );
+    }
+    if state.max_thinking_tokens > 0 {
+        use crate::optimizer::reasoning::{apply_openai_reasoning_budget, ReasoningOutcome};
+        if let ReasoningOutcome::Capped { cap } =
+            apply_openai_reasoning_budget(&mut final_req, state.max_thinking_tokens)
+        {
+            tracing::info!(
+                model = %final_req.model,
+                cap = cap,
+                "reasoning budget: capped max_completion_tokens"
+            );
+        }
+    }
 
     let mut resp = forward_provider(
         &state,
@@ -830,7 +854,31 @@ pub async fn handle_messages(
         }
     }
 
-    let final_req: MessagesRequest = processed.clone().into();
+    let mut final_req: MessagesRequest = processed.clone().into();
+
+    // ── Reasoning model budget controller (Anthropic path) ────────────────────
+    if state.reasoning_block
+        && crate::optimizer::reasoning::is_anthropic_reasoning_model(&final_req.model)
+    {
+        return problem_response(
+            StatusCode::FORBIDDEN,
+            "Reasoning Model Blocked",
+            "Requests to reasoning models are blocked by policy (KOTRO_REASONING_BLOCK=true). \
+             Use a non-reasoning model or disable KOTRO_REASONING_BLOCK.",
+        );
+    }
+    if state.max_thinking_tokens > 0 {
+        use crate::optimizer::reasoning::{apply_anthropic_reasoning_budget, ReasoningOutcome};
+        if let ReasoningOutcome::Capped { cap } =
+            apply_anthropic_reasoning_budget(&mut final_req, state.max_thinking_tokens)
+        {
+            tracing::info!(
+                model = %final_req.model,
+                cap = cap,
+                "reasoning budget: injected thinking.budget_tokens"
+            );
+        }
+    }
 
     let mut resp = forward_provider(
         &state,

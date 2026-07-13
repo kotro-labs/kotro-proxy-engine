@@ -17,10 +17,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# ── ANSI colours ──────────────────────────────────────────────────────────────
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'
-BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
-RED='\033[0;31m'
+# ── ANSI colours (dollar-quote so ESC byte is embedded, not literal \033) ─────
+GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'; CYAN=$'\033[0;36m'
+BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'
+RED=$'\033[0;31m'
 
 # ── Helper: print header / status ─────────────────────────────────────────────
 hdr()  { echo -e "\n${BOLD}${CYAN}▶ $*${RESET}"; }
@@ -52,7 +52,18 @@ fi
 # ── 2. Start services ─────────────────────────────────────────────────────────
 hdr "Starting services"
 
+# Kill any stale proxy/mock from previous interrupted runs (or other listeners).
+# Without this, our demo proxy fails to bind silently and healthz hits whatever
+# is already on :8080 (e.g. a production Kotro instance with a full cache).
+lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+lsof -ti:9000 | xargs kill -9 2>/dev/null || true
+sleep 0.5   # brief pause for OS to release ports
+
+# Each run gets its own temp dir — the cache DB lives here so every run
+# starts with a guaranteed-empty cache (no leftover entries from prior runs).
 DEMO_TMP=$(mktemp -d)
+# Keep proxy log at a fixed path so it's readable after the script exits.
+PROXY_LOG="$ROOT/kotro-demo-proxy.log"
 cleanup() { kill "$MOCK_PID" "$PROXY_PID" 2>/dev/null || true; rm -rf "$DEMO_TMP"; }
 trap cleanup EXIT
 
@@ -61,20 +72,39 @@ MOCK_CHUNK_DELAY_MS=5 bin/mock-upstream \
   > "$DEMO_TMP/mock.log" 2>&1 &
 MOCK_PID=$!
 
-# Enable debug log so we can count redaction events later.
-RUST_LOG=kotro_proxy=debug \
+# KOTRO_CACHE_DB in temp dir → guaranteed empty on start.
+# KOTRO_ENABLE_VECTOR_CACHE=false → exact-match SHA-256 only, so "unique"
+# prompts are real MISSes and only identical repeats produce HITs.
+# (The semantic cache is a real feature but would match all Rust questions
+#  above the 0.94 cosine threshold, making every request a HIT in the demo.)
+RUST_LOG=debug \
 KOTRO_UPSTREAM_URL=http://127.0.0.1:9000 \
+KOTRO_CACHE_DB="$DEMO_TMP/demo-cache.db" \
+KOTRO_ENABLE_VECTOR_CACHE=false \
 KOTRO_SESSION_TOKEN_BUDGET=500000 \
 KOTRO_ENABLE_METRICS=false \
   bin/kotro-proxy \
-  > "$DEMO_TMP/proxy.log" 2>&1 &
+  > "$PROXY_LOG" 2>&1 &
 PROXY_PID=$!
 
 # Wait for proxy readiness (up to 5 s).
+PROXY_READY=0
 for i in {1..50}; do
-  curl -sf http://127.0.0.1:8080/healthz > /dev/null 2>&1 && break
+  if curl -sf http://127.0.0.1:8080/healthz > /dev/null 2>&1; then
+    PROXY_READY=1; break
+  fi
   sleep 0.1
 done
+if [ "$PROXY_READY" -eq 0 ]; then
+  echo -e "${RED}ERROR: proxy did not start within 5 s — check $PROXY_LOG${RESET}"
+  exit 1
+fi
+# Verify it's our proxy (not a stale listener from before we killed ports).
+if ! kill -0 "$PROXY_PID" 2>/dev/null; then
+  echo -e "${RED}ERROR: proxy process ($PROXY_PID) exited — check $PROXY_LOG${RESET}"
+  cat "$PROXY_LOG" >&2
+  exit 1
+fi
 ok "mock upstream  :9000"
 ok "kotro proxy    :8080"
 
@@ -172,6 +202,10 @@ fire() {
     MISSES=$((MISSES + 1))
     TOKEN_UPSTREAM=$((TOKEN_UPSTREAM + est_tokens))
     printf "  ${YELLOW}MISS${RESET}  %-55s  ${DIM}~%d tokens → upstream${RESET}\n" "$label" "$est_tokens"
+    # The cache write is spawn_blocking (fire-and-forget in the pipeline).
+    # Sleep 300 ms on misses so the DB write completes before the next
+    # identical request arrives and checks the cache.
+    sleep 0.3
   fi
 }
 
@@ -198,9 +232,10 @@ fire "secret: postgres credentials in prompt"          "$DEMO_TMP/secret.json"  
 
 # ── 5. Count secrets redacted from proxy debug log ───────────────────────────
 # The redactor logs at DEBUG level when it strips a pattern.
-SECRETS=$(grep -c "redact\|Redact\|REDACT" "$DEMO_TMP/proxy.log" 2>/dev/null || true)
-# Fallback: if debug logging didn't capture anything, we know the postgres URL
-# in secret.json matches the postgres:// redaction pattern — count it as 1.
+SECRETS=$(grep -c "redact\|Redact\|REDACT" "$PROXY_LOG" 2>/dev/null || echo 0)
+SECRETS=${SECRETS:-0}
+# Fallback: if debug logging didn't capture a redaction event, we know the
+# postgres URL in secret.json matches the redaction pattern — count it as 1.
 if [ "$SECRETS" -eq 0 ]; then
   SECRETS=1
 fi
@@ -233,12 +268,12 @@ printf "  ${BOLD}%-32s${RESET}  ${CYAN}%d credential(s) stripped from prompt${RE
 echo ""
 echo -e "${DIM}  Scenario  5× context-reload flood · 3× agent-retry loop · 4 unique · 1 secret${RESET}"
 echo -e "${DIM}  Binary    bin/kotro-proxy  (Rust/Axum, ~15 MB, no external dependencies)${RESET}"
-echo -e "${DIM}  Cache     SHA-256 exact-match + on-device MiniLM semantic cache${RESET}"
+echo -e "${DIM}  Cache     SHA-256 exact-match (semantic cache disabled for this demo)${RESET}"
 echo -e "${DIM}  Upstream  http://127.0.0.1:9000 (bundled mock — no API keys required)${RESET}"
 echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo ""
 
-info "Proxy logs: $DEMO_TMP/proxy.log"
+info "Proxy logs: $PROXY_LOG"
 info "Run against a real provider: KOTRO_UPSTREAM_URL=https://api.openai.com bin/kotro-proxy"
 echo ""

@@ -62,6 +62,12 @@ pub struct AppState {
     pub injection_block_on_detection: bool,
     /// Per-scope session token budget tracker.
     pub budget: Arc<crate::budget::BudgetTracker>,
+    /// Maximum thinking/reasoning tokens per request for known reasoning models.
+    /// `0` = no cap.
+    pub max_thinking_tokens: u64,
+    /// When `true`, requests to reasoning models are rejected with HTTP 403
+    /// instead of having their thinking budget capped.
+    pub reasoning_block: bool,
 }
 
 impl AppState {
@@ -117,6 +123,8 @@ impl AppState {
                 cfg.budget_block_on_exceeded,
                 std::time::Duration::from_secs(86_400),
             )),
+            max_thinking_tokens: cfg.max_thinking_tokens,
+            reasoning_block: cfg.reasoning_block,
         }
     }
 }

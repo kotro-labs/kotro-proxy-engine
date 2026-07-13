@@ -53,6 +53,13 @@ pub struct Config {
     /// setting `X-Kotro-Budget-Remaining: 0`. Default: `false`.
     /// Enable with `KOTRO_BUDGET_BLOCK=true`.
     pub budget_block_on_exceeded: bool,
+    /// Maximum thinking/reasoning tokens allowed per request for known reasoning
+    /// models (Claude Opus 4.x, o1/o3 family). `0` = no cap (default).
+    /// Set with `KOTRO_MAX_THINKING_TOKENS=<n>`.
+    pub max_thinking_tokens: u64,
+    /// Block requests to reasoning models entirely (HTTP 403) instead of capping
+    /// their thinking budget. Default: `false`. Enable with `KOTRO_REASONING_BLOCK=true`.
+    pub reasoning_block: bool,
 }
 
 impl Default for Config {
@@ -90,6 +97,8 @@ impl Default for Config {
             injection_block_on_detection: false,
             session_token_budget: 0,
             budget_block_on_exceeded: false,
+            max_thinking_tokens: 0,
+            reasoning_block: false,
         }
     }
 }
@@ -180,6 +189,8 @@ impl Config {
             injection_block_on_detection: env_bool("KOTRO_INJECTION_BLOCK", defaults.injection_block_on_detection),
             session_token_budget: env_u64("KOTRO_SESSION_TOKEN_BUDGET", defaults.session_token_budget),
             budget_block_on_exceeded: env_bool("KOTRO_BUDGET_BLOCK", defaults.budget_block_on_exceeded),
+            max_thinking_tokens: env_u64("KOTRO_MAX_THINKING_TOKENS", defaults.max_thinking_tokens),
+            reasoning_block: env_bool("KOTRO_REASONING_BLOCK", defaults.reasoning_block),
         }
     }
 }
