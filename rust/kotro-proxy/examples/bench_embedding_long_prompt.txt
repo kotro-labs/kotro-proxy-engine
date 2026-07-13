@@ -1,0 +1,39 @@
+I'm working on a Rust proxy that intercepts streaming SSE responses from OpenAI and Anthropic-compatible APIs, and I need help understanding why one of my handlers is leaking memory under load. Here's the relevant file:
+
+```rust
+pub async fn handle_chat_completions(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    let mut request: ChatCompletionRequest = match serde_json::from_slice(&body) {
+        Ok(req) => req,
+        Err(err) => return error_response(StatusCode::BAD_REQUEST, &err.to_string()),
+    };
+
+    let scope = state.scope.resolve(&headers);
+    let latest_user = extract_latest_user_message(&request);
+    let system_prompt = extract_system_prompt(&request);
+
+    if state.enable_redaction {
+        redact_chat_request(&mut request, &state.redaction_map);
+    }
+
+    if state.enable_compression {
+        state.compressor.dedupe(&scope, &mut request);
+    }
+
+    let cache_key = compute_cache_key(&state, &scope, &request);
+
+    if state.enable_cache {
+        if let Some(cached) = state.store.get(&cache_key).await {
+            return replay_cached_stream(cached, state.cache_hit_delay).await;
+        }
+    }
+
+    let upstream_response = forward_to_upstream(&state, &headers, request).await;
+    tee_and_cache_stream(upstream_response, cache_key, state.store.clone()).await
+}
+```
+
+I run this under a k6 load test with 500 virtual users for 30 seconds, then check `/debug/pprof/goroutine` (well, the Rust equivalent via a heap profiler), and the resident set size keeps climbing even after the load test ends and all connections are closed. My guess is that the `tee_and_cache_stream` function is spawning a background task per request that never gets cleaned up when the client disconnects mid-stream, but I haven't been able to confirm it with a flamegraph yet. Should I be using a `CancellationToken` tied to the request's cancellation future, or is there a simpler pattern for making sure the cache-write task gets dropped when the client goes away? I'd also appreciate a sanity check on whether `compute_cache_key` is doing anything that could hold onto request data longer than necessary.
