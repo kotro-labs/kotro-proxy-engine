@@ -24,7 +24,17 @@ Revised framing (see conversation log): "match Go's test count" is a proxy metri
 - [x] Wire `candle-core` / `candle-nn` / `candle-transformers` / `hf-hub` into `SemanticEncoder::embed()` in `cache/vector.rs`, replacing the byte-sum stub with real `all-MiniLM-L6-v2` inference. Done in `69d0035`; compiles and runs against the pinned `0.11.0` candle versions (verified locally — `cargo build` clean).
 - [x] Add lazy-download-with-offline-fallback: fetch weights via `hf-hub` on first run; if unavailable, fall back to exact-match cache rather than failing startup. Implemented in `SemanticEncoder::new()` — a load failure logs a warning and degrades to a disabled encoder rather than panicking; confirmed the happy path works (model downloads, loads, and runs) via local `cargo test`.
 - [x] Replace the current stub test with real accuracy tests: paraphrase pairs that should hit, unrelated prompts that shouldn't, at a tuned cosine threshold. Done — `semantic_similarity_reflects_paraphrase_vs_unrelated` and `vector_index_lookup_uses_encoder_output` both pass locally (`cb49700` recalibrated one threshold after the first real run showed mean-pooled MiniLM's actual anisotropy baseline; see commit message for the reasoning). All 3 tests in `cache::vector` pass as of the latest local run.
-- [ ] Benchmark embedding latency overhead and publish it next to cache-hit-rate numbers — must stay low enough that it doesn't erode the savings it creates. **Still open** — not yet measured.
+- [x] Benchmark embedding latency overhead and publish it next to cache-hit-rate numbers. Measured locally via `cargo run --release --example bench_embedding` (`rust/kotro-proxy/examples/bench_embedding.rs`, added in `bdf75c5`):
+
+  | Prompt shape | mean | p50 | p95 | p99 |
+  |---|---|---|---|---|
+  | short (~8 words) | 25.9ms | 25.9ms | 26.6ms | 27.7ms |
+  | medium (~46 words, inline code) | 26.7ms | 26.6ms | 27.1ms | 27.5ms |
+  | long (~257 words, file-content turn) | 27.3ms | 27.3ms | 27.8ms | 28.2ms |
+
+  One-time model load (warm HF cache, weights already downloaded): 151.8ms — happens once at proxy startup, not per request.
+
+  **Interpretation:** latency is flat across prompt sizes (~26-28ms) — dominated by fixed model compute, not input length, until you approach the 512-token truncation ceiling. In absolute terms this is imperceptible to a human waiting on their IDE, and small relative to typical upstream provider round-trip time (hundreds of ms to seconds). Two things worth being explicit about rather than glossing over: (1) `embed()` runs synchronously on *every* request when the vector cache is enabled, including on exact-match and vector-cache *misses* — so this ~26ms is a flat tax paid even when it doesn't produce a hit, not just an amortized cost that comes with a savings payoff. It's ~13x the default `KOTRO_CACHE_HIT_DELAY_MS` (2ms) exact-match replay pacing. (2) `embed()` currently blocks its tokio worker thread synchronously (no `spawn_blocking`) — fine for the primary single-developer local-sidecar use case (nobody sends hundreds of req/s to their own IDE proxy), but worth revisiting before leaning on the "shared multi-tenant gateway" deployment profile under real concurrent load, where CPU-bound blocking work on the async runtime's worker threads caps throughput independent of everything else in the pipeline. Follow-up if/when that matters: wrap the two call sites in `router/handlers.rs` in `tokio::task::spawn_blocking`.
 
 ## P3 — Trust and launch readiness
 
