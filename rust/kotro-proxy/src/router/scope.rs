@@ -157,4 +157,105 @@ mod tests {
         assert_ne!(scope.tenant_id, "target-enterprise");
         assert!(scope.tenant_id.starts_with("cred:"));
     }
+
+    // --- End-to-end tenant isolation: ScopeResolver -> Scope::key() ->
+    // generate_cache_key(). The tests above prove ScopeResolver derives
+    // different scopes for different credentials in isolation; the tests
+    // below prove that difference actually survives the full chain into a
+    // real cache key for the *same* request content, the way
+    // router/handlers.rs::unified_cache_key wires it. Nothing else in the
+    // suite exercises this chain together -- a regression that hard-coded
+    // or dropped the scope on the way into generate_cache_key would not be
+    // caught by the scope-only or cache-only unit tests on their own. This
+    // is the Rust equivalent of Go's TestCacheIsolation_TenantSeparation /
+    // TestAnthropicCacheIsolation_TenantSeparation (docs/roadmap/next-steps.md P1).
+
+    fn bearer_headers(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        );
+        headers
+    }
+
+    #[test]
+    fn different_credentials_produce_different_cache_keys_for_identical_request() {
+        let resolver = ScopeResolver::default();
+        let peer = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+        let scope_a = resolver.from_request(&bearer_headers("user-a-secret-token"), peer);
+        let scope_b = resolver.from_request(&bearer_headers("user-b-secret-token"), peer);
+
+        // Different principals must resolve to different scopes...
+        assert_ne!(scope_a.key(), scope_b.key());
+
+        // ...and, critically, that difference must survive into the actual
+        // cache key for byte-identical request material (same model, same
+        // provider, same prompt) -- otherwise two agent sessions from
+        // different users/keys could read each other's cached responses.
+        let material = b"system:hi||user:what's in this repo?";
+        let key_a = crate::cache::generate_cache_key(&scope_a.key(), "gpt-4", "openai", material);
+        let key_b = crate::cache::generate_cache_key(&scope_b.key(), "gpt-4", "openai", material);
+        assert_ne!(key_a, key_b, "different credentials must not share a cache entry");
+    }
+
+    #[test]
+    fn same_credential_produces_the_same_cache_key_across_requests() {
+        // Isolation without correctness is useless -- a scheme that made
+        // every request its own tenant would "pass" the test above too.
+        // Confirm the same principal replaying the same request still
+        // lands on the same key, i.e. cache hits are still possible at all.
+        let resolver = ScopeResolver::default();
+        let peer = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+        let scope_1 = resolver.from_request(&bearer_headers("same-user-token"), peer);
+        let scope_2 = resolver.from_request(&bearer_headers("same-user-token"), peer);
+        assert_eq!(scope_1.key(), scope_2.key());
+
+        let material = b"system:hi||user:what's in this repo?";
+        let key_1 = crate::cache::generate_cache_key(&scope_1.key(), "gpt-4", "openai", material);
+        let key_2 = crate::cache::generate_cache_key(&scope_2.key(), "gpt-4", "openai", material);
+        assert_eq!(key_1, key_2);
+    }
+
+    #[test]
+    fn missing_credentials_share_the_default_scope_not_a_forged_tenant() {
+        // No Authorization/x-api-key header at all falls back to the shared
+        // "default:default" scope (documented, intentional -- see
+        // docs/security/THREAT-MODEL.md 4.1). Anonymous local mock traffic
+        // shares a cache; anything with a credential gets its own
+        // cred:<hash> partition regardless of what headers claim.
+        let resolver = ScopeResolver::default();
+        let peer = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+        let scope = resolver.from_request(&HeaderMap::new(), peer);
+        assert_eq!(scope.tenant_id, "default");
+        assert_eq!(scope.session_id, "default");
+    }
+
+    #[test]
+    fn trusted_gateway_headers_isolate_tenants_through_the_same_chain() {
+        // Same end-to-end proof as above, but for the gateway/multi-tenant
+        // path (KOTRO_TRUST_UPSTREAM_GATEWAY=true) rather than the default
+        // credential-derived path.
+        let resolver = ScopeResolver {
+            trust_upstream_gateway: true,
+            trusted_proxy_cidrs: vec!["127.0.0.0/8".parse().unwrap()],
+        };
+        let peer = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+        let mut headers_a = HeaderMap::new();
+        headers_a.insert(HEADER_TENANT_ID, HeaderValue::from_static("tenant-a"));
+        let mut headers_b = HeaderMap::new();
+        headers_b.insert(HEADER_TENANT_ID, HeaderValue::from_static("tenant-b"));
+
+        let scope_a = resolver.from_request(&headers_a, peer);
+        let scope_b = resolver.from_request(&headers_b, peer);
+
+        let material = b"system:hi||user:what's in this repo?";
+        let key_a = crate::cache::generate_cache_key(&scope_a.key(), "gpt-4", "openai", material);
+        let key_b = crate::cache::generate_cache_key(&scope_b.key(), "gpt-4", "openai", material);
+        assert_ne!(key_a, key_b, "gateway-assigned tenants must not share a cache entry");
+    }
 }

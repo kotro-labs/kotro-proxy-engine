@@ -36,8 +36,16 @@ curl_quiet() {
 
 thread_count() {
   local pid="$1"
-  # macOS: ps -M lists one row per thread; skip the header row.
-  ps -M -p "$pid" 2>/dev/null | tail -n +2 | wc -l | tr -d ' '
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    # Linux: /proc/<pid>/status "Threads:" line is the portable way to get
+    # this -- `ps -M` (used below for macOS) is not the same flag on Linux
+    # ps (procps) and does not list threads there. This branch is what lets
+    # this script run unmodified in GitHub Actions (ubuntu-latest).
+    awk '/^Threads:/ {print $2}' "/proc/${pid}/status" 2>/dev/null
+  else
+    # macOS: ps -M lists one row per thread; skip the header row.
+    ps -M -p "$pid" 2>/dev/null | tail -n +2 | wc -l | tr -d ' '
+  fi
 }
 
 rss_kb() {
