@@ -10,9 +10,9 @@
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/kotrolabs.kotro-proxy-engine?label=VS%20Code)](https://marketplace.visualstudio.com/items?itemName=kotrolabs.kotro-proxy-engine)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**The open-source, single-binary local AI proxy** — intercept streaming LLM traffic from OpenAI and Anthropic SDKs, cut token waste, and keep secrets off the wire.
+**The local security and efficiency layer for MCP-native agentic AI** — intercept streaming LLM traffic from OpenAI and Anthropic SDKs, block prompt injection from tool results, keep secrets off the wire, and cut token waste. One binary, no SaaS, no third party ever in the request path.
 
-Kotro fills the gap between local agent runtimes (Cursor, Claude Code, custom SDK clients) and cloud providers: one binary, no SaaS dependency, your code and secrets never pass through a third party's servers on the way to the LLM provider.
+As MCP-native agents (Cursor, Claude Code, custom SDK clients) pull in tool results from files, git, search, and external APIs, those results become the largest new attack surface in the stack — a single malicious tool result can hijack the agent's next action. Kotro sits between your agent and the cloud provider and enforces a security policy your LLM provider cannot: it sees every message, every tool result, and every secret before they leave your machine.
 
 ## Is Kotro the right tool for you?
 
@@ -20,7 +20,7 @@ Kotro is deliberately narrow: a single-binary, zero-dependency proxy for one dev
 
 | Tool | Deployment | Best fit |
 |---|---|---|
-| **Kotro** | Self-hosted, single binary, zero external services (no Redis, no vector DB, no Postgres) | One developer's machine — your IDE/agent traffic never leaves your machine except to the LLM provider itself. No third party ever sees your prompts. |
+| **Kotro** | Self-hosted, single binary, zero external services (no Redis, no vector DB, no Postgres) | One developer's machine running MCP-native agents — you want a local security layer (injection scanner, secret redaction, circuit breaker) and efficiency layer (cache, compressor, budget) without any third party in the request path. |
 | **[LiteLLM](https://github.com/BerriAI/litellm)** | Self-hosted Python proxy | A team or org routing to 100+ providers behind one OpenAI-compatible API, with a large ecosystem and community behind it. |
 | **[Portkey](https://github.com/Portkey-AI/gateway)** | Self-hosted (Apache 2.0) or managed cloud | A team that needs production guardrails (PII/jailbreak/prompt-injection detection) and real embedding-based semantic caching out of the box, at the cost of a heavier deployment. |
 | **TokenShift** and similar hosted gateways | Managed SaaS | Teams that want zero infrastructure to run themselves and are comfortable with a third-party operator seeing 100% of their traffic in exchange for that convenience. |
@@ -44,10 +44,15 @@ In a standard 3-turn codebase benchmark (full data in [`benchmarks/eval-suite/RE
 
 | Feature | Description |
 |--------|-------------|
-| **Streaming prompt-state cache** | Captures complete SSE streams on miss; replays on exact-match prompt state (system + latest user + model). |
-| **Local semantic cache (Rust engine)** | Layers real embedding-based fuzzy matching on top of the exact-match cache — [`all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) runs on-device via `candle`, so paraphrased prompts can hit the cache too, with zero calls to any embedding API. Enabled by default (`KOTRO_ENABLE_VECTOR_CACHE=true`); degrades gracefully to exact-match-only if the model can't load (e.g. fully offline before the ~90MB weights are cached locally on first run). Adds ~26-28ms per request (measured, flat across prompt sizes — see [`docs/roadmap/next-steps.md`](docs/roadmap/next-steps.md) for the benchmark and the tradeoffs). Not yet present in the Go reference implementation. |
-| **Privacy guardrail** | Redacts secrets before upstream; restores placeholders in streaming responses. |
-| **Context compressor** | Strips unchanged MCP schemas / directory trees across turns. |
+| **MCP prompt injection scanner** | Scans every tool result and user message for prompt injection patterns (14 regex rules) before forwarding to the LLM. Warn-by-default; set `KOTRO_INJECTION_BLOCK=true` to hard-block. |
+| **Secret redaction** | Strips API keys, DB URLs, passwords, and PII from requests before they leave your machine; restores placeholders in streaming responses so your agent still sees the right values. |
+| **Agent loop circuit breaker** | Detects 3+ identical tool calls in one conversation window and opens the circuit (`X-Kotro-Circuit-Open` header), preventing runaway billing from stuck agent loops. |
+| **Reasoning model budget controller** | Caps `thinking.budget_tokens` (Anthropic) or `max_completion_tokens` (OpenAI o1/o3) per request. Set `KOTRO_MAX_THINKING_TOKENS`; set `KOTRO_REASONING_BLOCK=true` to block reasoning models entirely. |
+| **Streaming prompt-state cache** | Captures complete SSE streams on miss; replays on exact-match prompt state (system + latest user + model). Zero upstream round-trip on repeated prompts. |
+| **Local semantic cache (Rust engine)** | Layers embedding-based fuzzy matching on top of the exact-match cache — [`all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) runs on-device via `candle`. Paraphrased prompts hit the cache with no embedding API call. Adds ~26-28ms per request. |
+| **MCP tool result cache** | Caches `read_file`, `git_status`, search results by `(scope, tool_name, args)` with per-category TTLs (read=30s / status=5m / search=1h). Write operations auto-invalidate stale reads for the same path. |
+| **Context compressor** | Strips unchanged MCP schemas and directory trees across turns, reducing tokens sent on every non-first turn. |
+| **Per-session token budget** | Hard cap on tokens per scope per session (`KOTRO_SESSION_TOKEN_BUDGET`). Returns HTTP 429 with `X-Kotro-Budget-Remaining` header before the LLM call is made. |
 | **Universal provider support** | OpenAI-compatible APIs (DeepSeek, Groq, Ollama, etc.) and Anthropic `POST /v1/messages`. |
 | **Offline test harness** | Mock upstream simulates chunked OpenAI + Anthropic SSE without network. |
 | **Load benchmarks** | k6 and vegeta scripts for cache hit/miss and mixed workloads. |
