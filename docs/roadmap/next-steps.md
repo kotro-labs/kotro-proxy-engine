@@ -8,13 +8,16 @@
 - [ ] Fix README claims to match current behavior: "semantic cache" is exact-match SHA-256 today (Go and current Rust cache path); "MoE routing" is a regex keyword matcher. Rename or explicitly scope both until P2 ships.
 - [ ] Reframe the 99.3% benchmark: separate "Kotro-attributable savings" from "upstream DeepSeek prefix-cache savings" — the published numbers show a local proxy *miss* followed by an upstream *hit*.
 
-## P1 — Complete the Go → Rust convergence
+## P1 — Verify Rust independently, then freeze Go
 
-- [ ] Close test-parity gap: Rust currently has ~47 `#[test]` functions vs Go's 74. Priority gaps: tenant-isolation tests (`TestCacheIsolation_TenantSeparation` / `TestAnthropicCacheIsolation_TenantSeparation` equivalents), SSE frame parity tests against Go's `stream_test.go` vectors (per `docs/RUST-ARCHITECTURE.md`), cancel/watchdog tests.
-- [ ] Wire `make rust-cancel-audit` into CI or a scheduled workflow. It exists in the Makefile (`benchmarks/run_rust_audit.sh`) but `.github/workflows/ci.yml` only runs `cargo test` — the thread/RSS-leak guarantee Go has isn't currently verified per-change on Rust.
+Revised framing (see conversation log): "match Go's test count" is a proxy metric, not the goal. Go's 74 `#[test]`-equivalents split into two buckets — Go-specific plumbing (`io.Pipe` watchdog behavior, bbolt quirks) that has no meaningful Rust equivalent and shouldn't be ported, and behavioral invariants (tenant isolation, redaction correctness, protocol parsing) that must hold regardless of language and are currently *proven* on Go but only *assumed* to carry over to Rust. The work below targets the second bucket specifically, not the raw count.
+
+- [ ] Run `cargo-llvm-cov` (or similar) on the Rust crate to find real coverage gaps, instead of diffing against Go's test count.
+- [ ] Prioritize four security/reliability-critical areas regardless of Go's count: tenant/scope isolation (Rust equivalents of `TestCacheIsolation_TenantSeparation` / `TestAnthropicCacheIsolation_TenantSeparation` — this is what the threat model doc's isolation claims rest on), redaction correctness, SSE frame parsing edge cases (parity against Go's `stream_test.go` vectors per `docs/RUST-ARCHITECTURE.md`), and the cancel-storm leak audit. Everything else (encoding edge cases, eviction timing) is lower priority, and some may be moot since Rust's type system eliminates bug classes (nil pointers, unchecked type assertions) Go needed tests to guard against.
+- [ ] Wire `make rust-cancel-audit` into CI or a scheduled workflow. It exists in the Makefile (`benchmarks/run_rust_audit.sh`) but `.github/workflows/ci.yml` only runs `cargo test` — this is the single highest-consequence gap in this list, since an undetected thread/RSS leak ships straight to users' machines.
 - [ ] Verify distribution parity: confirm npm, Homebrew, Docker, and the VS Code extension are all shipping the Rust binary (a commit indicates this switched already) — audit for any channel silently still on Go.
-- [ ] Run `make eval-suite` against both binaries and diff results. `docs/RUST-ARCHITECTURE.md` treats Go as the source of truth for behavior — confirm Rust matches on cache hit rate, redaction correctness, compression ratio before calling it done.
-- [ ] Declare Go frozen once parity is confirmed: tag a final Go release, mark `internal/` as reference-only in the README, and route all new feature work through Rust exclusively from that point.
+- [ ] Run `make eval-suite` against both binaries and diff results once, as a sanity check that Rust matches Go's behavior on cache hit rate, redaction correctness, and compression ratio — a one-time confirmation, not an ongoing parity requirement.
+- [ ] Declare Go frozen once the four critical areas above are independently verified in Rust: tag a final Go release, mark `internal/` as reference-only in the README, shrink Go's CI job to compile + smoke test (not the full suite), and route all new feature work through Rust exclusively from that point.
 
 ## P2 — Make the semantic cache real
 
