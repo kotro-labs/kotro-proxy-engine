@@ -68,7 +68,7 @@
 - [x] GitHub storefront set
 - [x] Reasoning model budget controller shipped
 - [x] Go declared frozen (tag `v0.1.0-go`, README updated, CI = compile-only)
-- [ ] `make eval-suite` results committed
+- [x] `make eval-suite` results committed (RESULTS.md enriched with summary, methodology, Rust test coverage table)
 - [ ] `brew install kotro-labs/tap/kotro` verified on a clean machine
 - [ ] `curl` installer verified on a clean machine
 
