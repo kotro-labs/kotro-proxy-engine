@@ -26,7 +26,8 @@ fn patterns() -> &'static [Regex] {
             r"mongodb(?:\+srv)?://[^\s]+",
             r"redis://[^\s]+",
             r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
-            r"sk-[a-zA-Z0-9]{20,}",
+            // Modern OpenAI project keys include hyphens (sk-proj-...).
+            r"sk-[a-zA-Z0-9\-]{20,}",
             r"sk-ant-[a-zA-Z0-9\-]{20,}",
         ]
         .iter()

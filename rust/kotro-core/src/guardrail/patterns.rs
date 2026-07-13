@@ -21,7 +21,9 @@ pub fn build_patterns() -> Vec<Regex> {
         r"mongodb(?:\+srv)?://[^\s]+",
         r"redis://[^\s]+",
         r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
-        r"sk-[a-zA-Z0-9]{20,}",
+        // OpenAI keys: legacy "sk-<alphanum>" and modern project keys "sk-proj-<...>"
+        // which contain hyphens. The character class must include '-'.
+        r"sk-[a-zA-Z0-9\-]{20,}",
         r"sk-ant-[a-zA-Z0-9\-]{20,}",
     ]
     .iter()

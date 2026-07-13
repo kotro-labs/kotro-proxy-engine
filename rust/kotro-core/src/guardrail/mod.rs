@@ -84,19 +84,26 @@ mod tests {
 
     #[test]
     fn redacts_openai_key() {
+        // Modern OpenAI project key format: sk-proj-<alphanum+hyphens, 20+ chars>.
+        // The short "abc123XYZ" suffix in the old test didn't clear the 20-char
+        // minimum; use a realistic-length value.
         let r = Redactor::new();
         let mut map = RedactionMap::new();
-        let out = r.redact("Bearer sk-proj-abc123XYZ", &mut map);
-        assert!(!out.contains("sk-proj-abc123XYZ"));
-        assert!(out.contains("<REDACTED_"));
+        let key = "sk-proj-abcDEF1234567890xyzABCD";
+        let out = r.redact(&format!("Authorization: Bearer {key}"), &mut map);
+        assert!(!out.contains(key), "key should have been redacted");
+        assert!(out.contains("<REDACTED_"), "placeholder should appear in output");
     }
 
     #[test]
     fn redacts_anthropic_key() {
+        // sk-ant-<alphanum+hyphens, 20+ chars after the "sk-ant-" prefix>.
+        // "api03-secret" is only 12 chars; pad to a realistic length.
         let r = Redactor::new();
         let mut map = RedactionMap::new();
-        let out = r.redact("key sk-ant-api03-secret", &mut map);
-        assert!(!out.contains("sk-ant-api03-secret"));
+        let key = "sk-ant-api03-abcDEF1234567890xyzQRST";
+        let out = r.redact(&format!("x-api-key: {key}"), &mut map);
+        assert!(!out.contains(key), "Anthropic key should have been redacted");
     }
 
     #[test]
