@@ -61,7 +61,7 @@ In a standard 3-turn codebase benchmark (full data in [`benchmarks/eval-suite/RE
 
 | Channel | Command |
 |---------|---------|
-| **1-Click Install (macOS/Linux)** | `curl -sL https://kotro.dev/install.sh \| bash` |
+| **1-Click Install (macOS/Linux)** | `curl -sL https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/scripts/install.sh \| bash` |
 | **Docker** | `docker run -p 3000:3000 kotrolabs/kotro-proxy` |
 | **npm** | `npm install -g @kotro-labs/proxy-engine` → `kotro-proxy` |
 | **Homebrew** | `brew install kotro-labs/tap/kotro` |
