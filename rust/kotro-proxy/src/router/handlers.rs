@@ -21,7 +21,11 @@ use tracing::{error, info};
 
 use crate::cache::generate_cache_key;
 use crate::compressor::Scope;
-use crate::guardrail::{redact_chat_request, redact_messages_request, RedactionMap};
+// redact_chat_request / redact_messages_request are defined in crate::guardrail but
+// not yet called here — redaction is currently done via apply_unified_middleware's
+// passthrough stub. Import only RedactionMap (used in ForwardOptions / apply_unified_middleware).
+// TODO: wire per-format redaction once redact_unified_request is implemented.
+use crate::guardrail::RedactionMap;
 use crate::models::{anthropic::MessagesRequest, openai::ChatCompletionRequest, unified::UnifiedRequest};
 use crate::router::classifier;
 use crate::proxy::pipeline::{create_processing_pipeline, PipelineOptions, StreamFormat};
