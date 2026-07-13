@@ -273,7 +273,38 @@ async fn post_with_failover(
     }
 }
 
-
+/// Runs the CPU-bound semantic-cache embedding step off the async runtime's
+/// worker threads.
+///
+/// `SemanticEncoder::embed()` does real BERT inference (~25-30ms measured
+/// flat across prompt sizes, see `examples/bench_embedding.rs`) and used to
+/// run synchronously inline in the two call sites below, blocking a tokio
+/// worker thread for that duration on every cache-eligible request --
+/// competing directly with the async I/O work (upstream forwarding, SSE
+/// streaming) other concurrent requests need that same thread pool for.
+/// `spawn_blocking` moves it to tokio's dedicated blocking thread pool
+/// instead, matching the docs/roadmap/next-steps.md P2 follow-up.
+///
+/// A panic inside the embedding call surfaces as a `JoinError` here rather
+/// than unwinding into the request handler; treated the same as any other
+/// embedding failure (see `SemanticEncoder::embed`'s own error handling) --
+/// logged and folded into "no vector-cache hit for this request," not a
+/// fatal error. The exact-match cache path above this call is unaffected.
+async fn embed_off_thread(
+    encoder: Arc<crate::cache::vector::SemanticEncoder>,
+    text: String,
+) -> Option<Vec<f32>> {
+    match tokio::task::spawn_blocking(move || encoder.embed(&text)).await {
+        Ok(result) => result,
+        Err(join_err) => {
+            tracing::warn!(
+                error = %join_err,
+                "semantic embedding task panicked; treating as no vector-cache hit"
+            );
+            None
+        }
+    }
+}
 
 pub async fn handle_chat_completions(
     State(state): State<Arc<AppState>>,
@@ -342,7 +373,9 @@ pub async fn handle_chat_completions(
         }
         info!(key = %cache_key, format = "openai", "cache miss");
         
-        if let Some(user_emb) = state.vector_encoder.embed(&latest_user) {
+        if let Some(user_emb) =
+            embed_off_thread(state.vector_encoder.clone(), latest_user.clone()).await
+        {
             let context_key = format!("{}:{}:openai", scope.key(), processed.model);
             if let Some(similar_key) = state.vector_index.find_closest(&context_key, &user_emb, 0.94) {
                 if let Ok(Some(entry)) = state.store.get(&similar_key) {
@@ -465,7 +498,9 @@ pub async fn handle_messages(
         }
         info!(key = %cache_key, format = "anthropic", "cache miss");
 
-        if let Some(user_emb) = state.vector_encoder.embed(&latest_user) {
+        if let Some(user_emb) =
+            embed_off_thread(state.vector_encoder.clone(), latest_user.clone()).await
+        {
             let context_key = format!("{}:{}:anthropic", scope.key(), processed.model);
             if let Some(similar_key) = state.vector_index.find_closest(&context_key, &user_emb, 0.94) {
                 if let Ok(Some(entry)) = state.store.get(&similar_key) {
