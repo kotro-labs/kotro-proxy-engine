@@ -496,7 +496,10 @@ mod tests {
             })
             .unwrap();
 
-        let read_txn = store.db.begin_read().unwrap();
+        let read_txn = match &store {
+            Store::Local(s) => s.db_handle().begin_read().unwrap(),
+            _ => panic!("Test requires LocalStore"),
+        };
         let table = read_txn.open_table(CACHE_TABLE).unwrap();
         let guard = table.get("k").unwrap().unwrap();
         let mmap_slice = guard.value();

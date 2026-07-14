@@ -2269,7 +2269,7 @@ dependencies = [
 
 [[package]]
 name = "kotro-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "candle-core 0.9.2",
  "candle-nn 0.9.2",
@@ -2285,7 +2285,7 @@ dependencies = [
 
 [[package]]
 name = "kotro-proxy"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-stream",

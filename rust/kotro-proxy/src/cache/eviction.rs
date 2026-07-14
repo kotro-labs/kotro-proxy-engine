@@ -151,7 +151,7 @@ mod tests {
 
         thread::sleep(StdDuration::from_millis(5));
 
-        let deleted = sweep_stale(store.db_handle(), now_unix_nano(), None).unwrap();
+        let deleted = store.sweep_expired().unwrap();
         assert_eq!(deleted, 1);
         assert!(store.get("gone").unwrap().is_none());
         assert!(store.get("legacy").unwrap().is_some());
