@@ -1,10 +1,12 @@
-.PHONY: build test bench mock proxy run dev load-test cancel-audit rust-cancel-audit audit eval-suite demo-savings update-homebrew-shas post-release-homebrew go-live package-extension sync-brand-icon clean docker-build docker-up docker-down
+.PHONY: build test bench mock proxy run dev load-test cancel-audit rust-cancel-audit audit eval-suite demo-savings demo-injection update-homebrew-shas post-release-homebrew go-live package-extension sync-brand-icon clean docker-build docker-up docker-down
 
 build: proxy mock
 
 proxy:
 	cd rust && CARGO_TARGET_DIR=../bin/rust-target cargo build --release -p kotro-proxy
 	cp bin/rust-target/release/kotro-proxy bin/kotro-proxy
+	# Fresh `cp` of an adhoc-signed Mach-O can hang under dyld on macOS; re-sign.
+	codesign -s - --force bin/kotro-proxy >/dev/null 2>&1 || true
 
 mock:
 	go build -o bin/mock-upstream ./cmd/mockupstream
@@ -50,6 +52,11 @@ eval-suite:
 # Screenshot the terminal output for Show HN / README.
 demo-savings:
 	bash scripts/demo-savings.sh
+
+# Honest injection demo: poisoned tool result → warn header → HTTP 400 block.
+# Leave http://127.0.0.1:9090/dashboard open for the recording / screenshot.
+demo-injection:
+	bash scripts/demo-injection.sh
 
 update-homebrew-shas:
 	bash scripts/update-homebrew-shas.sh $(VERSION)

@@ -29,6 +29,10 @@
       --miss: hsl(27, 85%, 66%); /* #f0a060 */
       --miss-glow: hsla(27, 85%, 66%, 0.4);
       --miss-bg: hsla(27, 85%, 66%, 0.15);
+
+      --blocked: hsl(0, 78%, 64%); /* #eb6b6b */
+      --blocked-glow: hsla(0, 78%, 64%, 0.45);
+      --blocked-bg: hsla(0, 78%, 64%, 0.16);
       
       --bypass: hsl(215, 27%, 65%); /* #8fa3bf */
       --bypass-glow: hsla(215, 27%, 65%, 0.4);
@@ -230,6 +234,13 @@
       background: var(--miss-bg); 
       color: var(--miss); 
       border-color: hsla(27, 85%, 66%, 0.3);
+    }
+
+    .pill.blocked {
+      background: var(--blocked-bg);
+      color: var(--blocked);
+      border-color: hsla(0, 78%, 64%, 0.4);
+      box-shadow: 0 0 12px var(--blocked-glow);
     }
     
     .pill.bypass { 
@@ -457,7 +468,10 @@
     }
     
     function pill(status) {
-      const cls = status === 'hit' ? 'hit' : status === 'miss' ? 'miss' : 'bypass';
+      const cls = status === 'hit' ? 'hit'
+        : status === 'miss' ? 'miss'
+        : status === 'blocked' ? 'blocked'
+        : 'bypass';
       return '<span class="pill ' + cls + '">' + status.toUpperCase() + '</span>';
     }
 
@@ -472,7 +486,7 @@
         return true;
       }
       return !llm.some(function (r) {
-        return r.cache_status === 'hit' || r.cache_status === 'miss';
+        return r.cache_status === 'hit' || r.cache_status === 'miss' || r.cache_status === 'blocked';
       });
     }
 

@@ -577,6 +577,15 @@ pub async fn handle_chat_completions(
         );
         if state.injection_block_on_detection {
             state.metrics.record_injection_blocked();
+            // Count blocked requests in traffic totals / recent table (otherwise
+            // dashboard shows injections with requests_total=0).
+            state.metrics.record_request(
+                "openai",
+                "/v1/chat/completions",
+                req.stream,
+                "blocked",
+                start_time.elapsed(),
+            );
             return problem_response(
                 StatusCode::BAD_REQUEST,
                 "Prompt Injection Detected",
@@ -883,6 +892,13 @@ pub async fn handle_messages(
         );
         if state.injection_block_on_detection {
             state.metrics.record_injection_blocked();
+            state.metrics.record_request(
+                "anthropic",
+                "/v1/messages",
+                req.stream,
+                "blocked",
+                start_time.elapsed(),
+            );
             return problem_response(
                 StatusCode::BAD_REQUEST,
                 "Prompt Injection Detected",

@@ -36,6 +36,7 @@ if [ ! -f bin/kotro-proxy ]; then
   CARGO_TARGET_DIR=../bin/rust-target cargo build --release -p kotro-proxy -q
   cd ..
   cp bin/rust-target/release/kotro-proxy bin/kotro-proxy
+  codesign -s - --force bin/kotro-proxy >/dev/null 2>&1 || true
   ok "bin/kotro-proxy built"
 else
   ok "bin/kotro-proxy  ✓"

@@ -647,6 +647,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn blocked_requests_appear_in_dashboard_traffic() {
+        let metrics = MetricsRegistry::new();
+        metrics.record_injection_detected();
+        metrics.record_injection_blocked();
+        metrics.record_request("openai", "/v1/chat/completions", false, "blocked", Duration::from_millis(3));
+
+        let snap = metrics.snapshot();
+        assert_eq!(snap.injections_detected_total, 1.0);
+        assert_eq!(snap.injections_blocked_total, 1.0);
+        assert!(snap.requests_total >= 1.0);
+        assert_eq!(snap.recent_requests.len(), 1);
+        assert_eq!(snap.recent_requests[0].cache_status, "blocked");
+    }
+
+    #[test]
     fn security_counters_appear_in_snapshot() {
         let metrics = MetricsRegistry::new();
         metrics.record_injection_detected();

@@ -1,0 +1,18 @@
+Kotro — Injection Demo Report (plain text)
+
+Honest path: poisoned tool result → next LLM request body → Kotro scanner
+Warn mode: HTTP 200 + x-kotro-injection-warning
+Block mode: HTTP 400 (not 403)
+
+injections_detected_total: 2
+injections_blocked_total:  2
+requests_total:            5
+estimated_dollars_saved:   0.0105
+recent_requests:           5
+
+Recent traffic:
+  anthropic /v1/messages [blocked]
+  openai /v1/chat/completions [blocked]
+  openai /v1/chat/completions [hit]
+  openai /v1/chat/completions [hit]
+  openai /v1/chat/completions [miss]

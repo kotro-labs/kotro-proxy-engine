@@ -1,0 +1,50 @@
+{
+  "updated_at": "UTC days since epoch: 20648 06:13:25.210799000Z",
+  "cache_hit_rate_5m": 0.6666666666666666,
+  "cache_hits_5m": 2,
+  "cache_misses_5m": 1,
+  "estimated_dollars_saved": 0.0105075,
+  "cache_replay_bytes_total": 2802.0,
+  "compressor_bytes_saved_total": 0.0,
+  "compressor_blocks_stripped_total": 0.0,
+  "compressor_scopes_active": 0.0,
+  "redactions_total": 0.0,
+  "cache_entries": 1.0,
+  "requests_total": 5.0,
+  "injections_detected_total": 2.0,
+  "injections_blocked_total": 2.0,
+  "agent_loops_stopped_total": 0.0,
+  "budget_hits_total": 0.0,
+  "recent_requests": [
+    {
+      "at": "UTC days since epoch: 20648 06:12:45.177522000Z",
+      "provider": "anthropic",
+      "route": "/v1/messages",
+      "cache_status": "blocked"
+    },
+    {
+      "at": "UTC days since epoch: 20648 06:12:45.28032000Z",
+      "provider": "openai",
+      "route": "/v1/chat/completions",
+      "cache_status": "blocked"
+    },
+    {
+      "at": "UTC days since epoch: 20648 06:12:44.554729000Z",
+      "provider": "openai",
+      "route": "/v1/chat/completions",
+      "cache_status": "hit"
+    },
+    {
+      "at": "UTC days since epoch: 20648 06:12:44.517009000Z",
+      "provider": "openai",
+      "route": "/v1/chat/completions",
+      "cache_status": "hit"
+    },
+    {
+      "at": "UTC days since epoch: 20648 06:12:44.479380000Z",
+      "provider": "openai",
+      "route": "/v1/chat/completions",
+      "cache_status": "miss"
+    }
+  ]
+}

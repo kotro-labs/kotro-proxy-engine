@@ -1,0 +1,17 @@
+---
+description: Guide Kotro Week 1 distribution plan to completion (security tiles → exploit demo → Show HN)
+alwaysApply: true
+---
+
+# Week 1 distribution plan
+
+Canonical checklist: `docs/launch/WEEK1-DISTRIBUTION.md`
+
+## Rules for this agent
+
+1. When the user asks what to do next, for launch/HN/marketing/virality, or continues launch work: **read that file first** and drive the first incomplete **TODO** only.
+2. **Days 1–2 are DONE** (security dashboard tiles, honest Detected/Blocked naming, `KOTRO_DASHBOARD_USD_PER_TOKEN`). Do not rebuild the dashboard.
+3. **Next up: Days 3–4** — honest injection exploit demo + 60–90s recording + dashboard screenshot. Frame intercept as: poisoned content in the next LLM API body → Kotro scan → warn / HTTP 400 block. Never invent MCP transport intercept or HTTP 403 for injection (budget hard-block is 429).
+4. **Then Day 5** — Show HN, security first, savings second. Prefer Tue/Wed 8–10am US Eastern.
+5. **Do not** prioritize WASM plugins, Kotro Cloud, or LiteLLM comparison benches unless the user explicitly overrides this plan.
+6. Update status checkboxes / Status table in `WEEK1-DISTRIBUTION.md` when a day completes.

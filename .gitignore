@@ -29,6 +29,18 @@ benchmarks/.audit-logs/
 benchmarks/eval-suite/.runs/
 benchmarks/eval-suite/.last-run.json
 
+# Launch demo build intermediates (keep final MP4/PNG/JSON/terminal txt + slides)
+docs/launch/assets/narration-*
+docs/launch/assets/dashboard-injection-demo-20*.png
+docs/launch/assets/dashboard-snapshot-20*.json
+docs/launch/assets/demo-injection-terminal-20*.txt
+docs/launch/assets/demo-*.log
+docs/launch/assets/exploit-demo-recording-narrated.mp4
+docs/launch/assets/.dash*/
+docs/launch/assets/*.aiff
+docs/launch/assets/*.wav
+docs/launch/assets/narration-concat.txt
+
 # Environment variables
 .env
 .env.*
