@@ -24,6 +24,7 @@ coverage.html
 # Local runtime artifacts
 kotro-cache.db
 *.db
+*.log
 benchmarks/.audit-logs/
 benchmarks/eval-suite/.runs/
 benchmarks/eval-suite/.last-run.json

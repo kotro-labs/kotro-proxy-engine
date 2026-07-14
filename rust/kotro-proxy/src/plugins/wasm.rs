@@ -1,4 +1,16 @@
-use anyhow::{Context, Result};
+//! WASM plugin engine — hot-loadable request/response interceptors via Extism.
+//!
+//! # Async safety
+//! `Plugin::call` is a blocking C FFI call into the WASM runtime. To avoid
+//! stalling the Tokio executor when plugins are invoked from async Axum handlers,
+//! `on_request` wraps each plugin call in `tokio::task::block_in_place`.
+//!
+//! # Plugin chain
+//! Plugins execute in load order. Each plugin receives the (possibly modified)
+//! request body from the previous plugin. If any plugin sets `block: true`,
+//! the chain short-circuits and the request is rejected immediately.
+
+use anyhow::Result;
 use extism::{Manifest, Plugin, Wasm};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -39,9 +51,17 @@ impl PluginManager {
         Ok(Self { plugins })
     }
 
+    /// Returns `true` if no plugins are loaded (fast-path check for handlers).
+    pub fn is_empty(&self) -> bool {
+        self.plugins.is_empty()
+    }
+
     /// Executes `on_request` on all loaded plugins in sequence.
-    /// If any plugin returns `block: true`, the chain stops and returns immediately.
-    /// Otherwise, modifications to the request body are passed to the next plugin.
+    ///
+    /// Each plugin call runs inside `block_in_place` so the Tokio thread pool
+    /// is not starved while the WASM runtime executes. If any plugin returns
+    /// `block: true`, the chain stops immediately. Modifications to the request
+    /// body propagate to the next plugin in the chain.
     pub fn on_request(&self, req: WasmRequest) -> Result<WasmResponse> {
         let mut current_req = req;
         let mut final_res = WasmResponse {
@@ -56,46 +76,84 @@ impl PluginManager {
         }
 
         for plugin_mutex in &self.plugins {
-            let mut plugin = match plugin_mutex.lock() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("Failed to lock plugin mutex: {}", e);
-                    continue;
-                }
-            };
-            
-            if !plugin.function_exists("on_request") {
-                continue;
-            }
+            let plugin_arc = Arc::clone(plugin_mutex);
 
             let input_json = serde_json::to_string(&current_req)?;
-            match plugin.call::<&str, &str>("on_request", &input_json) {
-                Ok(output_json) => {
-                    match serde_json::from_str::<WasmResponse>(output_json) {
-                        Ok(res) => {
-                            if res.block.unwrap_or(false) {
-                                return Ok(res);
-                            }
-                            if let Some(new_body) = res.body {
-                                current_req.body = new_body.clone();
-                                final_res.body = Some(new_body);
-                            }
-                            if let Some(new_headers) = res.headers {
-                                current_req.headers = new_headers.clone();
-                                final_res.headers = Some(new_headers);
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("WASM plugin returned invalid JSON: {}", e);
-                        }
+
+            // block_in_place: the WASM FFI call may take non-trivial time.
+            // This yields the executor while we hold the OS thread.
+            let output = tokio::task::block_in_place(|| {
+                let mut plugin = match plugin_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        tracing::error!("Failed to lock plugin mutex: {}", e);
+                        return None;
+                    }
+                };
+
+                if !plugin.function_exists("on_request") {
+                    return None;
+                }
+
+                match plugin.call::<&str, &str>("on_request", &input_json) {
+                    Ok(out) => Some(out.to_owned()),
+                    Err(e) => {
+                        tracing::warn!("WASM plugin execution error in on_request: {}", e);
+                        None
+                    }
+                }
+            });
+
+            let Some(output_json) = output else {
+                continue;
+            };
+
+            match serde_json::from_str::<WasmResponse>(&output_json) {
+                Ok(res) => {
+                    if res.block.unwrap_or(false) {
+                        return Ok(res);
+                    }
+                    if let Some(new_body) = res.body {
+                        current_req.body = new_body.clone();
+                        final_res.body = Some(new_body);
+                    }
+                    if let Some(new_headers) = res.headers {
+                        current_req.headers = new_headers.clone();
+                        final_res.headers = Some(new_headers);
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("WASM plugin execution error in on_request: {}", e);
+                    tracing::warn!("WASM plugin returned invalid JSON: {}", e);
                 }
             }
         }
-        
+
         Ok(final_res)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_plugin_manager_passes_through() {
+        let manager = PluginManager { plugins: vec![] };
+        assert!(manager.is_empty());
+
+        // on_request with no plugins returns the original body unchanged.
+        let req = WasmRequest {
+            uri: "/v1/chat/completions".into(),
+            method: "POST".into(),
+            headers: HashMap::new(),
+            body: r#"{"model":"gpt-4","messages":[]}"#.into(),
+        };
+
+        // We need a tokio runtime for block_in_place
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let res = rt.block_on(async { manager.on_request(req.clone()) }).unwrap();
+
+        assert_eq!(res.block, Some(false));
+        assert_eq!(res.body.as_deref(), Some(r#"{"model":"gpt-4","messages":[]}"#));
     }
 }

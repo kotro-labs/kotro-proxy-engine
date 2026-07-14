@@ -58,6 +58,57 @@ fn problem_response(status: StatusCode, title: &str, detail: &str) -> Response {
     response
 }
 
+/// Run the WASM plugin chain against an incoming request body.
+///
+/// Returns:
+/// - `Ok(None)`          — plugins passed, body unchanged
+/// - `Ok(Some(body))`   — plugins passed, body replaced with new JSON string
+/// - `Err(Response)`    — a plugin blocked the request; return the response immediately
+///
+/// Warnings from plugin errors are logged but never surface as hard failures so
+/// that a broken plugin cannot take down the proxy's primary request path.
+fn run_wasm_plugins(
+    plugin_manager: &crate::plugins::wasm::PluginManager,
+    uri: &str,
+    headers: &HeaderMap,
+    body: &str,
+) -> Result<Option<String>, Response> {
+    if plugin_manager.is_empty() {
+        return Ok(None);
+    }
+
+    let mut wasm_headers = std::collections::HashMap::new();
+    for (k, v) in headers.iter() {
+        if let Ok(val) = v.to_str() {
+            wasm_headers.insert(k.as_str().to_string(), val.to_string());
+        }
+    }
+
+    let wasm_req = crate::plugins::wasm::WasmRequest {
+        uri: uri.to_string(),
+        method: "POST".to_string(),
+        headers: wasm_headers,
+        body: body.to_string(),
+    };
+
+    match plugin_manager.on_request(wasm_req) {
+        Ok(wasm_res) => {
+            if wasm_res.block.unwrap_or(false) {
+                return Err(problem_response(
+                    StatusCode::FORBIDDEN,
+                    "Blocked by Plugin",
+                    "A WASM plugin blocked this request.",
+                ));
+            }
+            Ok(wasm_res.body)
+        }
+        Err(e) => {
+            tracing::warn!("Failed to execute WASM plugins: {}", e);
+            Ok(None)
+        }
+    }
+}
+
 
 /// Attach a single header to a [`Response`].
 ///
@@ -443,35 +494,17 @@ pub async fn handle_chat_completions(
 
     let mut body_str = serde_json::to_string(&req).unwrap_or_default();
 
-    let mut wasm_headers = std::collections::HashMap::new();
-    for (k, v) in headers.iter() {
-        if let Ok(val) = v.to_str() {
-            wasm_headers.insert(k.as_str().to_string(), val.to_string());
-        }
-    }
-    let wasm_req = crate::plugins::wasm::WasmRequest {
-        uri: "/v1/chat/completions".to_string(),
-        method: "POST".to_string(),
-        headers: wasm_headers,
-        body: body_str.clone(),
-    };
-    match state.plugin_manager.on_request(wasm_req) {
-        Ok(wasm_res) => {
-            if wasm_res.block.unwrap_or(false) {
-                return problem_response(StatusCode::FORBIDDEN, "Blocked by Plugin", "A WASM plugin blocked this request.");
-            }
-            if let Some(new_body) = wasm_res.body {
-                if let Ok(new_req) = serde_json::from_str(&new_body) {
-                    req = new_req;
-                    body_str = new_body.clone();
-                } else {
-                    tracing::warn!("WASM plugin returned invalid modified body, ignoring.");
-                }
+    match run_wasm_plugins(&state.plugin_manager, "/v1/chat/completions", &headers, &body_str) {
+        Ok(Some(new_body)) => {
+            if let Ok(new_req) = serde_json::from_str(&new_body) {
+                req = new_req;
+                body_str = new_body;
+            } else {
+                tracing::warn!("WASM plugin returned invalid modified body, ignoring.");
             }
         }
-        Err(e) => {
-            tracing::warn!("Failed to execute WASM plugins: {}", e);
-        }
+        Ok(None) => {}
+        Err(blocked) => return blocked,
     }
 
     state.metrics.record_request_body("openai", body_str.len());
@@ -769,35 +802,17 @@ pub async fn handle_messages(
 
     let mut body_str = serde_json::to_string(&req).unwrap_or_default();
 
-    let mut wasm_headers = std::collections::HashMap::new();
-    for (k, v) in headers.iter() {
-        if let Ok(val) = v.to_str() {
-            wasm_headers.insert(k.as_str().to_string(), val.to_string());
-        }
-    }
-    let wasm_req = crate::plugins::wasm::WasmRequest {
-        uri: "/v1/messages".to_string(),
-        method: "POST".to_string(),
-        headers: wasm_headers,
-        body: body_str.clone(),
-    };
-    match state.plugin_manager.on_request(wasm_req) {
-        Ok(wasm_res) => {
-            if wasm_res.block.unwrap_or(false) {
-                return problem_response(StatusCode::FORBIDDEN, "Blocked by Plugin", "A WASM plugin blocked this request.");
-            }
-            if let Some(new_body) = wasm_res.body {
-                if let Ok(new_req) = serde_json::from_str(&new_body) {
-                    req = new_req;
-                    body_str = new_body.clone();
-                } else {
-                    tracing::warn!("WASM plugin returned invalid modified body, ignoring.");
-                }
+    match run_wasm_plugins(&state.plugin_manager, "/v1/messages", &headers, &body_str) {
+        Ok(Some(new_body)) => {
+            if let Ok(new_req) = serde_json::from_str(&new_body) {
+                req = new_req;
+                body_str = new_body;
+            } else {
+                tracing::warn!("WASM plugin returned invalid modified body, ignoring.");
             }
         }
-        Err(e) => {
-            tracing::warn!("Failed to execute WASM plugins: {}", e);
-        }
+        Ok(None) => {}
+        Err(blocked) => return blocked,
     }
 
     state.metrics.record_request_body("anthropic", body_str.len());

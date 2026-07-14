@@ -15,9 +15,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     let cfg = Config::load();
-    if let Err(e) = kotro_proxy::telemetry::otel::init_telemetry(cfg.otel_endpoint.as_deref()) {
-        eprintln!("Failed to initialize telemetry: {}", e);
-    }
+
+    // Initialise telemetry and retain the provider handle so we can flush
+    // buffered spans before exit (only Some when KOTRO_OTEL_ENDPOINT is set).
+    let otel_provider = match kotro_proxy::telemetry::otel::init_telemetry(cfg.otel_endpoint.as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to initialize telemetry: {e}");
+            None
+        }
+    };
+
     info!(
         service = "kotro-proxy",
         listen = %cfg.listen_addr,
@@ -33,5 +41,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
 
     let server = Server::new(cfg)?;
-    server.run().await
+    server.run().await?;
+
+    // Flush any buffered OTel spans before the process exits.
+    if let Some(provider) = otel_provider {
+        if let Err(e) = provider.shutdown() {
+            eprintln!("OTel provider shutdown error: {e}");
+        }
+    }
+
+    Ok(())
 }

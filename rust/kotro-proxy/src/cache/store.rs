@@ -276,14 +276,16 @@ impl Store {
     pub fn ttl(&self) -> Duration {
         match self {
             Store::Local(s) => s.ttl(),
-            Store::Redis(_) => Duration::ZERO, // handled internally
+            // Redis handles TTL natively via SETEX; return the configured value
+            // but the eviction worker skips Redis (sweep_expired returns Ok(0)).
+            Store::Redis(s) => s.ttl(),
         }
     }
 
     pub fn compression_enabled(&self) -> bool {
         match self {
             Store::Local(s) => s.compression_enabled(),
-            Store::Redis(_) => false,
+            Store::Redis(s) => s.compression_enabled(),
         }
     }
 
