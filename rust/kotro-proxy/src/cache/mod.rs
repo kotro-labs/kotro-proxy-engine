@@ -7,6 +7,7 @@ pub mod tool;
 pub mod vector;
 pub mod semantic;
 pub mod store;
+pub mod redis_store;
 
 pub use encoding::{decode_stored_value, encode_stored_value, expiry_prefix_len, expires_at_nano};
 pub use entry::Entry;

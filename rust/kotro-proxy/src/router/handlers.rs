@@ -441,7 +441,39 @@ pub async fn handle_chat_completions(
 
     crate::optimizer::enforce_cache_matrix(&mut req);
 
-    let body_str = serde_json::to_string(&req).unwrap_or_default();
+    let mut body_str = serde_json::to_string(&req).unwrap_or_default();
+
+    let mut wasm_headers = std::collections::HashMap::new();
+    for (k, v) in headers.iter() {
+        if let Ok(val) = v.to_str() {
+            wasm_headers.insert(k.as_str().to_string(), val.to_string());
+        }
+    }
+    let wasm_req = crate::plugins::wasm::WasmRequest {
+        uri: "/v1/chat/completions".to_string(),
+        method: "POST".to_string(),
+        headers: wasm_headers,
+        body: body_str.clone(),
+    };
+    match state.plugin_manager.on_request(wasm_req) {
+        Ok(wasm_res) => {
+            if wasm_res.block.unwrap_or(false) {
+                return problem_response(StatusCode::FORBIDDEN, "Blocked by Plugin", "A WASM plugin blocked this request.");
+            }
+            if let Some(new_body) = wasm_res.body {
+                if let Ok(new_req) = serde_json::from_str(&new_body) {
+                    req = new_req;
+                    body_str = new_body.clone();
+                } else {
+                    tracing::warn!("WASM plugin returned invalid modified body, ignoring.");
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to execute WASM plugins: {}", e);
+        }
+    }
+
     state.metrics.record_request_body("openai", body_str.len());
 
     let scope = state.scope.from_request(&headers, peer.ip());
@@ -727,7 +759,7 @@ pub async fn handle_messages(
     Json(payload): Json<Value>,
 ) -> Response {
     let start_time = Instant::now();
-    let req: MessagesRequest = match serde_json::from_value(payload) {
+    let mut req: MessagesRequest = match serde_json::from_value(payload) {
         Ok(req) => req,
         Err(err) => {
             state.metrics.record_error("anthropic", "parse");
@@ -735,7 +767,39 @@ pub async fn handle_messages(
         }
     };
 
-    let body_str = serde_json::to_string(&req).unwrap_or_default();
+    let mut body_str = serde_json::to_string(&req).unwrap_or_default();
+
+    let mut wasm_headers = std::collections::HashMap::new();
+    for (k, v) in headers.iter() {
+        if let Ok(val) = v.to_str() {
+            wasm_headers.insert(k.as_str().to_string(), val.to_string());
+        }
+    }
+    let wasm_req = crate::plugins::wasm::WasmRequest {
+        uri: "/v1/messages".to_string(),
+        method: "POST".to_string(),
+        headers: wasm_headers,
+        body: body_str.clone(),
+    };
+    match state.plugin_manager.on_request(wasm_req) {
+        Ok(wasm_res) => {
+            if wasm_res.block.unwrap_or(false) {
+                return problem_response(StatusCode::FORBIDDEN, "Blocked by Plugin", "A WASM plugin blocked this request.");
+            }
+            if let Some(new_body) = wasm_res.body {
+                if let Ok(new_req) = serde_json::from_str(&new_body) {
+                    req = new_req;
+                    body_str = new_body.clone();
+                } else {
+                    tracing::warn!("WASM plugin returned invalid modified body, ignoring.");
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to execute WASM plugins: {}", e);
+        }
+    }
+
     state.metrics.record_request_body("anthropic", body_str.len());
 
     let scope = state.scope.from_request(&headers, peer.ip());

@@ -69,6 +69,12 @@ pub struct Config {
     pub tool_cache_status_ttl_secs: u64,
     /// TTL in seconds for search tool results. Default: 3600.
     pub tool_cache_search_ttl_secs: u64,
+    /// Comma-separated list of paths to WASM plugin files to load at startup.
+    pub wasm_plugins: Vec<String>,
+    /// OpenTelemetry OTLP endpoint (e.g. "http://localhost:4317")
+    pub otel_endpoint: Option<String>,
+    /// Redis connection URL for shared team cache (e.g. "redis://127.0.0.1:6379/")
+    pub redis_url: Option<String>,
 }
 
 impl Default for Config {
@@ -112,6 +118,9 @@ impl Default for Config {
             tool_cache_read_ttl_secs: 30,
             tool_cache_status_ttl_secs: 300,
             tool_cache_search_ttl_secs: 3600,
+            wasm_plugins: Vec::new(),
+            otel_endpoint: None,
+            redis_url: None,
         }
     }
 }
@@ -208,6 +217,9 @@ impl Config {
             tool_cache_read_ttl_secs: env_u64("KOTRO_TOOL_CACHE_READ_TTL_SECS", defaults.tool_cache_read_ttl_secs),
             tool_cache_status_ttl_secs: env_u64("KOTRO_TOOL_CACHE_STATUS_TTL_SECS", defaults.tool_cache_status_ttl_secs),
             tool_cache_search_ttl_secs: env_u64("KOTRO_TOOL_CACHE_SEARCH_TTL_SECS", defaults.tool_cache_search_ttl_secs),
+            wasm_plugins: env_csv("KOTRO_WASM_PLUGINS", defaults.wasm_plugins),
+            otel_endpoint: env_opt("KOTRO_OTEL_ENDPOINT"),
+            redis_url: env_opt("KOTRO_REDIS_URL"),
         }
     }
 }
@@ -231,6 +243,13 @@ fn env_u64(key: &str, fallback: u64) -> u64 {
     match env::var(key) {
         Ok(v) => v.parse().unwrap_or(fallback),
         Err(_) => fallback,
+    }
+}
+
+fn env_csv(key: &str, fallback: Vec<String>) -> Vec<String> {
+    match env::var(key) {
+        Ok(v) if !v.is_empty() => v.split(',').map(|s| s.trim().to_string()).collect(),
+        _ => fallback,
     }
 }
 

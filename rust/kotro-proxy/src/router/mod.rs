@@ -70,6 +70,8 @@ pub struct AppState {
     pub reasoning_block: bool,
     /// In-memory tool call result cache (opt-in, `KOTRO_ENABLE_TOOL_CACHE=true`).
     pub tool_cache: Arc<crate::cache::tool::ToolCache>,
+    /// WASM plugin engine
+    pub plugin_manager: Arc<crate::plugins::wasm::PluginManager>,
 }
 
 impl AppState {
@@ -136,6 +138,10 @@ impl AppState {
                     default: std::time::Duration::from_secs(60),
                 },
             )),
+            plugin_manager: Arc::new(crate::plugins::wasm::PluginManager::new(&cfg.wasm_plugins).unwrap_or_else(|e| {
+                tracing::error!("Failed to initialize WASM plugins: {}", e);
+                crate::plugins::wasm::PluginManager::new(&[]).unwrap()
+            })),
         }
     }
 }
@@ -162,14 +168,18 @@ pub fn create_telemetry_router(state: AppState) -> Router {
 
 
 pub fn open_store(cfg: &Config) -> Result<Store, crate::cache::StoreError> {
-    Store::open_with_options(
-        &cfg.cache_db_path,
-        StoreOptions {
-            ttl: cfg.cache_ttl,
-            enable_compression: cfg.enable_compression,
-            max_capacity: None,
-        },
-    )
+    let opts = StoreOptions {
+        ttl: cfg.cache_ttl,
+        enable_compression: cfg.enable_compression,
+        max_capacity: None,
+    };
+
+    if let Some(redis_url) = &cfg.redis_url {
+        tracing::info!("Initializing Redis cache store at {}", redis_url);
+        Store::open_redis(redis_url, opts)
+    } else {
+        Store::open_with_options(&cfg.cache_db_path, opts)
+    }
 }
 
 pub fn build_http_client() -> Result<Client, reqwest::Error> {

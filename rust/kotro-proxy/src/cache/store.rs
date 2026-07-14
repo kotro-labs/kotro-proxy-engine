@@ -50,10 +50,12 @@ pub enum StoreError {
     Corrupt(#[from] serde_json::Error),
     #[error("cache: bucket missing")]
     BucketMissing,
+    #[error("cache: redis error: {0}")]
+    Redis(String),
 }
 
 #[derive(Clone)]
-pub struct Store {
+pub struct LocalStore {
     db: Arc<Database>,
     path: PathBuf,
     ttl: Duration,
@@ -61,7 +63,7 @@ pub struct Store {
     max_capacity: Option<usize>,
 }
 
-impl Store {
+impl LocalStore {
     /// Opens or creates the cache database at `path` with no TTL.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StoreError> {
         Self::open_with_options(path, StoreOptions::default())
@@ -214,6 +216,98 @@ impl Store {
     }
 }
 
+#[derive(Clone)]
+pub enum Store {
+    Local(LocalStore),
+    Redis(crate::cache::redis_store::RedisStore),
+}
+
+impl Store {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StoreError> {
+        LocalStore::open(path).map(Store::Local)
+    }
+
+    pub fn open_with_options<P: AsRef<Path>>(
+        path: P,
+        opts: StoreOptions,
+    ) -> Result<Self, StoreError> {
+        LocalStore::open_with_options(path, opts).map(Store::Local)
+    }
+
+    pub fn open_redis(url: &str, opts: StoreOptions) -> Result<Self, StoreError> {
+        crate::cache::redis_store::RedisStore::new(url, opts).map(Store::Redis)
+    }
+
+    pub fn get(&self, key: &str) -> Result<Option<Entry>, StoreError> {
+        match self {
+            Store::Local(s) => s.get(key),
+            Store::Redis(s) => s.get(key),
+        }
+    }
+
+    pub fn put(&self, entry: Entry) -> Result<(), StoreError> {
+        match self {
+            Store::Local(s) => s.put(entry),
+            Store::Redis(s) => s.put(entry),
+        }
+    }
+
+    pub fn delete(&self, key: &str) -> Result<(), StoreError> {
+        match self {
+            Store::Local(s) => s.delete(key),
+            Store::Redis(s) => s.delete(key),
+        }
+    }
+
+    pub fn put_raw(&self, key: &str, value: &[u8]) -> Result<(), StoreError> {
+        match self {
+            Store::Local(s) => s.put_raw(key, value),
+            Store::Redis(_) => Err(StoreError::Redis("put_raw not supported".into())),
+        }
+    }
+
+    pub fn sweep_expired(&self) -> Result<usize, StoreError> {
+        match self {
+            Store::Local(s) => s.sweep_expired(),
+            Store::Redis(_) => Ok(0), // Redis handles TTL natively
+        }
+    }
+
+    pub fn ttl(&self) -> Duration {
+        match self {
+            Store::Local(s) => s.ttl(),
+            Store::Redis(_) => Duration::ZERO, // handled internally
+        }
+    }
+
+    pub fn compression_enabled(&self) -> bool {
+        match self {
+            Store::Local(s) => s.compression_enabled(),
+            Store::Redis(_) => false,
+        }
+    }
+
+    pub fn max_capacity(&self) -> Option<usize> {
+        match self {
+            Store::Local(s) => s.max_capacity(),
+            Store::Redis(_) => None,
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        match self {
+            Store::Local(s) => s.path(),
+            Store::Redis(_) => Path::new(""),
+        }
+    }
+
+    pub fn count(&self) -> Result<usize, StoreError> {
+        match self {
+            Store::Local(s) => s.count(),
+            Store::Redis(s) => s.count(),
+        }
+    }
+}
 
 fn now_unix_nano() -> i64 {
     SystemTime::now()

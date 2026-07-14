@@ -14,12 +14,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return Ok(());
     }
 
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .json()
-        .init();
-
     let cfg = Config::load();
+    if let Err(e) = kotro_proxy::telemetry::otel::init_telemetry(cfg.otel_endpoint.as_deref()) {
+        eprintln!("Failed to initialize telemetry: {}", e);
+    }
     info!(
         service = "kotro-proxy",
         listen = %cfg.listen_addr,

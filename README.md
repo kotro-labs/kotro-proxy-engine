@@ -55,7 +55,9 @@ In a standard 3-turn codebase benchmark (full data in [`benchmarks/eval-suite/RE
 | **Per-session token budget** | Hard cap on tokens per scope per session (`KOTRO_SESSION_TOKEN_BUDGET`). Returns HTTP 429 with `X-Kotro-Budget-Remaining` header before the LLM call is made. |
 | **Universal provider support** | OpenAI-compatible APIs (DeepSeek, Groq, Ollama, etc.) and Anthropic `POST /v1/messages`. |
 | **Offline test harness** | Mock upstream simulates chunked OpenAI + Anthropic SSE without network. |
-| **Load benchmarks** | k6 and vegeta scripts for cache hit/miss and mixed workloads. |
+| **WASM Plugins** | Bring-your-own security guardrails written in Go, TS, or Python. Dynamically loaded on boot. |
+| **OpenTelemetry** | Export native distributed traces (OTLP/HTTP) for every request to Datadog, New Relic, Jaeger, etc. |
+| **Shared Team Cache** | Optionally configure `KOTRO_REDIS_URL` to seamlessly switch from embedded local cache to shared Redis. |
 
 ## Install
 
@@ -153,6 +155,9 @@ Local dashboard: [http://127.0.0.1:9090/dashboard](http://127.0.0.1:9090/dashboa
 | `KOTRO_ENABLE_PPROF` | `false` | Expose `/debug/pprof` for leak audits |
 | `KOTRO_ENABLE_METRICS` | `true` | Expose `/metrics` and `/dashboard` on `KOTRO_METRICS_ADDR` (default `127.0.0.1:9090`) |
 | `KOTRO_METRICS_ADDR` | `127.0.0.1:9090` | Isolated telemetry bind address |
+| `KOTRO_OTEL_ENDPOINT` | (empty) | OpenTelemetry OTLP endpoint (e.g. `http://localhost:4318/v1/traces`) |
+| `KOTRO_WASM_PLUGINS` | (empty) | Comma-separated paths to `.wasm` files to load into the request pipeline |
+| `KOTRO_REDIS_URL` | (empty) | Redis URL (e.g. `redis://127.0.0.1:6379/`) for shared team caching |
 | `KOTRO_CACHE_KEY_STRATEGY` | `window_n` | Cache key material: `latest_only`, `window_n`, `full_digest` |
 | `KOTRO_CACHE_WINDOW_SIZE` | `4` | Trailing non-system turns hashed when strategy is `window_n` |
 

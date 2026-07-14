@@ -90,10 +90,10 @@ pub fn start_eviction_worker(store: Store, sweep_interval: Duration) {
 
         loop {
             ticker.tick().await;
-            match sweep_stale(store.db_handle(), now_unix_nano(), store.max_capacity()) {
-                Ok(0) => {}
-                Ok(deleted) => info!(deleted, "cache eviction sweep"),
-                Err(err) => error!(error = %err, "cache eviction sweep failed"),
+            match store.sweep_expired() {
+                Ok(n) if n > 0 => tracing::debug!(evicted = n, "swept stale cache entries"),
+                Err(e) => tracing::error!("cache sweep failed: {e}"),
+                _ => {}
             }
         }
     });

@@ -1,8 +1,8 @@
 [package]
 name = "kotro-proxy"
 description = "High-performance Rust port of the Kotro local LLM proxy engine"
-version.workspace = true
-edition.workspace = true
+version = "1.0.0"
+edition = "2021"
 license.workspace = true
 authors.workspace = true
 
@@ -40,6 +40,14 @@ candle-nn = "0.11.0"
 candle-transformers = "0.11.0"
 hf-hub = "0.5.0"
 tokenizers = "0.21"
+extism = "1.30.0"
+anyhow = "1.0.103"
+tracing-opentelemetry = "0.33.0"
+opentelemetry-otlp = { version = "0.32.0", features = ["reqwest-client", "http-proto"] }
+opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio"] }
+opentelemetry = "0.32.0"
+opentelemetry-semantic-conventions = "0.32.1"
+redis = { version = "1.3.0", features = ["tokio-comp", "connection-manager"] }
 
 [dev-dependencies]
 tempfile = "3"
