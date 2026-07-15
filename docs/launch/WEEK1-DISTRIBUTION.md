@@ -109,6 +109,8 @@ Do **not** claim MCP stdio intercept unless that hop is actually implemented.
 
 Draft live file: [`show-hn-draft.md`](./show-hn-draft.md) — update to match this plan before posting.
 
+**Dev.to mass-market article (cost → security reveal):** [`devto-article-3-savings-then-security.md`](./devto-article-3-savings-then-security.md) — do not confuse with article 1 (security-first) or article 2 (cost diagnosis).
+
 ---
 
 ## Explicitly out of scope this month
