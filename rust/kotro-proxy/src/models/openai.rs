@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::cache::CacheKeyStrategy;
+use crate::cache::{normalize_text, normalize_tool_calls, normalize_value, CacheKeyStrategy};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ChatCompletionRequest {
@@ -46,19 +46,32 @@ impl ChatCompletionRequest {
 
     pub fn extract_cache_key_material(&self, strategy: CacheKeyStrategy, window_n: usize) -> Vec<u8> {
         match strategy {
-            CacheKeyStrategy::FullDigest => serde_json::to_vec(&self.messages).unwrap_or_default(),
+            CacheKeyStrategy::FullDigest => {
+                let messages: Vec<ChatMessage> = self
+                    .messages
+                    .iter()
+                    .map(|m| ChatMessage {
+                        role: m.role.clone(),
+                        content: normalize_value(&m.content),
+                        name: m.name.clone(),
+                        tool_calls: m.tool_calls.as_ref().map(normalize_tool_calls),
+                        tool_call_id: m.tool_call_id.clone(),
+                    })
+                    .collect();
+                serde_json::to_vec(&messages).unwrap_or_default()
+            }
             CacheKeyStrategy::LatestOnly => {
                 let mut system_prompt = String::new();
                 for msg in &self.messages {
                     if msg.role == "system" {
-                        system_prompt = content_text(&msg.content);
+                        system_prompt = normalize_text(&content_text(&msg.content));
                         break;
                     }
                 }
                 let mut latest_user = String::new();
                 for msg in self.messages.iter().rev() {
                     if msg.role == "user" {
-                        latest_user = content_text(&msg.content);
+                        latest_user = normalize_text(&content_text(&msg.content));
                         break;
                     }
                 }
@@ -68,7 +81,7 @@ impl ChatCompletionRequest {
                 let mut system_prompt = String::new();
                 for msg in &self.messages {
                     if msg.role == "system" {
-                        system_prompt = content_text(&msg.content);
+                        system_prompt = normalize_text(&content_text(&msg.content));
                         break;
                     }
                 }
@@ -78,7 +91,13 @@ impl ChatCompletionRequest {
                 let window_messages: Vec<ChatMessage> = self.messages[start_idx..msg_len]
                     .iter()
                     .filter(|m| m.role != "system")
-                    .cloned()
+                    .map(|m| ChatMessage {
+                        role: m.role.clone(),
+                        content: normalize_value(&m.content),
+                        name: m.name.clone(),
+                        tool_calls: m.tool_calls.as_ref().map(normalize_tool_calls),
+                        tool_call_id: m.tool_call_id.clone(),
+                    })
                     .collect();
 
                 #[derive(Serialize)]
@@ -102,14 +121,26 @@ pub fn content_text(content: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Array(parts) => parts
             .iter()
-            .filter_map(|part| {
-                if part.get("type").and_then(Value::as_str) == Some("text") {
-                    part.get("text").and_then(Value::as_str).map(str::to_string)
-                } else {
+            .filter_map(|part| match part {
+                Value::String(s) => Some(s.clone()),
+                Value::Object(_) => {
+                    let ty = part.get("type").and_then(Value::as_str).unwrap_or("");
+                    // OpenAI text parts + common variants agents emit for file/tool blobs.
+                    if matches!(ty, "text" | "input_text" | "output_text" | "") {
+                        if let Some(t) = part.get("text").and_then(Value::as_str) {
+                            return Some(t.to_string());
+                        }
+                    }
+                    // Some tool bridges nest file bodies under `content`.
+                    if let Some(t) = part.get("content").and_then(Value::as_str) {
+                        return Some(t.to_string());
+                    }
                     None
                 }
+                _ => None,
             })
-            .collect(),
+            .collect::<Vec<_>>()
+            .join("\n"),
         other => other.to_string(),
     }
 }

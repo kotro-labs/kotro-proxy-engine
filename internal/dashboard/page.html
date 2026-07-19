@@ -37,6 +37,10 @@
       --bypass: hsl(215, 27%, 65%); /* #8fa3bf */
       --bypass-glow: hsla(215, 27%, 65%, 0.4);
       --bypass-bg: hsla(215, 27%, 65%, 0.12);
+
+      --semantic: hsl(185, 80%, 60%); /* cyan — fuzzy match */
+      --semantic-glow: hsla(185, 80%, 60%, 0.4);
+      --semantic-bg: hsla(185, 80%, 60%, 0.13);
     }
 
     * { box-sizing: border-box; }
@@ -243,10 +247,17 @@
       box-shadow: 0 0 12px var(--blocked-glow);
     }
     
-    .pill.bypass { 
-      background: var(--bypass-bg); 
-      color: var(--bypass); 
+    .pill.bypass {
+      background: var(--bypass-bg);
+      color: var(--bypass);
       border-color: hsla(215, 27%, 65%, 0.3);
+    }
+
+    .pill.semantic {
+      background: var(--semantic-bg);
+      color: var(--semantic);
+      border-color: hsla(185, 80%, 60%, 0.35);
+      box-shadow: 0 0 10px var(--semantic-glow);
     }
 
     .links a { 
@@ -471,6 +482,7 @@
       const cls = status === 'hit' ? 'hit'
         : status === 'miss' ? 'miss'
         : status === 'blocked' ? 'blocked'
+        : status === 'semantic' ? 'semantic'
         : 'bypass';
       return '<span class="pill ' + cls + '">' + status.toUpperCase() + '</span>';
     }
@@ -486,7 +498,7 @@
         return true;
       }
       return !llm.some(function (r) {
-        return r.cache_status === 'hit' || r.cache_status === 'miss' || r.cache_status === 'blocked';
+        return r.cache_status === 'hit' || r.cache_status === 'miss' || r.cache_status === 'blocked' || r.cache_status === 'semantic';
       });
     }
 

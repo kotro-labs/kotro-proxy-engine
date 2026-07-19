@@ -3,7 +3,9 @@ use serde_json::Value;
 
 use crate::models::anthropic::{AnthropicTurn, MessagesRequest};
 use crate::models::openai::{ChatCompletionRequest, ChatMessage};
-use crate::cache::CacheKeyStrategy;
+use crate::cache::{
+    normalize_text, normalize_tool_calls, normalize_value, CacheKeyStrategy,
+};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UnifiedRequest {
@@ -23,6 +25,19 @@ pub struct UnifiedMessage {
     pub tool_call_id: Option<String>,
 }
 
+impl UnifiedMessage {
+    /// Clone with content / tool_calls normalized for hashing only.
+    fn for_cache_key(&self) -> Self {
+        Self {
+            role: self.role.clone(),
+            content: normalize_value(&self.content),
+            name: self.name.clone(),
+            tool_calls: self.tool_calls.as_ref().map(normalize_tool_calls),
+            tool_call_id: self.tool_call_id.clone(),
+        }
+    }
+}
+
 impl UnifiedRequest {
     pub fn extract_prompt_state(&self) -> (String, String) {
         let system_prompt = self.system_prompt.clone();
@@ -37,17 +52,19 @@ impl UnifiedRequest {
     }
 
     pub fn extract_cache_key_material(&self, strategy: CacheKeyStrategy, window_n: usize) -> Vec<u8> {
-        let system_str = &self.system_prompt;
+        let system_str = normalize_text(&self.system_prompt);
         match strategy {
             CacheKeyStrategy::FullDigest => {
+                let messages: Vec<UnifiedMessage> =
+                    self.messages.iter().map(UnifiedMessage::for_cache_key).collect();
                 #[derive(Serialize)]
                 struct FullPayload<'a> {
                     system: &'a str,
                     messages: &'a [UnifiedMessage],
                 }
                 serde_json::to_vec(&FullPayload {
-                    system: system_str,
-                    messages: &self.messages,
+                    system: &system_str,
+                    messages: &messages,
                 })
                 .unwrap_or_default()
             }
@@ -55,7 +72,7 @@ impl UnifiedRequest {
                 let mut latest_user = String::new();
                 for msg in self.messages.iter().rev() {
                     if msg.role == "user" {
-                        latest_user = content_text(&msg.content);
+                        latest_user = normalize_text(&content_text(&msg.content));
                         break;
                     }
                 }
@@ -64,7 +81,10 @@ impl UnifiedRequest {
             CacheKeyStrategy::WindowN => {
                 let msg_len = self.messages.len();
                 let start_idx = msg_len.saturating_sub(window_n);
-                let window_messages = &self.messages[start_idx..msg_len];
+                let window_messages: Vec<UnifiedMessage> = self.messages[start_idx..msg_len]
+                    .iter()
+                    .map(UnifiedMessage::for_cache_key)
+                    .collect();
 
                 #[derive(Serialize)]
                 struct WindowPayload<'a> {
@@ -73,8 +93,8 @@ impl UnifiedRequest {
                 }
 
                 serde_json::to_vec(&WindowPayload {
-                    system: system_str,
-                    window: window_messages,
+                    system: &system_str,
+                    window: &window_messages,
                 })
                 .unwrap_or_default()
             }
@@ -219,5 +239,86 @@ impl Into<MessagesRequest> for UnifiedRequest {
             max_tokens: self.max_tokens.unwrap_or(4096),
             thinking: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::CacheKeyStrategy;
+    use serde_json::json;
+
+    fn msg(role: &str, content: &str) -> UnifiedMessage {
+        UnifiedMessage {
+            role: role.into(),
+            content: json!(content),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    }
+
+    #[test]
+    fn trailing_whitespace_does_not_change_window_key() {
+        let a = UnifiedRequest {
+            model: "gpt-4o".into(),
+            system_prompt: "sys".into(),
+            messages: vec![msg("user", "hello")],
+            stream: true,
+            max_tokens: None,
+        };
+        let b = UnifiedRequest {
+            model: "gpt-4o".into(),
+            system_prompt: "sys\n\n".into(),
+            messages: vec![msg("user", "hello  \n")],
+            stream: true,
+            max_tokens: None,
+        };
+        assert_eq!(
+            a.extract_cache_key_material(CacheKeyStrategy::WindowN, 4),
+            b.extract_cache_key_material(CacheKeyStrategy::WindowN, 4)
+        );
+    }
+
+    #[test]
+    fn shuffled_tool_calls_same_window_key() {
+        let tool_a = json!([
+            {"id": "2", "type": "function", "function": {"name": "write", "arguments": "{}"}},
+            {"id": "1", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+        ]);
+        let tool_b = json!([
+            {"id": "1", "type": "function", "function": {"name": "read", "arguments": "{}"}},
+            {"id": "2", "type": "function", "function": {"name": "write", "arguments": "{}"}}
+        ]);
+        let a = UnifiedRequest {
+            model: "gpt-4o".into(),
+            system_prompt: "sys".into(),
+            messages: vec![UnifiedMessage {
+                role: "assistant".into(),
+                content: json!(""),
+                name: None,
+                tool_calls: Some(tool_a),
+                tool_call_id: None,
+            }],
+            stream: true,
+            max_tokens: None,
+        };
+        let b = UnifiedRequest {
+            model: "gpt-4o".into(),
+            system_prompt: "sys".into(),
+            messages: vec![UnifiedMessage {
+                role: "assistant".into(),
+                content: json!(""),
+                name: None,
+                tool_calls: Some(tool_b),
+                tool_call_id: None,
+            }],
+            stream: true,
+            max_tokens: None,
+        };
+        assert_eq!(
+            a.extract_cache_key_material(CacheKeyStrategy::WindowN, 4),
+            b.extract_cache_key_material(CacheKeyStrategy::WindowN, 4)
+        );
     }
 }

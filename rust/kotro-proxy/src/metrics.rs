@@ -506,7 +506,7 @@ impl MetricsRegistry {
         let mut state = self.dashboard.lock().unwrap();
         let now = SystemTime::now();
 
-        if cache_status == "hit" {
+        if cache_status == "hit" || cache_status == "semantic" {
             state.cache_window.push(CacheWindowEvent { hit: true, at: now });
         } else if cache_status == "miss" {
             state.cache_window.push(CacheWindowEvent { hit: false, at: now });

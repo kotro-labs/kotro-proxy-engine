@@ -109,6 +109,21 @@
           "type": "boolean",
           "default": true,
           "description": "Expose /metrics and /dashboard on the isolated telemetry socket (KOTRO_ENABLE_METRICS)."
+        },
+        "kotrolabs.enableVectorCache": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable on-device semantic (fuzzy) cache via MiniLM embeddings. Catches rephrased variants of cached prompts. First miss may download the model (~23MB). Adds ~3ms per cache miss on CPU. (KOTRO_ENABLE_VECTOR_CACHE)"
+        },
+        "kotrolabs.enableInjectionScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan MCP tool responses for prompt injection patterns before they reach the LLM. (KOTRO_ENABLE_INJECTION_SCAN)"
+        },
+        "kotrolabs.injectionBlock": {
+          "type": "boolean",
+          "default": false,
+          "description": "Block requests when an injection is detected (HTTP 400). When false, injections are flagged with a response header but the request still forwards. (KOTRO_INJECTION_BLOCK)"
         }
       }
     },

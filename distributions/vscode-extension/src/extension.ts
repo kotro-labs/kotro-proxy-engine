@@ -29,6 +29,9 @@ function extensionConfig() {
     fallbackUrl: cfg.get<string>('fallbackUrl', ''),
     fallbackModel: cfg.get<string>('fallbackModel', ''),
     enableMetrics: cfg.get<boolean>('enableMetrics', true),
+    enableVectorCache: cfg.get<boolean>('enableVectorCache', true),
+    enableInjectionScan: cfg.get<boolean>('enableInjectionScan', true),
+    injectionBlock: cfg.get<boolean>('injectionBlock', false),
   };
 }
 
@@ -166,6 +169,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     KOTRO_FALLBACK_URL: settings.fallbackUrl,
     KOTRO_FALLBACK_MODEL: settings.fallbackModel,
     KOTRO_ENABLE_METRICS: String(settings.enableMetrics),
+    KOTRO_ENABLE_VECTOR_CACHE: String(settings.enableVectorCache),
+    KOTRO_ENABLE_INJECTION_SCAN: String(settings.enableInjectionScan),
+    KOTRO_INJECTION_BLOCK: String(settings.injectionBlock),
     RUST_LOG: process.env.RUST_LOG ?? 'info',
   };
   if (settings.bridgeToken) {

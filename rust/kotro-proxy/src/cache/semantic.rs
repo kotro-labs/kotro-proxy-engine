@@ -64,7 +64,11 @@ pub fn key_for_request(
 }
 
 /// Computes a cache key from strategy-derived material.
+///
+/// `model` is passed through [`canonicalize_model`] so dated / `-latest`
+/// aliases share a partition with the base id.
 pub fn generate_cache_key(scope_key: &str, model: &str, provider: &str, material: &[u8]) -> String {
+    let model = crate::cache::normalize::canonicalize_model(model);
     let mut hasher = Sha256::new();
     if !provider.is_empty() {
         hasher.update(provider.as_bytes());
@@ -104,6 +108,16 @@ mod tests {
         let openai = generate_cache_key("default:default", "gpt-4", "openai", material);
         let anthropic = generate_cache_key("default:default", "gpt-4", "anthropic", material);
         assert_ne!(openai, anthropic);
+    }
+
+    #[test]
+    fn generate_cache_key_canonicalizes_model_aliases() {
+        let material = b"sys||hi";
+        let a = generate_cache_key("default:default", "gpt-4o", "openai", material);
+        let b = generate_cache_key("default:default", "gpt-4o-2024-08-06", "openai", material);
+        let c = generate_cache_key("default:default", "GPT-4o-latest", "openai", material);
+        assert_eq!(a, b);
+        assert_eq!(a, c);
     }
 
     #[test]

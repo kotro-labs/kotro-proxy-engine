@@ -661,7 +661,7 @@ pub async fn handle_chat_completions(
                 lf.function_name, lf.call_count
             );
             let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(msg)) });
-            return sse_stream_response(stream, false);
+            return sse_stream_response(stream, None);
         } else {
             return problem_response(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -711,7 +711,7 @@ pub async fn handle_chat_completions(
                 "hit",
                 start_time,
             );
-            let mut resp = sse_stream_response(instrumented, true);
+            let mut resp = sse_stream_response(instrumented, Some("HIT"));
             // Cache hits don't count toward budget (zero upstream cost), but
             // surface the current usage + injection warning if present.
             attach_guardrail_headers(
@@ -758,10 +758,10 @@ pub async fn handle_chat_completions(
                         processed.model.clone(),
                         "/v1/chat/completions",
                         true,
-                        "hit",
+                        "semantic",
                         start_time,
                     );
-                    let mut resp = sse_stream_response(instrumented, true);
+                    let mut resp = sse_stream_response(instrumented, Some("SEMANTIC"));
                     attach_guardrail_headers(
                         &mut resp, injection_finding.as_ref(),
                         state.budget.current(&scope_key), &state.budget, &scope_key,
@@ -803,7 +803,7 @@ pub async fn handle_chat_completions(
             if processed.stream {
                 let err_msg = "data: {\"choices\": [{\"delta\": {\"content\": \"\\n\\n🚨 [KOTRO CIRCUIT BREAKER TRIPPED]: Infinite error loop detected. Halting execution to prevent API credit drain. Please ask the human operator for guidance.\"}}]}\n\ndata: [DONE]\n\n";
                 let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(err_msg)) });
-                return sse_stream_response(stream, false);
+                return sse_stream_response(stream, None);
             } else {
                 return problem_response(StatusCode::TOO_MANY_REQUESTS, "Circuit Breaker Tripped", "Infinite error loop detected. Halting execution to prevent API credit drain.");
             }
@@ -994,7 +994,7 @@ pub async fn handle_messages(
                 lf.function_name, lf.call_count
             );
             let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(msg)) });
-            return sse_stream_response(stream, false);
+            return sse_stream_response(stream, None);
         } else {
             return problem_response(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -1044,7 +1044,7 @@ pub async fn handle_messages(
                 "hit",
                 start_time,
             );
-            let mut resp = sse_stream_response(instrumented, true);
+            let mut resp = sse_stream_response(instrumented, Some("HIT"));
             attach_guardrail_headers(
                 &mut resp, injection_finding.as_ref(),
                 state.budget.current(&scope_key), &state.budget, &scope_key,
@@ -1075,10 +1075,10 @@ pub async fn handle_messages(
                         processed.model.clone(),
                         "/v1/messages",
                         true,
-                        "hit",
+                        "semantic",
                         start_time,
                     );
-                    let mut resp = sse_stream_response(instrumented, true);
+                    let mut resp = sse_stream_response(instrumented, Some("SEMANTIC"));
                     attach_guardrail_headers(
                         &mut resp, injection_finding.as_ref(),
                         state.budget.current(&scope_key), &state.budget, &scope_key,
@@ -1120,7 +1120,7 @@ pub async fn handle_messages(
             if processed.stream {
                 let err_msg = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"\\n\\n🚨 [KOTRO CIRCUIT BREAKER TRIPPED]: Infinite error loop detected. Halting execution to prevent API credit drain. Please ask the human operator for guidance.\"}}\n\n";
                 let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(err_msg)) });
-                return sse_stream_response(stream, false);
+                return sse_stream_response(stream, None);
             } else {
                 return problem_response(StatusCode::TOO_MANY_REQUESTS, "Circuit Breaker Tripped", "Infinite error loop detected. Halting execution to prevent API credit drain.");
             }
@@ -1311,7 +1311,7 @@ async fn forward_provider(
             opts.start_time,
         );
 
-        return sse_stream_response(instrumented, false);
+        return sse_stream_response(instrumented, None);
     }
 
     let base_url = get_upstream_url(state, &opts.model);
@@ -1361,7 +1361,7 @@ async fn forward_provider(
     (StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK), full_bytes).into_response()
 }
 
-fn sse_stream_response<S>(stream: S, cache_hit: bool) -> Response
+fn sse_stream_response<S>(stream: S, cache_status: Option<&'static str>) -> Response
 where
     S: futures_util::Stream<Item = Result<Bytes, io::Error>> + Send + 'static,
 {
@@ -1371,8 +1371,10 @@ where
     for (name, value) in SSE_HEADERS {
         headers.insert(name, HeaderValue::from_static(value));
     }
-    if cache_hit {
-        headers.insert("x-kotro-cache", HeaderValue::from_static("HIT"));
+    if let Some(status) = cache_status {
+        if let Ok(val) = HeaderValue::from_str(status) {
+            headers.insert("x-kotro-cache", val);
+        }
     }
     response
 }
@@ -1430,7 +1432,7 @@ fn serve_local_verify_miss(
         "miss",
         start_time,
     );
-    let mut resp = sse_stream_response(instrumented, false);
+    let mut resp = sse_stream_response(instrumented, None);
     attach_guardrail_headers(
         &mut resp,
         injection_finding,
