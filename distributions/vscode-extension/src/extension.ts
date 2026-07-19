@@ -6,6 +6,8 @@ import { binaryBasename } from './binary-target';
 import { ProxyStatusBar } from './status-bar';
 import { addrForEnv, listenBaseUrl } from './listen-url';
 import { verifyCache } from './verify-cache';
+import { ensureBinary } from './downloader';
+import { autoConfigureAgents } from './auto-router';
 
 let sidecarProcess: ChildProcess | null = null;
 let statusBar: ProxyStatusBar | null = null;
@@ -29,7 +31,7 @@ function extensionConfig() {
   };
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   output.appendLine('Initializing native proxy gateway core...');
 
   const settings = extensionConfig();
@@ -150,15 +152,17 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
-  const binaryName = binaryBasename(process.platform, process.arch);
-  const binaryPath = path.join(context.extensionPath, 'bin', binaryName);
+  const binaryPath = await ensureBinary(context, output);
 
-  if (!fs.existsSync(binaryPath)) {
-    const msg = `Kotro Labs binary missing: ${binaryPath}`;
+  if (!binaryPath) {
+    const msg = `Failed to download or locate Kotro Labs binary.`;
     output.appendLine(msg);
     void vscode.window.showErrorMessage(msg);
     return;
   }
+  
+  // Auto-configure popular AI agents
+  await autoConfigureAgents(context, output);
 
   const cacheDb =
     settings.cacheDb ||

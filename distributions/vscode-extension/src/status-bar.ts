@@ -161,11 +161,11 @@ export class ProxyStatusBar implements vscode.Disposable {
         }
         return;
       } else {
-        this.item.text = `$(pulse) Kotro: ${label} · ${tokensSaved} saved`;
+        this.item.text = `$(pulse) Kotro: ${label} · ${dollarsSaved} saved`;
         trafficHint = label === 'ready' || label === 'idle'
           ? '\nNo LLM traffic yet — run "Kotro: Verify Cache"'
           : '';
-        this.item.tooltip = `Total Saved: ${tokensSaved} tokens (${dollarsSaved})\nCache Hit Rate (5m): ${hitRate}\nLast result: ${label}${trafficHint}\nClick for connection options`;
+        this.item.tooltip = `Total Saved: ${dollarsSaved} (${tokensSaved} tokens)\nCache Hit Rate (5m): ${hitRate}\nLast result: ${label}${trafficHint}\nClick for connection options`;
       }
       return;
     }
