@@ -30,7 +30,7 @@ GitHub: [kotro-labs/kotro-proxy-engine](https://github.com/kotro-labs/kotro-prox
 
 ```bash
 # Homebrew (macOS)
-brew install kotro-labs/tap/kotro
+brew install kotro-labs/tap/kotro-proxy
 
 # curl (Linux/macOS, installs to ~/.local/bin — no sudo needed)
 curl -sL https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/scripts/install.sh | bash
@@ -170,7 +170,7 @@ In my usage, exact-match handles the majority of real cache hits. The fuzzy matc
 
 ```bash
 # macOS via Homebrew
-brew install kotro-labs/tap/kotro
+brew install kotro-labs/tap/kotro-proxy
 kotro-proxy
 
 # Linux/macOS via curl

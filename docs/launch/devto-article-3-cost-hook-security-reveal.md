@@ -24,7 +24,7 @@ The proxy is called [Kotro](https://github.com/kotro-labs/kotro-proxy-engine). I
 
 **macOS:**
 ```bash
-brew install kotro-labs/tap/kotro
+brew install kotro-labs/tap/kotro-proxy
 kotro-proxy
 ```
 
@@ -185,7 +185,7 @@ Single binary. No Redis, no Postgres, no vector database to run separately. Ever
 
 ```bash
 # Install (macOS)
-brew install kotro-labs/tap/kotro
+brew install kotro-labs/tap/kotro-proxy
 
 # Install (Linux/macOS)
 curl -sL https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/scripts/install.sh | bash

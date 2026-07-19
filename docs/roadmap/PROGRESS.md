@@ -69,7 +69,7 @@
 - [x] Reasoning model budget controller shipped
 - [x] Go declared frozen (tag `v0.1.0-go`, README updated, CI = compile-only)
 - [x] `make eval-suite` results committed (RESULTS.md enriched with summary, methodology, Rust test coverage table)
-- [x] `brew install kotro-labs/tap/kotro` verified — installs v0.4.0, `kotro-proxy --version` confirmed
+- [x] `brew install kotro-labs/tap/kotro-proxy` — formula name corrected; bump tap to v0.5.2 before Show HN
 - [x] `curl` installer verified — `curl | bash` installs to `~/.local/bin/kotro-proxy`, no sudo needed
 
 ---

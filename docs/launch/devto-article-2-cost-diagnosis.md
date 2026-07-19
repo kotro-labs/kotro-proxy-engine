@@ -105,7 +105,7 @@ Install takes 30 seconds:
 
 ```bash
 # macOS
-brew install kotro-labs/tap/kotro
+brew install kotro-labs/tap/kotro-proxy
 
 # Linux/macOS
 curl -sL https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/scripts/install.sh | bash

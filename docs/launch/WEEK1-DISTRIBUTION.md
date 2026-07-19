@@ -3,7 +3,7 @@
 **Strategy:** Stop backend surface. Ship one viral moment.  
 **Sequence owner:** follow this checklist; do not jump to WASM / Cloud / comparison benches.
 
-Last updated: 2026-07-14
+Last updated: 2026-07-18
 
 ---
 
@@ -101,13 +101,15 @@ Do **not** claim MCP stdio intercept unless that hop is actually implemented.
 5. Real question (e.g. MiniLM ~26ms overhead worth it?)
 
 ### Pre-post checklist
-- [ ] Tile labels match warn vs block behavior
-- [ ] Status codes in copy: injection **400**, budget **429**
-- [ ] Fresh-machine install works
+- [x] Tile labels match warn vs block behavior (draft + README aligned)
+- [x] Status codes in copy: injection **400**, budget **429**
+- [x] Install path truth: `brew install kotro-labs/tap/kotro-proxy` (not `/kotro`); tap formula bumped to **v0.5.2**
+- [x] Show HN draft rewritten security-first — [`show-hn-draft.md`](./show-hn-draft.md)
+- [x] Fresh-machine install works — `brew upgrade` 0.4.0→**0.5.2** + `scripts/install.sh` both install; note: binary `--version` prints **1.0.0** (Cargo crate) while GitHub/tag is **v0.5.2**
 - [ ] Post Tue/Wed **8–10am US Eastern**
 - [ ] Repo URL as submission link
 
-Draft live file: [`show-hn-draft.md`](./show-hn-draft.md) — update to match this plan before posting.
+Draft live file: [`show-hn-draft.md`](./show-hn-draft.md) — ready to post after fresh-install re-verify.
 
 **Dev.to mass-market article (cost → security reveal):** [`devto-article-3-savings-then-security.md`](./devto-article-3-savings-then-security.md) — do not confuse with article 1 (security-first) or article 2 (cost diagnosis).
 

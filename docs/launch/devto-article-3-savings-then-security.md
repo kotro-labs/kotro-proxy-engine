@@ -96,7 +96,7 @@ Full framing + recording outline: [`docs/launch/exploit-demo.md`](https://github
 ### 1. Homebrew (macOS)
 
 ```bash
-brew install kotro-labs/tap/kotro
+brew install kotro-labs/tap/kotro-proxy
 kotro-proxy
 ```
 

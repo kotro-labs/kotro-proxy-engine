@@ -53,7 +53,7 @@ kotro-proxy
 
 | Also | |
 |------|--|
-| **Homebrew** | `brew install kotro-labs/tap/kotro` |
+| **Homebrew** | `brew install kotro-labs/tap/kotro-proxy` |
 | **npm** | `npm i -g @kotro-labs/proxy-engine` |
 | **Cursor / VS Code** | [Marketplace extension](https://marketplace.visualstudio.com/items?itemName=kotrolabs.kotro-proxy-engine) |
 
@@ -144,7 +144,7 @@ In a published 3-turn codebase eval ([`benchmarks/eval-suite/RESULTS.md`](benchm
 | Channel | Command |
 |---------|---------|
 | **1-Click (macOS/Linux)** | `curl -sL https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/scripts/install.sh \| bash` |
-| **Homebrew** | `brew install kotro-labs/tap/kotro` |
+| **Homebrew** | `brew install kotro-labs/tap/kotro-proxy` |
 | **npm** | `npm install -g @kotro-labs/proxy-engine` |
 | **Docker** | `docker run -p 8080:8080 kotrolabs/kotro-proxy` |
 | **Marketplace** | [kotrolabs.kotro-proxy-engine](https://marketplace.visualstudio.com/items?itemName=kotrolabs.kotro-proxy-engine) |
