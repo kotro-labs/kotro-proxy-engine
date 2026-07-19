@@ -55,7 +55,7 @@ kotro-proxy
 |------|--|
 | **Homebrew** | `brew install kotro-labs/tap/kotro-proxy` |
 | **npm** | `npm i -g @kotro-labs/proxy-engine` |
-| **Cursor / VS Code** | [Marketplace extension](https://marketplace.visualstudio.com/items?itemName=kotrolabs.kotro-proxy-engine) |
+| **Cursor / VS Code** | [Zero-friction Extension](https://marketplace.visualstudio.com/items?itemName=kotrolabs.kotro-proxy-engine) (auto-downloads proxy and configures IDE) |
 
 ### Without Kotro → with Kotro
 

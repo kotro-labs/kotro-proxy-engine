@@ -143,9 +143,14 @@ jobs:
             if [[ "$name" == *.exe ]]; then
               cp "$bin" "$RELEASE_DIR/$name"
             else
+              cp "$bin" "$RELEASE_DIR/$name"
               tar -czf "$RELEASE_DIR/${name}.tar.gz" -C "$(dirname "$bin")" "$name"
             fi
           done
+          
+          cd "$RELEASE_DIR"
+          sha256sum kotro-proxy-* > checksums.txt
+          cd -
 
           ls -la "$EXT_BIN"
           ls -la "$RELEASE_DIR"

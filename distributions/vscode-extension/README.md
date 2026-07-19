@@ -13,7 +13,7 @@ Works in **VS Code**, **Cursor**, and other VS Code–compatible editors.
 
 ## Features
 
-- **Zero-config sidecar** — spawns the native proxy binary on startup
+- **Zero-friction Install** — automatically downloads the proxy binary and configures your IDE extensions (Cline, Continue.dev) on first run
 - **Prompt-state SSE cache** — exact-match replay on repeat prompts; `X-Kotro-Cache: HIT` on cache hits
 - **Status bar** — live cache result and compressor bytes saved (polls every 5s)
 - **Operator dashboard** — open from the status bar (`http://127.0.0.1:9090/dashboard`)
@@ -36,8 +36,8 @@ Works in **VS Code**, **Cursor**, and other VS Code–compatible editors.
    ```bash
    code --install-extension kotrolabs.kotro-proxy-engine
    ```
-2. Reload the window. The sidecar starts automatically.
-3. Point your AI client at `http://localhost:8080/v1` (OpenAI-compatible base URL).
+2. The extension will ask to download the proxy binary (~15MB) and auto-configure your installed AI extensions. Click **Proceed**.
+3. Point your AI client at `http://localhost:8080/v1` (OpenAI-compatible base URL) if not auto-configured.
 
 ## Quick start (Cursor / VS Code)
 
