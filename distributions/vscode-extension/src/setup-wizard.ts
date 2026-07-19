@@ -94,7 +94,16 @@ export async function runSetupWizard(output: vscode.OutputChannel): Promise<void
     void vscode.commands.executeCommand('kotro.connectCursor');
   } else {
     void vscode.window.showInformationMessage(
-      `Setup complete. Point agents at ${PROXY_URL}, then run "Kotro: Verify Cache".`,
-    );
+      `Setup complete. Point Cursor at ${PROXY_URL} (Override Base URL ON, named model — not Auto), then run "Kotro: Verify Cache".`,
+      'Open setup guide',
+    ).then((choice) => {
+      if (choice === 'Open setup guide') {
+        void vscode.env.openExternal(
+          vscode.Uri.parse(
+            'https://github.com/kotro-labs/kotro-proxy-engine/blob/main/docs/guides/CURSOR-FIRST-RUN.md',
+          ),
+        );
+      }
+    });
   }
 }

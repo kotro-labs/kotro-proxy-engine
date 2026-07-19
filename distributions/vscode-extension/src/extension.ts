@@ -55,7 +55,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.show(true);
       output.appendLine('Running cache verification (2 identical streaming requests)...');
 
-      const result = await verifyCache(settings.listenAddr);
+      const result = await verifyCache(settings.listenAddr, {
+        context,
+        upstreamUrl: settings.upstreamUrl,
+      });
       output.appendLine(result.detail);
 
       if (result.ok) {
@@ -92,28 +95,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand('kotro.connectCursor', async () => {
       const pick = await vscode.window.showInformationMessage(
-        'Cursor Auto mode completely bypasses local proxies. To use Kotro caching, you must configure a custom Base URL. Would you like to configure Kotro for Cursor Chat now?',
-        'Yes, configure BYOK',
+        'Cursor Chat cannot call localhost (Cursor cloud SSRF). Verify Cache / Continue / Cline / Claude Code use localhost directly. For Cursor Chat you need an HTTPS tunnel — open the setup guide?',
+        'Yes, open setup guide',
         'Use Continue.dev instead',
-        'Learn More',
+        'Verify Cache',
       );
 
-      if (pick === 'Yes, configure BYOK') {
-        const pick2 = await vscode.window.showInformationMessage(
-          '1. Open Cursor Settings -> Models\n2. Enable "Override OpenAI Base URL" and set it to: http://localhost:8080/v1\n3. Add your API key\n4. Select a specific model (e.g. gpt-4o), do NOT use Auto.',
-          'Verify Cache',
-        );
-        if (pick2 === 'Verify Cache') {
-          void vscode.commands.executeCommand('kotrolabs.verifyCache');
-        }
-      } else if (pick === 'Use Continue.dev instead') {
-        void vscode.commands.executeCommand('kotro.setupContinue');
-      } else if (pick === 'Learn More') {
+      if (pick === 'Yes, open setup guide') {
         void vscode.env.openExternal(
           vscode.Uri.parse(
-            'https://github.com/kotro-labs/kotro-proxy-engine/blob/main/distributions/vscode-extension/README.md#verify-it-works-2-minutes',
+            'https://github.com/kotro-labs/kotro-proxy-engine/blob/main/docs/guides/CURSOR-FIRST-RUN.md',
           ),
         );
+      } else if (pick === 'Use Continue.dev instead') {
+        void vscode.commands.executeCommand('kotro.setupContinue');
+      } else if (pick === 'Verify Cache') {
+        void vscode.commands.executeCommand('kotrolabs.verifyCache');
       }
     }),
   );
@@ -159,18 +156,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
+  let sawAddrInUse = false;
+  const GUIDE_PORT =
+    'https://github.com/kotro-labs/kotro-proxy-engine/blob/main/docs/guides/CURSOR-FIRST-RUN.md#5-port-already-in-use-kotro-offline';
+
   sidecarProcess.stdout?.on('data', (chunk: Buffer) => {
     output.appendLine(`[core] ${chunk.toString().trim()}`);
   });
 
   sidecarProcess.stderr?.on('data', (chunk: Buffer) => {
-    output.appendLine(`[stderr] ${chunk.toString().trim()}`);
+    const text = chunk.toString().trim();
+    output.appendLine(`[stderr] ${text}`);
+    if (/AddrInUse|Address already in use/i.test(text)) {
+      sawAddrInUse = true;
+    }
   });
 
   sidecarProcess.on('close', (code) => {
     output.appendLine(`Core engine exited with code ${code ?? 'unknown'}`);
     sidecarProcess = null;
     statusBar?.markStopped();
+    if (sawAddrInUse) {
+      const listen = settings.listenAddr || ':8080';
+      void vscode.window
+        .showErrorMessage(
+          `Kotro could not bind ${listen} (Address already in use). Free that port or change kotrolabs.listenAddr, then reload the window.`,
+          'Open fix guide',
+          'Show Proxy Logs',
+        )
+        .then((choice) => {
+          if (choice === 'Open fix guide') {
+            void vscode.env.openExternal(vscode.Uri.parse(GUIDE_PORT));
+          } else if (choice === 'Show Proxy Logs') {
+            output.show(true);
+          }
+        });
+    }
   });
 
   sidecarProcess.on('error', (err) => {
