@@ -1,7 +1,7 @@
 [package]
 name = "kotro-proxy"
 description = "High-performance Rust port of the Kotro local LLM proxy engine"
-version = "0.6.0"
+version = "0.6.2"
 edition = "2021"
 license.workspace = true
 authors.workspace = true

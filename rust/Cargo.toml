@@ -3,7 +3,7 @@ resolver = "2"
 members = ["kotro-core", "kotro-proxy"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.6.2"
 edition = "2021"
 license = "MIT"
 authors = ["Kotro Labs"]
