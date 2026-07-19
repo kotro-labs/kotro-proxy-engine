@@ -2,6 +2,9 @@
 # Cancel-storm load test with pre/post goroutine profiling via pprof.
 # Target: baseline goroutine count == post-stress count (zero leak).
 #
+# Uses the frozen Go reference binary (bin/kotro-proxy-go), NOT the shipping
+# Rust bin/kotro-proxy — Rust has no /debug/pprof/goroutine endpoint.
+#
 # Do NOT run this in parallel with run_rust_audit.sh — both bind :8080/:9000.
 set -euo pipefail
 
@@ -11,7 +14,10 @@ cd "$ROOT"
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 PROXY_URL="${KOTRO_PROXY_URL:-http://127.0.0.1:8080}"
-PPROF_URL="${PROXY_URL}/debug/pprof/goroutine?debug=1"
+# pprof is registered on the metrics/telemetry mux when metrics are enabled (default).
+METRICS_URL="${KOTRO_METRICS_URL:-http://127.0.0.1:9090}"
+PPROF_URL="${METRICS_URL}/debug/pprof/goroutine?debug=1"
+GO_BIN="${GO_BIN:-$ROOT/bin/kotro-proxy-go}"
 K6_VUS="${K6_VUS:-100}"
 K6_DURATION="${K6_DURATION:-30s}"
 COOLDOWN_SEC="${COOLDOWN_SEC:-3}"
@@ -58,9 +64,21 @@ wait_for_proxy() {
 
 START_STACK="${START_STACK:-1}"
 if [[ "$START_STACK" == "1" ]]; then
-  make build
-  pkill -f 'bin/mock-upstream|bin/kotro-proxy' 2>/dev/null || true
-  rm -f kotro-cache.db
+  # Build Go reference + mock only — never `make build` (that installs Rust as bin/kotro-proxy).
+  make mock go-proxy
+  if [[ ! -x "$GO_BIN" ]]; then
+    echo "Go proxy binary not found at ${GO_BIN}"
+    exit 1
+  fi
+
+  # Avoid bare "kotro-proxy" — matches this repo path (kotro-proxy-engine).
+  pkill -f 'bin/mock-upstream' 2>/dev/null || true
+  pkill -f 'bin/kotro-proxy-go' 2>/dev/null || true
+  pkill -f 'bin/kotro-proxy$' 2>/dev/null || true
+  sleep 0.5
+  # Dedicated bbolt path — do not reuse Rust redb kotro-cache.db.
+  GO_CACHE_DB="${GO_CACHE_DB:-${ROOT}/kotro-cache-go.db}"
+  rm -f "$GO_CACHE_DB"
 
   cleanup() {
     kill "$MOCK_PID" "$PROXY_PID" 2>/dev/null || true
@@ -78,7 +96,8 @@ if [[ "$START_STACK" == "1" ]]; then
 
   KOTRO_UPSTREAM_URL=http://127.0.0.1:9000 \
   KOTRO_ENABLE_PPROF=true \
-  bin/kotro-proxy >>"$PROXY_LOG" 2>&1 &
+  KOTRO_CACHE_DB="$GO_CACHE_DB" \
+  "$GO_BIN" >>"$PROXY_LOG" 2>&1 &
   PROXY_PID=$!
   sleep 0.5
 fi

@@ -1,11 +1,11 @@
 name: Cancel-storm leak audit
 
-# Verifies zero goroutine leak (Go) and zero OS-thread leak (Rust) after a
-# k6-driven mass mid-stream client-disconnect storm. Runs `make audit`,
-# which sequences benchmarks/run_audit.sh (Go, pprof-based) and
-# benchmarks/run_rust_audit.sh (Rust, OS thread/RSS-based) -- the same
-# entrypoint documented in the README, previously local-only with no CI
-# gate. See docs/roadmap/next-steps.md P1.
+# Verifies zero goroutine leak (Go reference) and zero OS-thread leak (Rust)
+# after a k6-driven mass mid-stream client-disconnect storm. Runs `make audit`,
+# which sequences benchmarks/run_audit.sh (frozen Go bin/kotro-proxy-go + pprof)
+# and benchmarks/run_rust_audit.sh (shipping Rust binary, OS thread/RSS).
+# Do not point the Go audit at bin/kotro-proxy — that path is Rust and has no
+# /debug/pprof/goroutine endpoint. See docs/roadmap/next-steps.md P1.
 #
 # Kept as a separate, non-blocking workflow rather than folded into the
 # required ci.yml test job: this is a ~1-2 minute k6-driven load test per

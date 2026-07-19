@@ -1,4 +1,4 @@
-.PHONY: build test bench mock proxy run dev load-test cancel-audit rust-cancel-audit audit eval-suite demo-savings demo-injection update-homebrew-shas post-release-homebrew go-live package-extension sync-brand-icon clean docker-build docker-up docker-down
+.PHONY: build test bench mock proxy go-proxy run dev load-test cancel-audit rust-cancel-audit audit eval-suite demo-savings demo-injection update-homebrew-shas post-release-homebrew go-live package-extension sync-brand-icon clean docker-build docker-up docker-down
 
 build: proxy mock
 
@@ -7,6 +7,10 @@ proxy:
 	cp bin/rust-target/release/kotro-proxy bin/kotro-proxy
 	# Fresh `cp` of an adhoc-signed Mach-O can hang under dyld on macOS; re-sign.
 	codesign -s - --force bin/kotro-proxy >/dev/null 2>&1 || true
+
+# Frozen Go reference binary — used only by the Go pprof cancel-audit (not the shipping path).
+go-proxy:
+	go build -o bin/kotro-proxy-go ./cmd/proxy
 
 mock:
 	go build -o bin/mock-upstream ./cmd/mockupstream
@@ -27,7 +31,8 @@ dev: build
 load-test: build
 	bash scripts/bench/run.sh $(SCENARIO)
 
-cancel-audit: build
+# Go pprof goroutine audit — must use bin/kotro-proxy-go, never the Rust bin/kotro-proxy.
+cancel-audit: mock go-proxy
 	bash benchmarks/run_audit.sh
 
 rust-test:
@@ -39,7 +44,7 @@ rust-build:
 rust-run:
 	cd rust && cargo run -p kotro-proxy
 
-rust-cancel-audit:
+rust-cancel-audit: build
 	bash benchmarks/run_rust_audit.sh
 
 # Run both audits sequentially (never in parallel — they share :8080/:9000).
