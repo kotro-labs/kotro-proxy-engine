@@ -57,3 +57,7 @@ distributions/**/node_modules/
 distributions/**/out/
 distributions/vscode-extension/bin/*
 !distributions/vscode-extension/bin/.gitkeep
+
+# Packaged VS Code extensions (local artifacts)
+*.vsix
+distributions/**/*.vsix
