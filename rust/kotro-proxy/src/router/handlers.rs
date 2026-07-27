@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::{
     body::Body,
-    extract::{ConnectInfo, Request, State},
+    extract::{ConnectInfo, Query, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -14,7 +14,7 @@ use axum::{
 use bytes::Bytes;
 use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::{error, info};
@@ -33,6 +33,11 @@ use crate::proxy::pipeline::{create_processing_pipeline, PipelineOptions, Stream
 use crate::proxy::replay::create_cached_replay_stream;
 use crate::router::AppState;
 use crate::router::bridge_auth::{self, UpstreamAuthStyle};
+use crate::router::control_auth;
+use crate::router::governance::{
+    check_early_governance, correlate, record_flight, trip_circuit_breaker,
+};
+use crate::flight_recorder::{FlightDraft, FlightKind, KillScope};
 use crate::router::upstream;
 
 const UPSTREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -53,7 +58,7 @@ struct ProblemDetails {
 
 fn problem_response(status: StatusCode, title: &str, detail: &str) -> Response {
     let pd = ProblemDetails {
-        problem_type: "https://docs.kotrolabs.com/errors".to_string(),
+        problem_type: "https://github.com/kotro-labs/kotro-proxy-engine#errors".to_string(),
         title: title.to_string(),
         status: status.as_u16(),
         detail: detail.to_string(),
@@ -262,11 +267,401 @@ pub async fn handle_dashboard(State(_state): State<Arc<AppState>>) -> impl IntoR
 
 pub async fn handle_api_dashboard(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let snap = state.metrics.snapshot();
+    let mut value = serde_json::to_value(&snap).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(obj) = value.as_object_mut() {
+        let scope = state.flight_recorder.kill_scope();
+        obj.insert("kill_switch_engaged".into(), serde_json::json!(scope.engaged()));
+        obj.insert("kill_switch_scope".into(), serde_json::json!(scope.as_str()));
+        obj.insert(
+            "kill_switch_mode".into(),
+            serde_json::json!(state.kill_switch_mode.as_str()),
+        );
+        obj.insert(
+            "flight_events".into(),
+            serde_json::to_value(state.flight_recorder.snapshot(50)).unwrap_or_else(|_| serde_json::json!([])),
+        );
+    }
     (
         StatusCode::OK,
         [(CONTENT_TYPE.as_str(), "application/json")],
-        serde_json::to_string_pretty(&snap).unwrap_or_default(),
+        serde_json::to_string_pretty(&value).unwrap_or_default(),
     )
+}
+
+#[derive(Deserialize)]
+pub struct KillSwitchBody {
+    pub engaged: bool,
+    /// "llm" | "tools" | "all" — defaults to "all" when engaging.
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
+fn kill_switch_json(state: &AppState) -> String {
+    let scope = state.flight_recorder.kill_scope();
+    serde_json::to_string(&serde_json::json!({
+        "engaged": scope.engaged(),
+        "scope": scope.as_str(),
+        "mode": state.kill_switch_mode.as_str(),
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+/// Read-only status — no token required (loopback telemetry listener).
+pub async fn handle_api_kill_switch_status(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        kill_switch_json(&state),
+    )
+}
+
+/// Mutating endpoint — requires the local control token.
+pub async fn handle_api_kill_switch(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<KillSwitchBody>,
+) -> Response {
+    if let Err(resp) = control_auth::require_control_token(&state.control_token, &headers) {
+        return resp;
+    }
+    let scope = if body.engaged {
+        KillScope::parse(body.scope.as_deref().unwrap_or("all"))
+    } else {
+        KillScope::None
+    };
+    let scope = if body.engaged && !scope.engaged() {
+        KillScope::All
+    } else {
+        scope
+    };
+    state.flight_recorder.set_kill_scope(scope);
+    state.flight_recorder.record(FlightDraft {
+        plane: "ops".into(),
+        kind: FlightKind::KillSwitch,
+        route: "/api/kill-switch".into(),
+        cache_status: if body.engaged { "engaged".into() } else { "cleared".into() },
+        detail: format!(
+            "operator {} kill switch (scope: {})",
+            if body.engaged { "engaged" } else { "cleared" },
+            scope.as_str()
+        ),
+        enforced: true,
+        ..Default::default()
+    });
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        kill_switch_json(&state),
+    )
+        .into_response()
+}
+
+pub async fn handle_api_flight_recorder(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let events = state.flight_recorder.snapshot(100);
+    let scope = state.flight_recorder.kill_scope();
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::to_string_pretty(&serde_json::json!({
+            "kill_switch_engaged": scope.engaged(),
+            "kill_switch_scope": scope.as_str(),
+            "kill_switch_mode": state.kill_switch_mode.as_str(),
+            "persistent": state.flight_recorder.persistent(),
+            "events": events,
+        }))
+        .unwrap_or_else(|_| "{}".into()),
+    )
+}
+
+/// Posture scan (kotro doctor) over the proxy's working directory.
+/// Read-only filesystem discovery — runs off the async worker threads.
+pub async fn handle_api_posture(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let state_dir = state.state_dir.as_ref().clone();
+    let report = tokio::task::spawn_blocking(move || {
+        let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
+        let sd = if state_dir.trim().is_empty() {
+            None
+        } else {
+            Some(std::path::PathBuf::from(state_dir))
+        };
+        crate::posture::run_doctor(&workspace, sd.as_deref())
+    })
+    .await
+    .ok();
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        report
+            .map(|r| serde_json::to_string_pretty(&r).unwrap_or_else(|_| "{}".into()))
+            .unwrap_or_else(|| "{}".into()),
+    )
+}
+
+/// Verify the persisted hash chain — surfaces tampering / deletion.
+pub async fn handle_api_flight_verify(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let body = match state.flight_recorder.verify() {
+        Ok(count) => serde_json::json!({ "ok": true, "verified_events": count }),
+        Err(err) => serde_json::json!({ "ok": false, "error": err }),
+    };
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
+    )
+}
+
+#[derive(Deserialize, Default)]
+pub struct SessionQuery {
+    #[serde(default)]
+    pub session: Option<String>,
+}
+
+/// Incident bundle export. `?session=<id>` narrows the tape to one session
+/// and includes the correlated labels + evidence trail for that session.
+pub async fn handle_api_flight_export(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<SessionQuery>,
+) -> impl IntoResponse {
+    let body = match q.session.as_deref().filter(|s| !s.is_empty()) {
+        None => state.flight_recorder.export_json(),
+        Some(session) => {
+            let events: Vec<_> = state
+                .flight_recorder
+                .snapshot(usize::MAX)
+                .into_iter()
+                .filter(|e| e.session == session)
+                .collect();
+            serde_json::to_string_pretty(&serde_json::json!({
+                "session": session,
+                "labels": state.graph.labels(session),
+                "evidence_trail": state.graph.trail(session),
+                "events": events,
+            }))
+            .unwrap_or_else(|_| "{}".into())
+        }
+    };
+    let mut response = Response::new(Body::from(body));
+    *response.status_mut() = StatusCode::OK;
+    response.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=kotro-flight-recorder.json"),
+    );
+    response
+}
+
+/// Authenticated ingestion point for action-plane events (mcp-wrap, hook
+/// adapters). The recorder assigns sequence/timestamp/chain fields; the
+/// session graph correlates the event and may raise chain alerts.
+pub async fn handle_api_mcp_event(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(draft): Json<FlightDraft>,
+) -> Response {
+    if let Err(resp) = control_auth::require_control_token(&state.control_token, &headers) {
+        return resp;
+    }
+    let Some(event) = state.flight_recorder.record(draft) else {
+        return problem_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Recorder Disabled",
+            "flight recorder is disabled",
+        );
+    };
+    correlate(&state, &event);
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::json!({ "recorded": true, "seq": event.seq }).to_string(),
+    )
+        .into_response()
+}
+
+/// Provenance labels the correlator exports to the policy engine for one
+/// session. Read-only, loopback telemetry listener.
+pub async fn handle_api_session_labels(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<SessionQuery>,
+) -> impl IntoResponse {
+    let session = q.session.unwrap_or_default();
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::json!({
+            "session": session,
+            "labels": state.graph.policy_labels(&session),
+            "raw_labels": state.graph.labels(&session),
+        })
+        .to_string(),
+    )
+}
+
+/// Session timeline for the dashboard: events (oldest first), labels, and
+/// the correlator's evidence trail. Without `?session=`, lists sessions.
+pub async fn handle_api_session_graph(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<SessionQuery>,
+) -> impl IntoResponse {
+    let events = state.flight_recorder.snapshot(usize::MAX);
+    let body = match q.session.as_deref().filter(|s| !s.is_empty()) {
+        None => {
+            // Session index: newest-first, with event counts and alert flags.
+            let mut order: Vec<String> = Vec::new();
+            let mut counts: std::collections::HashMap<String, (u64, u64)> =
+                std::collections::HashMap::new();
+            for e in &events {
+                if e.session.is_empty() {
+                    continue;
+                }
+                let entry = counts.entry(e.session.clone()).or_insert_with(|| {
+                    order.push(e.session.clone());
+                    (0, 0)
+                });
+                entry.0 += 1;
+                if matches!(e.kind, crate::flight_recorder::FlightKind::ChainAlert) {
+                    entry.1 += 1;
+                }
+            }
+            let sessions: Vec<_> = order
+                .iter()
+                .map(|s| {
+                    let (n, alerts) = counts[s];
+                    serde_json::json!({
+                        "session": s,
+                        "events": n,
+                        "chain_alerts": alerts,
+                        "labels": state.graph.labels(s),
+                    })
+                })
+                .collect();
+            serde_json::json!({ "sessions": sessions })
+        }
+        Some(session) => {
+            let mut timeline: Vec<_> =
+                events.into_iter().filter(|e| e.session == session).collect();
+            timeline.reverse(); // oldest first for a timeline
+            serde_json::json!({
+                "session": session,
+                "labels": state.graph.labels(session),
+                "policy_labels": state.graph.policy_labels(session),
+                "evidence_trail": state.graph.trail(session),
+                "events": timeline,
+            })
+        }
+    };
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct ApprovalQuery {
+    pub server: String,
+    pub tool: String,
+    pub args_hash: String,
+    #[serde(default)]
+    pub session: Option<String>,
+    /// Optional reason string; when present and the check misses, the call is
+    /// queued as a pending approval for the local approval UX.
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// Grant check used by mcp-wrap / hooks before an ask-class call.
+/// Pure checks remain unauthenticated (local loopback). Queuing a pending
+/// approval via `reason` requires the control token so arbitrary local
+/// processes cannot flood the approval UX.
+pub async fn handle_api_approvals_check(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(q): Query<ApprovalQuery>,
+) -> Response {
+    let session = q.session.as_deref().unwrap_or("");
+    let granted = state
+        .approvals
+        .check(&q.server, &q.tool, &q.args_hash, session);
+    if !granted {
+        if let Some(reason) = q.reason.as_deref().filter(|r| !r.is_empty()) {
+            if let Err(resp) = control_auth::require_control_token(&state.control_token, &headers) {
+                return resp;
+            }
+            state
+                .approvals
+                .note_pending(&q.server, &q.tool, &q.args_hash, session, reason);
+        }
+    }
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::json!({ "granted": granted }).to_string(),
+    )
+        .into_response()
+}
+
+/// Read-only list of ask-class calls awaiting approval (approval UX).
+pub async fn handle_api_approvals_pending(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::json!({ "pending": state.approvals.pending() }).to_string(),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct ApprovalGrantBody {
+    pub server: String,
+    pub tool: String,
+    pub args_hash: String,
+    #[serde(default)]
+    pub session: Option<String>,
+    /// Seconds; clamped to [1, 3600]. Default 300.
+    #[serde(default)]
+    pub ttl_secs: Option<u64>,
+}
+
+/// Authenticated: record a short-lived approval grant.
+pub async fn handle_api_approvals_grant(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<ApprovalGrantBody>,
+) -> Response {
+    if let Err(resp) = control_auth::require_control_token(&state.control_token, &headers) {
+        return resp;
+    }
+    let ttl = std::time::Duration::from_secs(body.ttl_secs.unwrap_or(300));
+    let session = body.session.as_deref().unwrap_or("");
+    state
+        .approvals
+        .grant(&body.server, &body.tool, &body.args_hash, session, ttl);
+    state.flight_recorder.record(FlightDraft {
+        plane: "ops".into(),
+        kind: FlightKind::Approval,
+        session: session.into(),
+        server: body.server.clone(),
+        tool_name: body.tool.clone(),
+        route: "/api/approvals".into(),
+        detail: format!(
+            "operator granted '{}' on '{}' (args {}) for {}s",
+            body.tool,
+            body.server,
+            body.args_hash,
+            ttl.as_secs()
+        ),
+        enforced: false,
+        ..Default::default()
+    });
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::json!({ "granted": true, "ttl_secs": ttl.as_secs() }).to_string(),
+    )
+        .into_response()
 }
 
 pub async fn handle_icon(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -552,6 +947,7 @@ pub async fn handle_chat_completions(
     state.metrics.record_request_body("openai", body_str.len());
 
     let scope = state.scope.from_request(&headers, peer.ip());
+    let scope_key = scope.key();
     let (_, latest_user) = req.extract_prompt_state();
 
     // ── Complexity-based model routing ───────────────────────────────────────
@@ -641,6 +1037,12 @@ pub async fn handle_chat_completions(
         }
     }
 
+    if let Some(resp) = check_early_governance(
+        &state, &unified_req, "openai", "/v1/chat/completions", true, &scope_key, start_time,
+    ) {
+        return resp;
+    }
+
     // ── Agent tool-call loop detection ───────────────────────────────────────
     // Catches the case where an agent calls the same tool with identical args
     // across multiple turns. The request-level circuit breaker (cache-key based)
@@ -648,34 +1050,46 @@ pub async fn handle_chat_completions(
     if let Some(ref lf) = crate::guardrail::detect_tool_call_loops(
         &unified_req.messages, state.tool_loop_threshold,
     ) {
-        state.metrics.record_agent_loop_stopped();
         tracing::warn!(
             function = %lf.function_name,
             count = lf.call_count,
             threshold = state.tool_loop_threshold,
             "kotro guardrail: tool-call loop detected"
         );
-        if unified_req.stream {
-            let msg = format!(
-                "data: {{\"choices\": [{{\"delta\": {{\"content\": \"\\n\\n🔁 [KOTRO LOOP DETECTED]: Tool \\\"{}\\\" was called {} times with identical arguments. Breaking agent loop.\"}}}}, {{\"finish_reason\": \"stop\"}}]}}\n\ndata: [DONE]\n\n",
-                lf.function_name, lf.call_count
-            );
-            let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(msg)) });
-            return sse_stream_response(stream, None);
-        } else {
-            return problem_response(
-                StatusCode::TOO_MANY_REQUESTS,
-                "Agent Loop Detected",
-                &format!(
-                    "Tool '{}' was called {} times with identical arguments. Breaking loop.",
+        let detail = format!(
+            "Tool '{}' was called {} times with identical arguments.",
+            lf.function_name, lf.call_count
+        );
+        let enforce = state.kill_switch_mode.enforces();
+        record_flight(
+            &state, FlightKind::ToolLoop, "openai", &unified_req.model,
+            "/v1/chat/completions", "blocked", Some(&unified_req), &scope_key, 0,
+            start_time.elapsed(), 0, &detail, enforce,
+        );
+        state.metrics.record_agent_loop_stopped();
+        if enforce {
+            if unified_req.stream {
+                let msg = format!(
+                    "data: {{\"choices\": [{{\"delta\": {{\"content\": \"\\n\\n[KOTRO LOOP DETECTED]: Tool \\\"{}\\\" was called {} times with identical arguments. Breaking agent loop.\"}}}}, {{\"finish_reason\": \"stop\"}}]}}\n\ndata: [DONE]\n\n",
                     lf.function_name, lf.call_count
-                ),
-            );
+                );
+                let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(msg)) });
+                let mut resp = sse_stream_response(stream, None);
+                try_set_header(&mut resp, "x-kotro-circuit-open", "true");
+                return resp;
+            } else {
+                let mut resp = problem_response(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Agent Loop Detected",
+                    &detail,
+                );
+                try_set_header(&mut resp, "x-kotro-circuit-open", "true");
+                return resp;
+            }
         }
     }
 
     // ── Token estimation (used for budget and response headers) ───────────────
-    let scope_key = scope.key();
     let estimated_input_tokens: u64 = {
         let mut n = BudgetTracker::estimate_tokens(&unified_req.system_prompt);
         for msg in &unified_req.messages {
@@ -688,12 +1102,21 @@ pub async fn handle_chat_completions(
 
     let (processed, cache_source, redaction_map) =
         apply_unified_middleware(&state, unified_req, &scope);
-    let cache_key = unified_cache_key(&state, &scope, &cache_source, "openai");
+    let governance_key = unified_cache_key(&state, &scope, &cache_source, "openai");
+    let cache_key = store_cache_key(&state, &governance_key);
 
-    if !cache_key.is_empty() {
+    if !governance_key.is_empty() {
+        if !cache_key.is_empty() {
         if let Ok(Some(entry)) = state.store.get(&cache_key) {
             info!(key = %cache_key, format = "openai", "cache hit");
             state.metrics.record_cache_hit("openai", entry.raw_sse.len());
+            record_flight(
+                &state, FlightKind::CacheHit, "openai", &processed.model,
+                "/v1/chat/completions", "hit", Some(&processed), &scope_key, 0,
+                start_time.elapsed(),
+                redaction_map.as_ref().map(|m| m.len() as u32).unwrap_or(0),
+                "exact prompt-state cache hit", false,
+            );
             let stream = create_cached_replay_stream(
                 entry.raw_sse,
                 redaction_map.clone(),
@@ -772,7 +1195,16 @@ pub async fn handle_chat_completions(
             state.vector_index.insert(context_key, cache_key.clone(), latest_user.clone(), user_emb);
         }
 
+                } // end store/cache lookups
+
         state.metrics.record_cache_miss("openai");
+        record_flight(
+            &state, FlightKind::CacheMiss, "openai", &processed.model,
+            "/v1/chat/completions", "miss", Some(&processed), &scope_key,
+            estimated_input_tokens, start_time.elapsed(),
+            redaction_map.as_ref().map(|m| m.len() as u32).unwrap_or(0),
+            "cache miss — forwarding upstream", false,
+        );
 
         // ── Budget enforcement (cache misses only) ────────────────────────────
         if state.budget.is_exceeded(&scope_key) {
@@ -795,18 +1227,11 @@ pub async fn handle_chat_completions(
             }
         }
 
-        let count = state.circuit_breaker.get(&cache_key).unwrap_or(0) + 1;
-        state.circuit_breaker.insert(cache_key.clone(), count);
-        if count >= 4 {
-            state.metrics.record_agent_loop_stopped();
-            tracing::warn!(key = %cache_key, count = count, "circuit breaker tripped");
-            if processed.stream {
-                let err_msg = "data: {\"choices\": [{\"delta\": {\"content\": \"\\n\\n🚨 [KOTRO CIRCUIT BREAKER TRIPPED]: Infinite error loop detected. Halting execution to prevent API credit drain. Please ask the human operator for guidance.\"}}]}\n\ndata: [DONE]\n\n";
-                let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(err_msg)) });
-                return sse_stream_response(stream, None);
-            } else {
-                return problem_response(StatusCode::TOO_MANY_REQUESTS, "Circuit Breaker Tripped", "Infinite error loop detected. Halting execution to prevent API credit drain.");
-            }
+        if let Some(resp) = trip_circuit_breaker(
+            &state, &governance_key, &processed, "openai", "/v1/chat/completions", true,
+            &scope_key, start_time,
+        ) {
+            return resp;
         }
     }
 
@@ -898,6 +1323,7 @@ pub async fn handle_messages(
     state.metrics.record_request_body("anthropic", body_str.len());
 
     let scope = state.scope.from_request(&headers, peer.ip());
+    let scope_key = scope.key();
     let (_, latest_user) = req.extract_prompt_state();
 
     let mut unified_req: UnifiedRequest = req.clone().try_into().unwrap_or_else(|_| {
@@ -977,38 +1403,56 @@ pub async fn handle_messages(
         }
     }
 
+    if let Some(resp) = check_early_governance(
+        &state, &unified_req, "anthropic", "/v1/messages", false, &scope_key, start_time,
+    ) {
+        return resp;
+    }
+
     // ── Agent tool-call loop detection ────────────────────────────────────────
     if let Some(ref lf) = crate::guardrail::detect_tool_call_loops(
         &unified_req.messages, state.tool_loop_threshold,
     ) {
-        state.metrics.record_agent_loop_stopped();
         tracing::warn!(
             function = %lf.function_name,
             count = lf.call_count,
             threshold = state.tool_loop_threshold,
             "kotro guardrail: tool-call loop detected"
         );
-        if unified_req.stream {
-            let msg = format!(
-                "event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":\"\\n\\n🔁 [KOTRO LOOP DETECTED]: Tool \\\"{}\\\" was called {} times with identical arguments. Breaking agent loop.\"}}}}\n\n",
-                lf.function_name, lf.call_count
-            );
-            let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(msg)) });
-            return sse_stream_response(stream, None);
-        } else {
-            return problem_response(
-                StatusCode::TOO_MANY_REQUESTS,
-                "Agent Loop Detected",
-                &format!(
-                    "Tool '{}' was called {} times with identical arguments. Breaking loop.",
+        let detail = format!(
+            "Tool '{}' was called {} times with identical arguments.",
+            lf.function_name, lf.call_count
+        );
+        let enforce = state.kill_switch_mode.enforces();
+        record_flight(
+            &state, FlightKind::ToolLoop, "anthropic", &unified_req.model,
+            "/v1/messages", "blocked", Some(&unified_req), &scope_key, 0,
+            start_time.elapsed(), 0, &detail, enforce,
+        );
+        state.metrics.record_agent_loop_stopped();
+        if enforce {
+            if unified_req.stream {
+                let msg = format!(
+                    "event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":\"\\n\\n[KOTRO LOOP DETECTED]: Tool \\\"{}\\\" called {} times with identical arguments.\"}}}}\n\n",
                     lf.function_name, lf.call_count
-                ),
-            );
+                );
+                let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(msg)) });
+                let mut resp = sse_stream_response(stream, None);
+                try_set_header(&mut resp, "x-kotro-circuit-open", "true");
+                return resp;
+            } else {
+                let mut resp = problem_response(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Agent Loop Detected",
+                    &detail,
+                );
+                try_set_header(&mut resp, "x-kotro-circuit-open", "true");
+                return resp;
+            }
         }
     }
 
     // ── Token estimation ──────────────────────────────────────────────────────
-    let scope_key = scope.key();
     let estimated_input_tokens: u64 = {
         let mut n = BudgetTracker::estimate_tokens(&unified_req.system_prompt);
         for msg in &unified_req.messages {
@@ -1021,12 +1465,21 @@ pub async fn handle_messages(
 
     let (processed, cache_source, redaction_map) =
         apply_unified_middleware(&state, unified_req, &scope);
-    let cache_key = unified_cache_key(&state, &scope, &cache_source, "anthropic");
+    let governance_key = unified_cache_key(&state, &scope, &cache_source, "anthropic");
+    let cache_key = store_cache_key(&state, &governance_key);
 
-    if !cache_key.is_empty() {
+    if !governance_key.is_empty() {
+        if !cache_key.is_empty() {
         if let Ok(Some(entry)) = state.store.get(&cache_key) {
             info!(key = %cache_key, format = "anthropic", "cache hit");
             state.metrics.record_cache_hit("anthropic", entry.raw_sse.len());
+            record_flight(
+                &state, FlightKind::CacheHit, "anthropic", &processed.model,
+                "/v1/messages", "hit", Some(&processed), &scope_key, 0,
+                start_time.elapsed(),
+                redaction_map.as_ref().map(|m| m.len() as u32).unwrap_or(0),
+                "exact prompt-state cache hit", false,
+            );
             let stream = create_cached_replay_stream(
                 entry.raw_sse,
                 redaction_map,
@@ -1089,7 +1542,16 @@ pub async fn handle_messages(
             state.vector_index.insert(context_key, cache_key.clone(), latest_user.clone(), user_emb);
         }
 
+                } // end store/cache lookups
+
         state.metrics.record_cache_miss("anthropic");
+        record_flight(
+            &state, FlightKind::CacheMiss, "anthropic", &processed.model,
+            "/v1/messages", "miss", Some(&processed), &scope_key,
+            estimated_input_tokens, start_time.elapsed(),
+            redaction_map.as_ref().map(|m| m.len() as u32).unwrap_or(0),
+            "cache miss — forwarding upstream", false,
+        );
 
         // ── Budget enforcement (cache misses only) ────────────────────────────
         if state.budget.is_exceeded(&scope_key) {
@@ -1112,18 +1574,11 @@ pub async fn handle_messages(
             }
         }
 
-        let count = state.circuit_breaker.get(&cache_key).unwrap_or(0) + 1;
-        state.circuit_breaker.insert(cache_key.clone(), count);
-        if count >= 4 {
-            state.metrics.record_agent_loop_stopped();
-            tracing::warn!(key = %cache_key, count = count, "circuit breaker tripped");
-            if processed.stream {
-                let err_msg = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"\\n\\n🚨 [KOTRO CIRCUIT BREAKER TRIPPED]: Infinite error loop detected. Halting execution to prevent API credit drain. Please ask the human operator for guidance.\"}}\n\n";
-                let stream = futures_util::stream::once(async move { Ok::<_, io::Error>(Bytes::from(err_msg)) });
-                return sse_stream_response(stream, None);
-            } else {
-                return problem_response(StatusCode::TOO_MANY_REQUESTS, "Circuit Breaker Tripped", "Infinite error loop detected. Halting execution to prevent API credit drain.");
-            }
+        if let Some(resp) = trip_circuit_breaker(
+            &state, &governance_key, &processed, "anthropic", "/v1/messages", false,
+            &scope_key, start_time,
+        ) {
+            return resp;
         }
     }
 
@@ -1259,11 +1714,24 @@ fn unified_cache_key(
     req: &UnifiedRequest,
     format_prefix: &str,
 ) -> String {
-    if !state.enable_cache || !req.stream {
+    if !req.stream {
+        return String::new();
+    }
+    // Mint a prompt-state key whenever cache or the circuit breaker needs it.
+    if !state.enable_cache && state.circuit_breaker_threshold == 0 {
         return String::new();
     }
     let material = req.extract_cache_key_material(state.cache_key_strategy, state.cache_window_size);
     generate_cache_key(&scope.key(), &req.model, format_prefix, &material)
+}
+
+/// Key used for exact-store get/put. Empty when caching is disabled.
+fn store_cache_key(state: &AppState, governance_key: &str) -> String {
+    if state.enable_cache {
+        governance_key.to_string()
+    } else {
+        String::new()
+    }
 }
 
 pub struct ForwardOptions {

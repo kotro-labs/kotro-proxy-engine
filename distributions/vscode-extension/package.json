@@ -112,8 +112,8 @@
         },
         "kotrolabs.enableVectorCache": {
           "type": "boolean",
-          "default": true,
-          "description": "Enable on-device semantic (fuzzy) cache via MiniLM embeddings. Catches rephrased variants of cached prompts. First miss may download the model (~23MB). Adds ~3ms per cache miss on CPU. (KOTRO_ENABLE_VECTOR_CACHE)"
+          "default": false,
+          "description": "Opt-in MiniLM paraphrase cache (KOTRO_ENABLE_VECTOR_CACHE). Exact prompt-state cache remains the primary path. First use may download ~23MB model weights."
         },
         "kotrolabs.enableInjectionScan": {
           "type": "boolean",
@@ -161,6 +161,26 @@
       {
         "command": "kotro.setupContinue",
         "title": "Kotro: Setup Continue.dev Config",
+        "category": "Kotro"
+      },
+      {
+        "command": "kotrolabs.openFlightRecorder",
+        "title": "Kotro: Open Flight Recorder",
+        "category": "Kotro"
+      },
+      {
+        "command": "kotrolabs.toggleKillSwitch",
+        "title": "Kotro: Toggle Kill Switch",
+        "category": "Kotro"
+      },
+      {
+        "command": "kotrolabs.reviewApprovals",
+        "title": "Kotro: Review Tool Approvals",
+        "category": "Kotro"
+      },
+      {
+        "command": "kotrolabs.showIncidents",
+        "title": "Kotro: Show Cross-Plane Incidents",
         "category": "Kotro"
       }
     ]

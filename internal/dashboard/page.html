@@ -407,6 +407,13 @@
         </div>
       </div>
       <div class="card glass">
+        <div class="label" style="color: var(--miss);">Kill Switch</div>
+        <div class="value">
+          <span id="kill-switch-status" class="pill bypass">OFF</span>
+          <small id="kill-switch-mode"></small>
+        </div>
+      </div>
+      <div class="card glass">
         <div class="label" style="color: var(--miss);">Agent Loops Stopped</div>
         <div class="value">
           <span class="rolling-number" id="agent-loops-stopped" data-val="0">0</span>
@@ -459,6 +466,93 @@
         </table>
       </div>
       <div class="err" id="error" hidden></div>
+    </div>
+
+    <div class="card glass" id="flight-recorder" style="margin-top: 1.5rem;">
+      <div class="label" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+        <span>Agent Flight Recorder</span>
+        <span>
+          <a class="sub" style="text-transform: none; letter-spacing: normal; color: var(--accent);" href="/api/flight-recorder/verify">Verify chain</a>
+          &nbsp;·&nbsp;
+          <a class="sub" style="text-transform: none; letter-spacing: normal; color: var(--accent);" href="/api/flight-recorder/export">Export JSON</a>
+        </span>
+      </div>
+      <p class="sub" style="margin: 0 0 1rem; text-transform: none; letter-spacing: normal;">
+        Local black-box tape of proxied LLM calls (prompt hashes only — no raw secrets).
+      </p>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Kind</th>
+              <th>Model</th>
+              <th>Status</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody id="flight-body">
+            <tr><td colspan="5" class="sub" style="text-align: center; padding: 2rem;">Awaiting governance events...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card glass" id="session-graph" style="margin-top: 1.5rem;">
+      <div class="label" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+        <span>Session Graph (cross-plane correlation)</span>
+        <span>
+          <select id="session-select" style="background: rgba(255,255,255,0.06); color: inherit; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 0.2rem 0.5rem; font-size: 0.8rem;"></select>
+          &nbsp;·&nbsp;
+          <a class="sub" id="incident-export" style="text-transform: none; letter-spacing: normal; color: var(--accent);" href="/api/flight-recorder/export">Incident bundle</a>
+        </span>
+      </div>
+      <p class="sub" style="margin: 0 0 1rem; text-transform: none; letter-spacing: normal;">
+        LLM calls, MCP tool activity, and chain alerts correlated per session. Critical chains (lethal trifecta, credential egress) auto-engage the tools kill switch.
+      </p>
+      <div id="session-labels" class="sub" style="text-transform: none; letter-spacing: normal; margin-bottom: 0.75rem;">No session selected</div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Plane</th>
+              <th>Kind</th>
+              <th>Tool / Model</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          <tbody id="session-body">
+            <tr><td colspan="5" class="sub" style="text-align: center; padding: 2rem;">Awaiting correlated events...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card glass" id="posture" style="margin-top: 1.5rem;">
+      <div class="label" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+        <span>Agent Posture (kotro doctor)</span>
+        <a class="sub" style="text-transform: none; letter-spacing: normal; color: var(--accent);" href="/api/posture">Full report JSON</a>
+      </div>
+      <p class="sub" style="margin: 0 0 1rem; text-transform: none; letter-spacing: normal;">
+        Local inventory of MCP servers and skill/instruction inputs — nothing leaves this machine.
+      </p>
+      <div id="posture-summary" class="sub" style="text-transform: none; letter-spacing: normal;">Scanning…</div>
+      <div class="table-container" style="margin-top: 0.75rem;">
+        <table>
+          <thead>
+            <tr>
+              <th>Severity</th>
+              <th>Code</th>
+              <th>Subject</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody id="posture-body">
+            <tr><td colspan="4" class="sub" style="text-align: center; padding: 2rem;">Running posture scan…</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </main>
   
@@ -581,15 +675,50 @@
       updateCounter('redactions', data.redactions_total, Math.round);
       updateCounter('scopes', data.compressor_scopes_active, Math.round);
       updateCounter('requests', data.requests_total, Math.round);
+
+      const ks = document.getElementById('kill-switch-status');
+      if (ks) {
+        if (data.kill_switch_engaged) {
+          ks.textContent = 'ENGAGED' + (data.kill_switch_scope && data.kill_switch_scope !== 'all' ? ' · ' + data.kill_switch_scope.toUpperCase() : '');
+          ks.className = 'pill blocked';
+        } else {
+          ks.textContent = 'OFF';
+          ks.className = 'pill bypass';
+        }
+      }
+      const km = document.getElementById('kill-switch-mode');
+      if (km) {
+        km.textContent = data.kill_switch_mode ? '(' + data.kill_switch_mode + ')' : '';
+      }
       
       const d = new Date();
       document.getElementById('updated-at').textContent = 'Live • ' + d.toLocaleTimeString();
 
+      // Flight recorder table
+      const flightBody = document.getElementById('flight-body');
+      if (flightBody) {
+        const events = data.flight_events || [];
+        if (events.length === 0) {
+          flightBody.innerHTML = '<tr><td colspan="5" class="sub" style="text-align: center; padding: 2rem;">No flight events yet</td></tr>';
+        } else if (flightBody.dataset.lastJson !== JSON.stringify(events)) {
+          flightBody.innerHTML = events.map(function (e) {
+            const t = e.at || '';
+            const kind = (e.kind || '').replace(/_/g, ' ');
+            const modelLabel = (e.model && String(e.model).trim()) ? e.model : (e.provider || '—');
+            const status = e.cache_status || (e.enforced ? 'blocked' : 'observe');
+            const detail = (e.detail || '').slice(0, 120);
+            return '<tr><td style="font-family:monospace;font-size:0.8rem;">' + t + '</td><td>' + kind + '</td><td style="font-family:monospace;">' + modelLabel + '</td><td>' + pill(status) + '</td><td class="sub" style="text-transform:none;letter-spacing:normal;">' + detail + '</td></tr>';
+          }).join('');
+          flightBody.dataset.lastJson = JSON.stringify(events);
+        }
+      }
+
       // Render table
       const body = document.getElementById('recent-body');
       if (!data.recent_requests || data.recent_requests.length === 0) {
-        if(body.children.length <= 1 && body.textContent.includes('Awaiting')) return;
-        body.innerHTML = '<tr><td colspan="4" class="sub" style="text-align: center; padding: 2rem;">No proxied requests yet</td></tr>';
+        if(!(body.children.length <= 1 && body.textContent.includes('Awaiting'))) {
+          body.innerHTML = '<tr><td colspan="4" class="sub" style="text-align: center; padding: 2rem;">No proxied requests yet</td></tr>';
+        }
         return;
       }
       
@@ -625,6 +754,103 @@
       }
     }
     
+    // Posture scan — fetched once on load (filesystem scan, not a hot path).
+    async function loadPosture() {
+      const summary = document.getElementById('posture-summary');
+      const body = document.getElementById('posture-body');
+      if (!summary || !body) return;
+      try {
+        const res = await fetch('/api/posture', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const p = await res.json();
+        const findings = p.findings || [];
+        const crit = findings.filter(f => f.severity === 'critical').length;
+        const warn = findings.filter(f => f.severity === 'warn').length;
+        summary.textContent = (p.servers || []).length + ' MCP server(s), '
+          + (p.skills || []).length + ' skill/instruction input(s) — '
+          + crit + ' critical, ' + warn + ' warn finding(s)';
+        if (findings.length === 0) {
+          body.innerHTML = '<tr><td colspan="4" class="sub" style="text-align:center;padding:2rem;">No findings — posture looks clean</td></tr>';
+          return;
+        }
+        body.innerHTML = findings.slice(0, 50).map(function (f) {
+          const sev = f.severity === 'critical' ? pill('blocked') : (f.severity === 'warn' ? pill('bypass') : pill('hit'));
+          return '<tr><td>' + sev + '</td><td style="font-family:monospace;font-size:0.8rem;">' + f.code + '</td><td style="font-family:monospace;font-size:0.8rem;">' + f.subject + '</td><td class="sub" style="text-transform:none;letter-spacing:normal;">' + (f.detail || '').slice(0, 160) + '</td></tr>';
+        }).join('');
+      } catch (err) {
+        summary.textContent = 'Posture scan unavailable (' + err.message + ')';
+      }
+    }
+    loadPosture();
+
+    // Session graph — poll the session index, render the selected timeline.
+    let selectedSession = '';
+    async function loadSessionGraph() {
+      const select = document.getElementById('session-select');
+      const labelsEl = document.getElementById('session-labels');
+      const body = document.getElementById('session-body');
+      if (!select || !body) return;
+      try {
+        const idxRes = await fetch('/api/session-graph', { cache: 'no-store' });
+        if (!idxRes.ok) throw new Error('HTTP ' + idxRes.status);
+        const idx = await idxRes.json();
+        const sessions = idx.sessions || [];
+        if (sessions.length === 0) {
+          body.innerHTML = '<tr><td colspan="5" class="sub" style="text-align:center;padding:2rem;">No correlated sessions yet</td></tr>';
+          return;
+        }
+        // Keep the dropdown in sync (newest first); preserve the selection.
+        const options = sessions.map(function (s) {
+          const alert = s.chain_alerts > 0 ? ' ⚠' : '';
+          return '<option value="' + s.session + '">' + s.session + ' (' + s.events + ')' + alert + '</option>';
+        }).join('');
+        if (select.dataset.lastJson !== options) {
+          select.innerHTML = options;
+          select.dataset.lastJson = options;
+        }
+        if (!selectedSession || !sessions.some(s => s.session === selectedSession)) {
+          selectedSession = sessions[0].session;
+        }
+        select.value = selectedSession;
+
+        const res = await fetch('/api/session-graph?session=' + encodeURIComponent(selectedSession), { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const g = await res.json();
+        const exp = document.getElementById('incident-export');
+        if (exp) exp.href = '/api/flight-recorder/export?session=' + encodeURIComponent(selectedSession);
+        if (labelsEl) {
+          const labels = g.labels || [];
+          labelsEl.innerHTML = labels.length
+            ? 'Provenance: ' + labels.map(l => '<span class="pill ' + (l.startsWith('untrusted') || l === 'sensitive_read' || l === 'secret_output' ? 'blocked' : 'bypass') + '">' + l + '</span>').join(' ')
+            : 'No provenance labels yet for this session';
+        }
+        const events = g.events || [];
+        const html = events.map(function (e) {
+          const isAlert = e.kind === 'chain_alert';
+          const name = e.tool_name || e.model || '—';
+          const why = (e.detail || '').slice(0, 160);
+          const kindCell = isAlert ? '<span class="pill blocked">CHAIN ALERT</span>' : (e.kind || '').replace(/_/g, ' ');
+          const rowStyle = isAlert ? ' style="background: rgba(255,80,80,0.08);"' : '';
+          return '<tr' + rowStyle + '><td style="font-family:monospace;font-size:0.8rem;">' + (e.at || '') + '</td><td>' + (e.plane || '') + '</td><td>' + kindCell + '</td><td style="font-family:monospace;font-size:0.8rem;">' + name + '</td><td class="sub" style="text-transform:none;letter-spacing:normal;">' + why + '</td></tr>';
+        }).join('');
+        if (body.dataset.lastJson !== html) {
+          body.innerHTML = html || '<tr><td colspan="5" class="sub" style="text-align:center;padding:2rem;">No events for this session</td></tr>';
+          body.dataset.lastJson = html;
+        }
+      } catch (err) {
+        body.innerHTML = '<tr><td colspan="5" class="sub" style="text-align:center;padding:2rem;">Session graph unavailable (' + err.message + ')</td></tr>';
+      }
+    }
+    const sessionSelectEl = document.getElementById('session-select');
+    if (sessionSelectEl) {
+      sessionSelectEl.addEventListener('change', function () {
+        selectedSession = this.value;
+        loadSessionGraph();
+      });
+    }
+    loadSessionGraph();
+    setInterval(loadSessionGraph, 3000);
+
     // Initial fetch
     refresh();
     // Poll every 2 seconds for higher dopamine frequency (since UI is now buttery smooth)

@@ -1,7 +1,7 @@
 # Kotro Proxy Engine — Threat Model & Security Architecture
 
-**Version:** 0.1.2  
-**Status:** Documents behavior shipped in Go Phase 1 and Rust Phase 2  
+**Version:** 0.2.0  
+**Status:** Documents behavior shipped in Go Phase 1 and Rust Phase 2, plus the Local Agent Guard governance plane (flight recorder, kill switch, MCP action plane)  
 **Audience:** Security reviewers, platform engineers, design partners
 
 ---
@@ -190,22 +190,142 @@ KOTRO_TRUSTED_PROXY_CIDRS=10.0.0.0/8,172.16.0.0/12
 
 ---
 
-## 9. Explicit non-goals (v0.1.x)
+## 9. Governance control plane (Local Agent Guard)
+
+The Rust proxy adds a local governance plane. Its security properties:
+
+### 9.1 Flight recorder (tamper-evident local tape)
+
+- Events persist in an append-only redb store at `<KOTRO_STATE_DIR>/governance.redb`
+  (default `~/.kotro`), bounded by capacity and age (`KOTRO_FLIGHT_RECORDER_MAX_AGE_SECS`,
+  default 7 days).
+- Every event carries `prev_hash`/`hash` forming a SHA-256 hash chain.
+  `GET /api/flight-recorder/verify` re-walks the chain and reports modified or
+  deleted events. The chain proves integrity *relative to the recorded tail*;
+  an attacker with filesystem write access who truncates the entire store can
+  still destroy history — the recorder is tamper-**evident**, not tamper-proof.
+- Prompt fingerprints are HMAC-SHA256 keyed with a random per-install key
+  stored inside the db. They are **not** dictionary-testable unsalted hashes;
+  raw prompt text is never persisted by the recorder.
+
+### 9.2 Control API authentication
+
+- Mutating endpoints (`POST /api/kill-switch`, approvals, action-plane event
+  ingestion) require a control token via `x-kotro-control-token` or
+  `Authorization: Bearer`.
+- The token is random-per-install, stored 0600 at `<state_dir>/control.token`,
+  or supplied via `KOTRO_CONTROL_TOKEN`. Comparison is constant-time.
+- Cross-origin browser requests are rejected: any `Origin` header must be a
+  loopback origin. This blocks CSRF from web pages against the local control API.
+- **Strict loopback binding.** The control/telemetry listener refuses any
+  non-loopback bind and coerces it to `127.0.0.1` with a warning, so a bare
+  `KOTRO_METRICS_ADDR=:9090` cannot publish the kill switch, approvals, or
+  event ingestion to the LAN. `KOTRO_ALLOW_REMOTE_CONTROL=true` is the
+  explicit, loudly-warned override for users fronting it with their own
+  authenticated tunnel. Note this applies to the control listener only — the
+  LLM proxy listener (`KOTRO_LISTEN_ADDR`) still binds `0.0.0.0` by default
+  and is guarded by `KOTRO_BRIDGE_TOKEN`, not by the control token.
+- Read-only telemetry (`GET /metrics`, `/api/dashboard`, `/api/flight-recorder`)
+  stays unauthenticated but should be bound to loopback (`KOTRO_METRICS_ADDR`).
+
+### 9.3 Kill switch
+
+- Scoped: `llm` (halt upstream LLM forwards), `tools` (halt MCP tool calls via
+  the action plane), or `all`. State persists across proxy restarts.
+- `KOTRO_KILL_SWITCH_MODE=observe` records without blocking; `enforce` blocks.
+- The kill switch stops **new** actions that flow through Kotro. It cannot stop
+  already-running unmanaged local processes; that requires OS-level sandboxing.
+
+### 9.4 Rate limiting
+
+- `KOTRO_MAX_REQUESTS_PER_MINUTE` applies **per session** (token bucket keyed
+  by the tenant/session scope), so one runaway agent cannot exhaust or mask
+  another principal's budget.
+
+### 9.5 MCP action plane (`mcp-wrap` / `protect`)
+
+- `kotro-proxy mcp-wrap` relays MCP JSON-RPC (stdio and Streamable HTTP), pin
+  tool metadata on first `tools/list` (trust-on-first-use), quarantine drift,
+  validate `tools/call` arguments against the pinned schema, and enforce the
+  deny-first local policy before forwarding.
+- Every inbound method is subject to the multi-plane kill switch. Only an
+  allowlist is relayed (`initialize`, `ping`, `tools/*`, `resources/*`,
+  `prompts/*`, `completion/complete`, `logging/setLevel`, `notifications/*`);
+  other methods (for example `sampling/createMessage`) are denied.
+  Full schema/policy enforcement applies to `tools/call`; other allowlisted
+  methods are kill-switch gated but not argument-policy gated.
+- First-seen tool metadata is trusted (TOFU). Review and `mcp repin` after
+  installing or updating an MCP server.
+- `kotro protect` / `unprotect` rewrite supported client MCP configs (with a
+  backup) so traffic routes through the wrap. Consent-driven; never silent.
+- Tool annotations are treated as untrusted hints; missing annotations get
+  pessimistic defaults (writable / destructive / open-world).
+- If the control/metrics listener is unreachable, mcp-wrap treats the kill
+  switch as *not engaged* (fail-open for the remote halt signal) so a dead
+  proxy does not brick every tool call. Local deny-first policy still applies.
+  Operators who need hard fail-closed halt should keep the control plane up.
+
+### 9.6 Cross-plane session graph
+
+- LLM, MCP, and hook events share one canonical schema and are correlated by
+  session id. Provenance labels (`untrusted_web`, `sensitive_read`,
+  `network_egress`, `credential_input`, …) drive chain detection:
+  lethal trifecta, drift-then-exec, credential egress, destructive storm.
+- Critical chains auto-engage the tools kill switch when
+  `KOTRO_CHAIN_AUTO_KILL` is enabled (default) and kill-switch mode is
+  `enforce`. Evidence is reconstructible from
+  `GET /api/session-graph?session=…` and the incident bundle export.
+
+### 9.7 Client hooks and approvals
+
+- `kotro-proxy hook install claude-code` registers PreToolUse / PostToolUse
+  hooks that query the same policy engine. Decisions use Claude Code's
+  `permissionDecision` contract (allow / deny / ask).
+- Hook handlers **fail closed**: empty or invalid stdin yields
+  `permissionDecision: deny` rather than silently allowing the tool.
+- Short-lived approval grants (`POST /api/approvals`, `kotro-proxy approve`,
+  and the VS Code "Review Tool Approvals" command) are keyed by
+  server + tool + args hash (+ optional session) and expire.
+  Queuing a pending approval requires the control token.
+
+### 9.8 Policy, isolation, and telemetry
+
+- Versioned `kotro-policy.yaml` (presets: `observe`, `developer`,
+  `locked-down`) with deny-first precedence and workspace-local overrides
+  that cannot relax a base deny. Every decision carries a rule id + evidence
+  (`kotro-proxy policy check`).
+- `kotro-proxy isolate docker` emits restrictive Docker Compose / MCP Gateway
+  profiles (read-only mounts, egress allow-list, CPU/memory caps, secrets
+  env-file). Kotro does not run containers.
+- Optional OTel GenAI/MCP spans (`KOTRO_OTEL_ENDPOINT`) export operation,
+  conversation id, tool name, and token counts. Content capture is off by
+  default.
+
+---
+
+## 10. Explicit non-goals (v0.2.x)
 
 Kotro **does not** currently provide:
 
-- Client authentication or API key issuance
+- Client authentication or API key issuance for LLM routes (bridge token aside)
 - mTLS between client and proxy
-- Audit log export with tamper evidence
 - Field-level encryption of cache at rest
 - SOC 2 / HIPAA compliance packaging
 - Automatic PII classification beyond regex patterns
+- OS-level sandboxing of agent child processes (compose with Claude Code
+  sandboxing / Docker isolation instead)
+- Governance of agent actions that never cross the wire (built-in IDE tools,
+  direct filesystem access) except where client hook adapters are installed
+- Full argument-level policy on non-`tools/call` MCP methods (resources/prompts
+  are kill-switch gated and allowlisted, but not schema/policy matched)
+- Hard fail-closed kill switch when the local control plane is down
+  (mcp-wrap keeps local policy; remote halt is best-effort)
 
 These are candidates for the enterprise track; see [../roadmap/90-DAY-ROADMAP.md](../roadmap/90-DAY-ROADMAP.md).
 
 ---
 
-## 10. Security review checklist
+## 11. Security review checklist
 
 Use this for internal design-partner or enterprise approval:
 
@@ -220,6 +340,6 @@ Use this for internal design-partner or enterprise approval:
 
 ---
 
-## 11. Reporting
+## 12. Reporting
 
 Report vulnerabilities via GitHub Security Advisories on [kotro-labs/kotro-proxy-engine](https://github.com/kotro-labs/kotro-proxy-engine/security/advisories/new).

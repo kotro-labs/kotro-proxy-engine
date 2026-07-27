@@ -3,6 +3,34 @@
 use std::env;
 use std::time::Duration;
 
+/// Whether governance trips (circuit / rate / tool storm / global kill) only log
+/// or actively block upstream forwards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KillSwitchMode {
+    Observe,
+    Enforce,
+}
+
+impl KillSwitchMode {
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "observe" | "log" | "warn" => Self::Observe,
+            _ => Self::Enforce,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Observe => "observe",
+            Self::Enforce => "enforce",
+        }
+    }
+
+    pub fn enforces(self) -> bool {
+        matches!(self, Self::Enforce)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub listen_addr: String,
@@ -17,6 +45,8 @@ pub struct Config {
     pub enable_redaction: bool,
     pub enable_compression: bool,
     pub enable_shrink: bool,
+    /// Optional MiniLM paraphrase cache. Default **false** (opt-in) — exact
+    /// prompt-state cache remains the primary path.
     pub enable_vector_cache: bool,
     pub enable_pprof: bool,
     pub trust_upstream_gateway: bool,
@@ -40,6 +70,40 @@ pub struct Config {
     /// Number of identical `(tool_name, args)` calls in one conversation before
     /// the agent loop circuit breaker fires. Default: 3. Set to 0 to disable.
     pub tool_loop_threshold: u32,
+    /// Identical prompt-state (cache key) hits within the CB window before trip.
+    /// Default: 4. Set to 0 to disable. Env: `KOTRO_CIRCUIT_BREAKER_THRESHOLD`.
+    pub circuit_breaker_threshold: u32,
+    /// Sliding window for the cache-key circuit breaker (seconds). Default: 60.
+    pub circuit_breaker_window_secs: u64,
+    /// Max LLM requests per minute (global). `0` = unlimited.
+    /// Env: `KOTRO_MAX_REQUESTS_PER_MINUTE`.
+    pub max_requests_per_minute: u32,
+    /// Max assistant tool rounds in one conversation. `0` = unlimited.
+    /// Env: `KOTRO_MAX_TOOL_ROUNDS`.
+    pub max_tool_rounds: u32,
+    /// `observe` = record/log only; `enforce` = block/halt (default).
+    /// Env: `KOTRO_KILL_SWITCH_MODE`.
+    pub kill_switch_mode: KillSwitchMode,
+    /// Append-only local flight recorder. Default: true.
+    pub enable_flight_recorder: bool,
+    /// Ring-buffer capacity for flight events. Default: 200.
+    pub flight_recorder_capacity: usize,
+    /// Maximum age (seconds) of persisted flight events before pruning.
+    /// Default: 7 days. Env: `KOTRO_FLIGHT_RECORDER_MAX_AGE_SECS`.
+    pub flight_recorder_max_age_secs: u64,
+    /// Local state directory for the persistent governance store (flight
+    /// recorder db, control token, tool pins, policy). Empty = in-memory only.
+    /// Default: `$HOME/.kotro`. Env: `KOTRO_STATE_DIR`.
+    pub state_dir: String,
+    /// Token required on mutating control endpoints (`POST /api/kill-switch`,
+    /// approvals, event ingestion). When unset, a random token is generated and
+    /// stored at `<state_dir>/control.token` (0600). Env: `KOTRO_CONTROL_TOKEN`.
+    pub control_token: Option<String>,
+    /// Automatically engage the tools-scope kill switch when the session graph
+    /// detects a critical chain (lethal trifecta, credential egress) and the
+    /// kill switch mode is `enforce`. Default: `true`.
+    /// Disable with `KOTRO_CHAIN_AUTO_KILL=false`.
+    pub chain_auto_kill: bool,
     /// Scan tool-call results and user messages for prompt injection patterns.
     /// Default: `true`. Disable with `KOTRO_ENABLE_INJECTION_SCAN=false`.
     pub enable_injection_scan: bool,
@@ -103,7 +167,7 @@ impl Default for Config {
             enable_redaction: true,
             enable_compression: true,
             enable_shrink: true,
-            enable_vector_cache: true,
+            enable_vector_cache: false,
             enable_pprof: false,
             trust_upstream_gateway: false,
             trusted_proxy_cidrs: String::new(),
@@ -119,6 +183,19 @@ impl Default for Config {
             cheap_model: None,
             cheap_model_url: None,
             tool_loop_threshold: 3,
+            circuit_breaker_threshold: 4,
+            circuit_breaker_window_secs: 60,
+            max_requests_per_minute: 0,
+            max_tool_rounds: 0,
+            kill_switch_mode: KillSwitchMode::Enforce,
+            enable_flight_recorder: true,
+            flight_recorder_capacity: 200,
+            flight_recorder_max_age_secs: 7 * 24 * 3600,
+            // Empty by default so tests / embedded uses stay in-memory;
+            // Config::load() resolves $HOME/.kotro for real runs.
+            state_dir: String::new(),
+            control_token: None,
+            chain_auto_kill: true,
             enable_injection_scan: true,
             injection_block_on_detection: false,
             session_token_budget: 0,
@@ -221,6 +298,38 @@ impl Config {
             cheap_model: env_opt("KOTRO_CHEAP_MODEL"),
             cheap_model_url: env_opt("KOTRO_CHEAP_MODEL_URL"),
             tool_loop_threshold: env_u64("KOTRO_TOOL_LOOP_THRESHOLD", defaults.tool_loop_threshold as u64) as u32,
+            circuit_breaker_threshold: env_u64(
+                "KOTRO_CIRCUIT_BREAKER_THRESHOLD",
+                defaults.circuit_breaker_threshold as u64,
+            ) as u32,
+            circuit_breaker_window_secs: env_u64(
+                "KOTRO_CIRCUIT_BREAKER_WINDOW_SECS",
+                defaults.circuit_breaker_window_secs,
+            ),
+            max_requests_per_minute: env_u64(
+                "KOTRO_MAX_REQUESTS_PER_MINUTE",
+                defaults.max_requests_per_minute as u64,
+            ) as u32,
+            max_tool_rounds: env_u64("KOTRO_MAX_TOOL_ROUNDS", defaults.max_tool_rounds as u64) as u32,
+            kill_switch_mode: KillSwitchMode::parse(&env_or(
+                "KOTRO_KILL_SWITCH_MODE",
+                defaults.kill_switch_mode.as_str().into(),
+            )),
+            enable_flight_recorder: env_bool(
+                "KOTRO_ENABLE_FLIGHT_RECORDER",
+                defaults.enable_flight_recorder,
+            ),
+            flight_recorder_capacity: env_usize(
+                "KOTRO_FLIGHT_RECORDER_CAPACITY",
+                defaults.flight_recorder_capacity,
+            ),
+            flight_recorder_max_age_secs: env_u64(
+                "KOTRO_FLIGHT_RECORDER_MAX_AGE_SECS",
+                defaults.flight_recorder_max_age_secs,
+            ),
+            state_dir: env_or("KOTRO_STATE_DIR", default_state_dir()),
+            control_token: env_opt("KOTRO_CONTROL_TOKEN"),
+            chain_auto_kill: env_bool("KOTRO_CHAIN_AUTO_KILL", defaults.chain_auto_kill),
             enable_injection_scan: env_bool("KOTRO_ENABLE_INJECTION_SCAN", defaults.enable_injection_scan),
             injection_block_on_detection: env_bool("KOTRO_INJECTION_BLOCK", defaults.injection_block_on_detection),
             session_token_budget: env_u64("KOTRO_SESSION_TOKEN_BUDGET", defaults.session_token_budget),
@@ -246,6 +355,14 @@ impl Config {
 
 fn env_or(key: &str, fallback: String) -> String {
     env::var(key).unwrap_or(fallback)
+}
+
+/// `$HOME/.kotro` when a home directory exists, else `./.kotro`.
+pub fn default_state_dir() -> String {
+    match env::var("HOME") {
+        Ok(home) if !home.trim().is_empty() => format!("{home}/.kotro"),
+        _ => "./.kotro".into(),
+    }
 }
 
 fn env_opt(key: &str) -> Option<String> {

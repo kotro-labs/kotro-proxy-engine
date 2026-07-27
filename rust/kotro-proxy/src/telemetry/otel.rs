@@ -8,12 +8,22 @@
 //! its `shutdown()` method called on SIGTERM/SIGINT so buffered spans flush
 //! before the process exits.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use anyhow::Result;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{trace, Resource};
 use opentelemetry_semantic_conventions::resource;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+
+/// True once an OTLP exporter is active. Guards GenAI/MCP span emission so the
+/// hot governance path does nothing when telemetry export is off.
+static OTEL_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn otel_active() -> bool {
+    OTEL_ACTIVE.load(Ordering::Relaxed)
+}
 
 /// Initializes the tracing pipeline.
 ///
@@ -43,6 +53,7 @@ pub fn init_telemetry(otel_endpoint: Option<&str>) -> Result<Option<trace::SdkTr
             .build();
 
         global::set_tracer_provider(provider.clone());
+        OTEL_ACTIVE.store(true, Ordering::Relaxed);
         let tracer = global::tracer("kotro-proxy");
         let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 

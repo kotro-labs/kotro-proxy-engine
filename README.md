@@ -85,6 +85,8 @@ Cursor **Chat / Agent** does **not** dial your laptop. Override Base URL is invo
 
 ```bash
 git clone https://github.com/kotro-labs/kotro-proxy-engine.git && cd kotro-proxy-engine
+make demo-cache-hit    # hero: identical prompt → MISS then X-Kotro-Cache: HIT
+make agent-guard-demo  # death loop → circuit breaker + flight recorder tape
 make demo-savings      # ~68% savings story + secret redaction
 make demo-injection    # warn → HTTP 400 block + security tiles
 ```
@@ -126,10 +128,12 @@ OPENAI_BASE_URL=http://localhost:8080/v1 your-tool
 |--------|-------------|
 | **MCP prompt injection scanner** | 14 regex patterns on tool / user text. Warn-by-default; `KOTRO_INJECTION_BLOCK=true` → HTTP **400**. |
 | **Secret redaction** | API keys, DB URLs, passwords, PII stripped before the cloud; restored in the stream. |
-| **Agent loop circuit breaker** | 3+ identical tool calls → trip (`X-Kotro-Circuit-Open`). |
+| **Agent loop circuit breaker** | Identical prompt-state or tool args → trip (`X-Kotro-Circuit-Open`). Modes: `enforce` / `observe`. |
+| **Agent Flight Recorder** | Local black-box tape (prompt hashes, HITs, CB, kill-switch) on `:9090` — export JSON. |
+| **Kill switch** | Global halt via `POST /api/kill-switch` or rate / tool-round caps. |
 | **Reasoning budget controller** | Caps Anthropic `thinking.budget_tokens` / OpenAI `max_completion_tokens`. |
-| **Streaming prompt-state cache** | Exact-match SSE replay on repeated prompts (redb). |
-| **Local semantic cache** | On-device MiniLM (`candle`) for paraphrases — optional, ~26ms. |
+| **Streaming prompt-state cache** | Exact-match SSE replay on repeated prompts (redb) — primary path. |
+| **Local semantic cache** | Optional MiniLM (`KOTRO_ENABLE_VECTOR_CACHE=true`, default **off**). |
 | **MCP tool result cache** | TTL by category; writes invalidate reads. |
 | **Context compressor** | Strips unchanged MCP schemas / trees across turns. |
 | **Per-session token budget** | Hard cap → HTTP **429** + `X-Kotro-Budget-Remaining`. |

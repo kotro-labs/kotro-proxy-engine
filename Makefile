@@ -1,4 +1,4 @@
-.PHONY: build test bench mock proxy go-proxy run dev load-test cancel-audit rust-cancel-audit audit eval-suite demo-savings demo-injection update-homebrew-shas post-release-homebrew go-live package-extension sync-brand-icon clean docker-build docker-up docker-down
+.PHONY: build test bench mock proxy go-proxy run dev load-test cancel-audit rust-cancel-audit audit eval-suite demo-savings demo-injection demo-cache-hit agent-guard-demo update-homebrew-shas post-release-homebrew go-live package-extension sync-brand-icon clean docker-build docker-up docker-down
 
 build: proxy mock
 
@@ -62,6 +62,14 @@ demo-savings:
 # Leave http://127.0.0.1:9090/dashboard open for the recording / screenshot.
 demo-injection:
 	bash scripts/demo-injection.sh
+
+# Hero demo: identical prompt twice → X-Kotro-Cache MISS then HIT (<60s).
+demo-cache-hit:
+	bash scripts/demo-cache-hit.sh
+
+# Death-loop → circuit breaker + flight recorder (+ optional kill switch).
+agent-guard-demo:
+	bash scripts/demo-agent-guard.sh
 
 update-homebrew-shas:
 	bash scripts/update-homebrew-shas.sh $(VERSION)

@@ -1,6 +1,7 @@
 //! Kotro Proxy Engine — Rust Phase 2
 //!
-//! Semantic SSE cache, PII guardrail, and context compression for local LLM agents.
+//! Exact prompt-state SSE cache, optional MiniLM semantic layer, PII guardrail,
+//! agent flight recorder / kill switch, and context compression for local LLM agents.
 //! Go Phase 1 on `main` is the behavioral reference implementation.
 
 pub mod cache;
@@ -12,8 +13,16 @@ pub mod sse;
 
 pub mod budget;
 pub mod compressor;
+pub mod corpus;
+pub mod flight_recorder;
+pub mod graph;
 pub mod guardrail;
+pub mod hook;
+pub mod isolate;
+pub mod mcp;
 pub mod optimizer;
+pub mod policy;
+pub mod posture;
 pub mod proxy;
 pub mod metrics;
 pub mod dashboard_assets;

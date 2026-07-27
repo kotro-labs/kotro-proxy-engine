@@ -1,7 +1,10 @@
 #![allow(clippy::result_large_err)]
 //! Axum HTTP/2 router — mirrors `internal/server/server.go` + handlers.
 
+pub mod approvals;
 mod bridge_auth;
+pub mod control_auth;
+mod governance;
 mod handlers;
 pub mod scope;
 pub mod upstream;
@@ -18,12 +21,18 @@ use reqwest::Client;
 
 use crate::cache::{Store, StoreOptions, CacheKeyStrategy};
 use crate::compressor::StateTracker;
-use crate::config::Config;
+use crate::config::{Config, KillSwitchMode};
+use crate::flight_recorder::FlightRecorder;
+use crate::router::governance::SessionRateLimiter;
 use crate::router::scope::{parse_trusted_cidrs, ScopeResolver};
 
 use handlers::{
     handle_chat_completions, handle_healthz, handle_messages, handle_passthrough,
     handle_api_dashboard, handle_dashboard, handle_icon, handle_metrics,
+    handle_api_flight_recorder, handle_api_flight_export, handle_api_flight_verify,
+    handle_api_kill_switch, handle_api_kill_switch_status, handle_api_posture,
+    handle_api_mcp_event, handle_api_session_labels, handle_api_session_graph,
+    handle_api_approvals_check, handle_api_approvals_grant, handle_api_approvals_pending,
 };
 
 #[derive(Clone)]
@@ -77,6 +86,22 @@ pub struct AppState {
     pub bridge_token: Option<String>,
     /// Provider key injected upstream when `bridge_token` is set.
     pub upstream_api_key: Option<String>,
+    pub kill_switch_mode: KillSwitchMode,
+    pub circuit_breaker_threshold: u32,
+    pub circuit_breaker_window_secs: u64,
+    pub max_tool_rounds: u32,
+    pub request_rate: Arc<SessionRateLimiter>,
+    pub flight_recorder: Arc<FlightRecorder>,
+    /// Cross-plane session graph / lethal-trifecta correlator.
+    pub graph: Arc<crate::graph::SessionGraph>,
+    /// Short-lived approval grants for ask-class tool calls.
+    pub approvals: Arc<approvals::ApprovalStore>,
+    /// Auto-engage the tools kill switch on critical chain alerts (enforce mode).
+    pub chain_auto_kill: bool,
+    /// Token required by mutating control endpoints (kill switch, approvals).
+    pub control_token: Arc<String>,
+    /// Local governance state directory (pins, policy, control token).
+    pub state_dir: Arc<String>,
 }
 
 impl AppState {
@@ -123,8 +148,19 @@ impl AppState {
             vector_encoder: Arc::new(crate::cache::vector::SemanticEncoder::new(cfg.enable_vector_cache)),
             vector_index: Arc::new(crate::cache::vector::VectorIndex::new()),
             circuit_breaker: moka::sync::Cache::builder()
-                .time_to_live(Duration::from_secs(60))
+                .time_to_live(Duration::from_secs(cfg.circuit_breaker_window_secs.max(1)))
                 .build(),
+            kill_switch_mode: cfg.kill_switch_mode,
+            circuit_breaker_threshold: cfg.circuit_breaker_threshold,
+            circuit_breaker_window_secs: cfg.circuit_breaker_window_secs,
+            max_tool_rounds: cfg.max_tool_rounds,
+            request_rate: Arc::new(SessionRateLimiter::new(cfg.max_requests_per_minute)),
+            flight_recorder: Arc::new(open_flight_recorder(cfg)),
+            graph: Arc::new(crate::graph::SessionGraph::new()),
+            approvals: Arc::new(approvals::ApprovalStore::new()),
+            chain_auto_kill: cfg.chain_auto_kill,
+            control_token: Arc::new(resolve_control_token(cfg)),
+            state_dir: Arc::new(cfg.state_dir.clone()),
             enable_injection_scan: cfg.enable_injection_scan,
             injection_block_on_detection: cfg.injection_block_on_detection,
             budget: Arc::new(crate::budget::BudgetTracker::new(
@@ -154,6 +190,52 @@ impl AppState {
 }
 
 
+/// Open the persistent flight recorder under the configured state dir, falling
+/// back to an in-memory recorder when persistence is unavailable.
+fn open_flight_recorder(cfg: &Config) -> FlightRecorder {
+    if cfg.state_dir.trim().is_empty() {
+        return FlightRecorder::new(cfg.enable_flight_recorder, cfg.flight_recorder_capacity);
+    }
+    let path = std::path::Path::new(&cfg.state_dir).join("governance.redb");
+    match FlightRecorder::open(
+        cfg.enable_flight_recorder,
+        cfg.flight_recorder_capacity,
+        cfg.flight_recorder_max_age_secs,
+        &path,
+    ) {
+        Ok(rec) => {
+            tracing::info!(path = %path.display(), "flight recorder: persistent store open");
+            rec
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "flight recorder: persistent store failed; using in-memory");
+            FlightRecorder::new(cfg.enable_flight_recorder, cfg.flight_recorder_capacity)
+        }
+    }
+}
+
+fn resolve_control_token(cfg: &Config) -> String {
+    if let Some(token) = cfg.control_token.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        return token.to_string();
+    }
+    if !cfg.state_dir.trim().is_empty() {
+        let dir = std::path::Path::new(&cfg.state_dir);
+        match control_auth::load_or_create_control_token(dir) {
+            Ok(token) => {
+                tracing::info!(
+                    path = %dir.join(control_auth::CONTROL_TOKEN_FILE).display(),
+                    "control token loaded (required on mutating /api endpoints)"
+                );
+                return token;
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "control token file unavailable; generating ephemeral token");
+            }
+        }
+    }
+    control_auth::generate_token()
+}
+
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(handle_healthz))
@@ -168,6 +250,23 @@ pub fn create_telemetry_router(state: AppState) -> Router {
         .route("/metrics", get(handle_metrics))
         .route("/dashboard", get(handle_dashboard))
         .route("/api/dashboard", get(handle_api_dashboard))
+        .route("/api/flight-recorder", get(handle_api_flight_recorder))
+        .route("/api/flight-recorder/export", get(handle_api_flight_export))
+        .route("/api/flight-recorder/verify", get(handle_api_flight_verify))
+        .route(
+            "/api/kill-switch",
+            get(handle_api_kill_switch_status).post(handle_api_kill_switch),
+        )
+        .route("/api/posture", get(handle_api_posture))
+        .route("/api/mcp-event", post(handle_api_mcp_event))
+        .route("/api/session-labels", get(handle_api_session_labels))
+        .route("/api/session-graph", get(handle_api_session_graph))
+        .route(
+            "/api/approvals",
+            get(handle_api_approvals_check).post(handle_api_approvals_grant),
+        )
+        .route("/api/approvals/check", get(handle_api_approvals_check))
+        .route("/api/approvals/pending", get(handle_api_approvals_pending))
         .route("/favicon.ico", get(handle_icon))
         .route("/dashboard/icon.png", get(handle_icon))
         .with_state(Arc::new(state))
@@ -265,6 +364,402 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn kill_switch_requires_control_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.cache_db_path = dir.path().join("cache.db").display().to_string();
+        cfg.control_token = Some("secret-token".into());
+
+        let store = open_store(&cfg).unwrap();
+        let client = build_http_client().unwrap();
+        let state = AppState::new(&cfg, store, client, crate::metrics::MetricsRegistry::new());
+        let recorder = state.flight_recorder.clone();
+
+        let request = |token: Option<&str>| {
+            let mut builder = axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/kill-switch")
+                .header("content-type", "application/json");
+            if let Some(t) = token {
+                builder = builder.header("x-kotro-control-token", t);
+            }
+            builder
+                .body(Body::from(r#"{"engaged":true,"scope":"tools"}"#))
+                .unwrap()
+        };
+
+        // No token → 401, switch not engaged.
+        let app = create_telemetry_router(state.clone());
+        let resp = app.oneshot(request(None)).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::UNAUTHORIZED);
+        assert!(!recorder.kill_scope().engaged());
+
+        // Wrong token → 401.
+        let app = create_telemetry_router(state.clone());
+        let resp = app.oneshot(request(Some("nope"))).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::UNAUTHORIZED);
+        assert!(!recorder.kill_scope().engaged());
+
+        // Correct token → 200 and the requested scope is set.
+        let app = create_telemetry_router(state.clone());
+        let resp = app.oneshot(request(Some("secret-token"))).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        assert_eq!(recorder.kill_scope(), crate::flight_recorder::KillScope::Tools);
+
+        // Read-only status endpoint needs no token.
+        let app = create_telemetry_router(state.clone());
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/kill-switch")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["engaged"], serde_json::json!(true));
+        assert_eq!(v["scope"], serde_json::json!("tools"));
+    }
+
+    #[tokio::test]
+    async fn kill_switch_rejects_cross_origin() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.cache_db_path = dir.path().join("cache.db").display().to_string();
+        cfg.control_token = Some("secret-token".into());
+
+        let store = open_store(&cfg).unwrap();
+        let client = build_http_client().unwrap();
+        let state = AppState::new(&cfg, store, client, crate::metrics::MetricsRegistry::new());
+
+        let app = create_telemetry_router(state);
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/kill-switch")
+                    .header("content-type", "application/json")
+                    .header("x-kotro-control-token", "secret-token")
+                    .header("origin", "https://evil.example")
+                    .body(Body::from(r#"{"engaged":true}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn kill_switch_state_survives_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.cache_db_path = dir.path().join("cache.db").display().to_string();
+        cfg.state_dir = dir.path().join("state").display().to_string();
+        cfg.control_token = Some("secret-token".into());
+
+        {
+            let store = open_store(&cfg).unwrap();
+            let client = build_http_client().unwrap();
+            let state =
+                AppState::new(&cfg, store, client, crate::metrics::MetricsRegistry::new());
+            assert!(state.flight_recorder.persistent());
+            state
+                .flight_recorder
+                .set_kill_scope(crate::flight_recorder::KillScope::All);
+        }
+        // Fresh AppState over the same state dir simulates a proxy restart.
+        let mut cfg2 = cfg.clone();
+        cfg2.cache_db_path = dir.path().join("cache2.db").display().to_string();
+        let store = open_store(&cfg2).unwrap();
+        let client = build_http_client().unwrap();
+        let state = AppState::new(&cfg2, store, client, crate::metrics::MetricsRegistry::new());
+        assert_eq!(
+            state.flight_recorder.kill_scope(),
+            crate::flight_recorder::KillScope::All
+        );
+    }
+
+    #[tokio::test]
+    async fn observe_mode_records_but_does_not_block() {
+        use crate::models::unified::{UnifiedMessage, UnifiedRequest};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.cache_db_path = dir.path().join("cache.db").display().to_string();
+        cfg.kill_switch_mode = crate::config::KillSwitchMode::Observe;
+
+        let store = open_store(&cfg).unwrap();
+        let client = build_http_client().unwrap();
+        let state = AppState::new(&cfg, store, client, crate::metrics::MetricsRegistry::new());
+        state
+            .flight_recorder
+            .set_kill_scope(crate::flight_recorder::KillScope::All);
+
+        let unified = UnifiedRequest {
+            model: "gpt-4o".into(),
+            system_prompt: "sys".into(),
+            messages: vec![UnifiedMessage {
+                role: "user".into(),
+                content: serde_json::json!("hello"),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            stream: true,
+            max_tokens: None,
+        };
+
+        // Observe mode: kill switch engaged → event recorded, request continues.
+        let blocked = governance::check_early_governance(
+            &state,
+            &unified,
+            "openai",
+            "/v1/chat/completions",
+            true,
+            "sess-observe",
+            std::time::Instant::now(),
+        );
+        assert!(blocked.is_none(), "observe mode must not block");
+        let events = state.flight_recorder.snapshot(10);
+        assert!(events
+            .iter()
+            .any(|e| matches!(e.kind, crate::flight_recorder::FlightKind::KillSwitch)));
+        assert!(!events[0].enforced);
+    }
+
+    #[tokio::test]
+    async fn enforce_mode_blocks_and_terminates_sse_correctly() {
+        // OpenAI-style streaming block must end with [DONE]; Anthropic-style
+        // with message_stop — otherwise clients hang waiting for more frames.
+        let resp =
+            governance::governance_block_response(true, true, "KILL SWITCH", "halted", true);
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            resp.headers().get("x-kotro-circuit-open").unwrap(),
+            "true"
+        );
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("data: [DONE]"), "openai SSE must terminate: {text}");
+
+        let resp =
+            governance::governance_block_response(true, false, "KILL SWITCH", "halted", false);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("message_stop"), "anthropic SSE must terminate: {text}");
+
+        // Non-streaming block is a problem+json 429.
+        let resp =
+            governance::governance_block_response(false, true, "RATE LIMIT", "too fast", false);
+        assert_eq!(resp.status(), axum::http::StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn flight_verify_endpoint_reports_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.cache_db_path = dir.path().join("cache.db").display().to_string();
+        cfg.state_dir = dir.path().join("state").display().to_string();
+
+        let store = open_store(&cfg).unwrap();
+        let client = build_http_client().unwrap();
+        let state = AppState::new(&cfg, store, client, crate::metrics::MetricsRegistry::new());
+        state.flight_recorder.record(crate::flight_recorder::FlightDraft {
+            detail: "test".into(),
+            ..Default::default()
+        });
+
+        let app = create_telemetry_router(state);
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/flight-recorder/verify")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["ok"], serde_json::json!(true));
+    }
+
+    #[tokio::test]
+    async fn mcp_event_ingestion_requires_token_and_trifecta_auto_kills() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.cache_db_path = dir.path().join("cache.db").display().to_string();
+        cfg.control_token = Some("secret-token".into());
+        // Defaults: kill_switch_mode = Enforce, chain_auto_kill = true.
+
+        let store = open_store(&cfg).unwrap();
+        let client = build_http_client().unwrap();
+        let state = AppState::new(&cfg, store, client, crate::metrics::MetricsRegistry::new());
+
+        let event = |provenance: &str| {
+            format!(
+                r#"{{"plane":"mcp","kind":"tool_call","session":"s-trifecta","tool_name":"t","provenance":"{provenance}"}}"#
+            )
+        };
+        let post = |body: String, token: Option<&str>| {
+            let mut builder = axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/mcp-event")
+                .header("content-type", "application/json");
+            if let Some(t) = token {
+                builder = builder.header("x-kotro-control-token", t);
+            }
+            builder.body(Body::from(body)).unwrap()
+        };
+
+        // Unauthenticated ingestion is rejected.
+        let app = create_telemetry_router(state.clone());
+        let resp = app.oneshot(post(event("untrusted_web"), None)).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::UNAUTHORIZED);
+
+        // Stage 1: untrusted content. Stage 2: sensitive read. No kill yet.
+        for prov in ["untrusted_web", "sensitive_read"] {
+            let app = create_telemetry_router(state.clone());
+            let resp = app
+                .oneshot(post(event(prov), Some("secret-token")))
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        }
+        assert!(!state.flight_recorder.kill_scope().halts_tools());
+
+        // Policy labels now export sensitive_read (untrusted is present).
+        let app = create_telemetry_router(state.clone());
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/session-labels?session=s-trifecta")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(v["labels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|l| l == "sensitive_read"));
+
+        // Stage 3: network egress completes the lethal trifecta →
+        // chain alert recorded + tools kill switch auto-engaged.
+        let app = create_telemetry_router(state.clone());
+        let resp = app
+            .oneshot(post(event("network_egress"), Some("secret-token")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        assert!(state.flight_recorder.kill_scope().halts_tools());
+        let events = state.flight_recorder.snapshot(20);
+        assert!(events
+            .iter()
+            .any(|e| matches!(e.kind, crate::flight_recorder::FlightKind::ChainAlert)
+                && e.route == "lethal-trifecta"));
+
+        // Session graph endpoint shows the timeline and labels.
+        let app = create_telemetry_router(state.clone());
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/session-graph?session=s-trifecta")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(v["events"].as_array().unwrap().len() >= 3);
+        assert!(!v["evidence_trail"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn approvals_grant_and_check_flow() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.cache_db_path = dir.path().join("cache.db").display().to_string();
+        cfg.control_token = Some("secret-token".into());
+
+        let store = open_store(&cfg).unwrap();
+        let client = build_http_client().unwrap();
+        let state = AppState::new(&cfg, store, client, crate::metrics::MetricsRegistry::new());
+
+        let grant_body = r#"{"server":"files","tool":"delete_file","args_hash":"abc123","ttl_secs":60}"#;
+
+        // Grant without token → 401 and no grant stored.
+        let app = create_telemetry_router(state.clone());
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/approvals")
+                    .header("content-type", "application/json")
+                    .body(Body::from(grant_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::UNAUTHORIZED);
+        assert!(state.approvals.is_empty());
+
+        // Authenticated grant succeeds.
+        let app = create_telemetry_router(state.clone());
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/approvals")
+                    .header("content-type", "application/json")
+                    .header("x-kotro-control-token", "secret-token")
+                    .body(Body::from(grant_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+
+        // Check endpoint (no token needed) sees the grant…
+        let check = |uri: &str| {
+            axum::http::Request::builder()
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap()
+        };
+        let app = create_telemetry_router(state.clone());
+        let resp = app
+            .oneshot(check(
+                "/api/approvals/check?server=files&tool=delete_file&args_hash=abc123&session=s1",
+            ))
+            .await
+            .unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["granted"], serde_json::json!(true));
+
+        // …but not for a different argument shape.
+        let app = create_telemetry_router(state.clone());
+        let resp = app
+            .oneshot(check(
+                "/api/approvals/check?server=files&tool=delete_file&args_hash=other&session=s1",
+            ))
+            .await
+            .unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["granted"], serde_json::json!(false));
     }
 
     #[tokio::test]

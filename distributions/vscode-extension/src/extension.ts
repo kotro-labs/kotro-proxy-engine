@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { ProxyStatusBar } from './status-bar';
 import { addrForEnv, listenBaseUrl } from './listen-url';
 import { verifyCache } from './verify-cache';
@@ -11,6 +12,36 @@ import { runSetupWizard } from './setup-wizard';
 let sidecarProcess: ChildProcess | null = null;
 let statusBar: ProxyStatusBar | null = null;
 const output = vscode.window.createOutputChannel('Kotro Proxy Engine');
+
+/**
+ * Mutating control endpoints (kill switch, approvals) require the local
+ * control token, which the proxy writes to `<state dir>/control.token`.
+ */
+function readControlToken(): string | null {
+  const stateDir = process.env.KOTRO_STATE_DIR || path.join(os.homedir(), '.kotro');
+  try {
+    const token = fs.readFileSync(path.join(stateDir, 'control.token'), 'utf8').trim();
+    return token.length > 0 ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Metrics/control API base URL from the configured metrics address. */
+function controlApiBase(metricsAddr: string): string {
+  const addr = metricsAddr || '127.0.0.1:9090';
+  const host = addr.startsWith(':') ? `127.0.0.1${addr}` : addr;
+  return `http://${host}`;
+}
+
+interface PendingApproval {
+  server: string;
+  tool: string;
+  args_hash: string;
+  session: string;
+  reason: string;
+  at: string;
+}
 
 function extensionConfig() {
   const cfg = vscode.workspace.getConfiguration('kotrolabs');
@@ -29,7 +60,7 @@ function extensionConfig() {
     fallbackUrl: cfg.get<string>('fallbackUrl', ''),
     fallbackModel: cfg.get<string>('fallbackModel', ''),
     enableMetrics: cfg.get<boolean>('enableMetrics', true),
-    enableVectorCache: cfg.get<boolean>('enableVectorCache', true),
+    enableVectorCache: cfg.get<boolean>('enableVectorCache', false),
     enableInjectionScan: cfg.get<boolean>('enableInjectionScan', true),
     injectionBlock: cfg.get<boolean>('injectionBlock', false),
   };
@@ -74,12 +105,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       output.appendLine(result.detail);
 
-      if (result.ok) {
+        if (result.ok) {
         const pick = await vscode.window.showInformationMessage(
           `Kotro cache verified: ${result.detail}`,
+          'Open Flight Recorder',
           'Open Dashboard',
         );
-        if (pick === 'Open Dashboard') {
+        if (pick === 'Open Flight Recorder') {
+          void vscode.commands.executeCommand('kotrolabs.openFlightRecorder');
+        } else if (pick === 'Open Dashboard') {
           void vscode.commands.executeCommand('kotrolabs.openDashboard');
         }
         statusBar?.markRunning();
@@ -132,6 +166,202 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kotro.setupContinue', async () => {
       // Thin alias — full consent flow lives in Setup Wizard.
       await runSetupWizard(output);
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('kotrolabs.openFlightRecorder', () => {
+      const base = statusBar?.getDashboardUrl() ?? 'http://127.0.0.1:9090/dashboard';
+      const url = base.includes('#') ? base : `${base}#flight-recorder`;
+      void vscode.env.openExternal(vscode.Uri.parse(url));
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('kotrolabs.toggleKillSwitch', async () => {
+      const metricsAddr = settings.metricsAddr || '127.0.0.1:9090';
+      const host = metricsAddr.startsWith(':') ? `127.0.0.1${metricsAddr}` : metricsAddr;
+      const api = `http://${host}`;
+      try {
+        const cur = await fetch(`${api}/api/flight-recorder`);
+        const data = (await cur.json()) as { kill_switch_engaged?: boolean };
+        const next = !data.kill_switch_engaged;
+        const token = readControlToken();
+        if (!token) {
+          void vscode.window.showErrorMessage(
+            'Kotro control token not found (~/.kotro/control.token). Start the proxy once to generate it.',
+          );
+          return;
+        }
+        const resp = await fetch(`${api}/api/kill-switch`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-kotro-control-token': token,
+          },
+          body: JSON.stringify({ engaged: next, scope: 'all' }),
+        });
+        if (!resp.ok) {
+          throw new Error(`control API returned ${resp.status}`);
+        }
+        void vscode.window.showInformationMessage(
+          next
+            ? 'Kotro kill switch ENGAGED — upstream LLM forwards halted.'
+            : 'Kotro kill switch cleared — traffic allowed again.',
+        );
+        statusBar?.markRunning();
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Kill switch failed (is the proxy running?): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('kotrolabs.reviewApprovals', async () => {
+      const api = controlApiBase(settings.metricsAddr);
+      let pending: PendingApproval[] = [];
+      try {
+        const resp = await fetch(`${api}/api/approvals/pending`);
+        if (!resp.ok) throw new Error(`control API returned ${resp.status}`);
+        pending = ((await resp.json()) as { pending?: PendingApproval[] }).pending ?? [];
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Could not fetch pending approvals (is the proxy running?): ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
+      }
+      if (pending.length === 0) {
+        void vscode.window.showInformationMessage('Kotro: no tool actions are waiting for approval.');
+        return;
+      }
+      const picks = pending.map((p) => ({
+        label: `$(shield) ${p.tool}`,
+        description: `${p.server} · ${p.session}`,
+        detail: p.reason,
+        approval: p,
+      }));
+      const chosen = await vscode.window.showQuickPick(picks, {
+        title: 'Kotro — pending tool approvals',
+        placeHolder: 'Select a blocked action to approve (deny = leave it pending)',
+        matchOnDetail: true,
+      });
+      if (!chosen) return;
+
+      const ttlPick = await vscode.window.showQuickPick(
+        [
+          { label: 'Approve for 5 minutes', ttl: 300 },
+          { label: 'Approve for 30 minutes', ttl: 1800 },
+          { label: 'Approve for 1 hour', ttl: 3600 },
+        ],
+        { title: `Approve ${chosen.approval.tool}?`, placeHolder: 'Grant duration' },
+      );
+      if (!ttlPick) return;
+
+      const token = readControlToken();
+      if (!token) {
+        void vscode.window.showErrorMessage(
+          'Kotro control token not found (~/.kotro/control.token). Start the proxy once to generate it.',
+        );
+        return;
+      }
+      try {
+        const resp = await fetch(`${api}/api/approvals`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-kotro-control-token': token },
+          body: JSON.stringify({
+            server: chosen.approval.server,
+            tool: chosen.approval.tool,
+            args_hash: chosen.approval.args_hash,
+            session: chosen.approval.session,
+            ttl_secs: ttlPick.ttl,
+          }),
+        });
+        if (!resp.ok) throw new Error(`control API returned ${resp.status}`);
+        void vscode.window.showInformationMessage(
+          `Kotro approved '${chosen.approval.tool}' for ${ttlPick.ttl / 60} min. Re-run the action.`,
+        );
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Approval failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('kotrolabs.showIncidents', async () => {
+      const api = controlApiBase(settings.metricsAddr);
+      interface SessionRow { session: string; events: number; chain_alerts: number; labels: string[]; }
+      let sessions: SessionRow[] = [];
+      try {
+        const resp = await fetch(`${api}/api/session-graph`);
+        if (!resp.ok) throw new Error(`control API returned ${resp.status}`);
+        sessions = ((await resp.json()) as { sessions?: SessionRow[] }).sessions ?? [];
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Could not fetch session graph (is the proxy running?): ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
+      }
+      const flagged = sessions.filter((s) => s.chain_alerts > 0);
+      if (flagged.length === 0) {
+        void vscode.window.showInformationMessage('Kotro: no cross-plane incidents detected.');
+        return;
+      }
+      const chosen = await vscode.window.showQuickPick(
+        flagged.map((s) => ({
+          label: `$(alert) ${s.session}`,
+          description: `${s.chain_alerts} chain alert(s) · ${s.events} events`,
+          detail: s.labels.join(', '),
+          session: s.session,
+        })),
+        { title: 'Kotro — cross-plane incidents', placeHolder: 'Open a flagged session' },
+      );
+      if (!chosen) return;
+
+      let detail = '';
+      try {
+        const resp = await fetch(`${api}/api/session-graph?session=${encodeURIComponent(chosen.session)}`);
+        const g = (await resp.json()) as { events?: Array<{ kind: string; detail: string }> };
+        detail = (g.events ?? [])
+          .filter((e) => e.kind === 'chain_alert')
+          .map((e) => `• ${e.detail}`)
+          .join('\n');
+      } catch {
+        // fall through to actions with empty detail
+      }
+      const pick = await vscode.window.showWarningMessage(
+        `Kotro incident in ${chosen.session}:\n${detail || 'chain alert recorded'}`,
+        { modal: true },
+        'Engage Tools Kill Switch',
+        'Export Incident Bundle',
+      );
+      if (pick === 'Engage Tools Kill Switch') {
+        const token = readControlToken();
+        if (!token) {
+          void vscode.window.showErrorMessage('Kotro control token not found (~/.kotro/control.token).');
+          return;
+        }
+        try {
+          const resp = await fetch(`${api}/api/kill-switch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-kotro-control-token': token },
+            body: JSON.stringify({ engaged: true, scope: 'tools' }),
+          });
+          if (!resp.ok) throw new Error(`control API returned ${resp.status}`);
+          void vscode.window.showInformationMessage('Kotro tools kill switch ENGAGED.');
+        } catch (err) {
+          void vscode.window.showErrorMessage(
+            `Kill switch failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      } else if (pick === 'Export Incident Bundle') {
+        void vscode.env.openExternal(
+          vscode.Uri.parse(`${api}/api/flight-recorder/export?session=${encodeURIComponent(chosen.session)}`),
+        );
+      }
     }),
   );
 

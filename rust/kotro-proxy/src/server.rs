@@ -63,7 +63,7 @@ impl Server {
 
         if self.cfg.enable_metrics {
             if let Some(telemetry_router) = self.telemetry_router.take() {
-            let metrics_addr = normalize_listen_addr(&self.cfg.metrics_addr);
+            let metrics_addr = resolve_control_addr(&self.cfg.metrics_addr);
             let metrics_listener = tokio::net::TcpListener::bind(&metrics_addr).await?;
             let metrics_local = metrics_listener.local_addr()?;
 
@@ -133,6 +133,42 @@ fn normalize_listen_addr(addr: &str) -> SocketAddr {
     addr.parse().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8080)))
 }
 
+/// Resolve the control/telemetry listener address with **strict loopback
+/// binding**.
+///
+/// This listener carries the control API (kill switch, approvals, action-plane
+/// event ingestion) alongside read-only metrics. A bare `:9090` would otherwise
+/// normalize to `0.0.0.0` and publish those endpoints to the LAN, so any
+/// non-loopback address is coerced back to loopback.
+///
+/// `KOTRO_ALLOW_REMOTE_CONTROL=true` is a deliberate, loudly-warned escape
+/// hatch for users who front the listener with their own authenticated tunnel.
+fn resolve_control_addr(addr: &str) -> SocketAddr {
+    let resolved = normalize_listen_addr(addr);
+    if resolved.ip().is_loopback() {
+        return resolved;
+    }
+    let allow_remote = std::env::var("KOTRO_ALLOW_REMOTE_CONTROL")
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    if allow_remote {
+        tracing::warn!(
+            requested = %resolved,
+            "KOTRO_ALLOW_REMOTE_CONTROL is set — the control API (kill switch, approvals, \
+             event ingestion) is reachable off-host. Ensure an authenticated tunnel fronts it."
+        );
+        return resolved;
+    }
+    let coerced = SocketAddr::from(([127, 0, 0, 1], resolved.port()));
+    tracing::warn!(
+        requested = %resolved,
+        bound = %coerced,
+        "control API refused a non-loopback bind; coerced to loopback. \
+         Set KOTRO_ALLOW_REMOTE_CONTROL=true to override."
+    );
+    coerced
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()
@@ -167,5 +203,24 @@ mod tests {
     fn normalizes_bare_port() {
         let addr = normalize_listen_addr(":8080");
         assert_eq!(addr.port(), 8080);
+    }
+
+    #[test]
+    fn control_addr_coerces_non_loopback_to_loopback() {
+        // A bare port would normalize to 0.0.0.0 and expose the control API.
+        let addr = resolve_control_addr(":9090");
+        assert!(addr.ip().is_loopback(), "got {addr}");
+        assert_eq!(addr.port(), 9090);
+
+        // An explicit external bind is also refused.
+        let addr = resolve_control_addr("0.0.0.0:9191");
+        assert!(addr.ip().is_loopback(), "got {addr}");
+        assert_eq!(addr.port(), 9191);
+    }
+
+    #[test]
+    fn control_addr_preserves_explicit_loopback() {
+        let addr = resolve_control_addr("127.0.0.1:9090");
+        assert_eq!(addr.to_string(), "127.0.0.1:9090");
     }
 }

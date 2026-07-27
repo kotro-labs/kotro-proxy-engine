@@ -14,8 +14,10 @@
 //!
 //! ## Scanned roles
 //!
-//! Only `"tool"` and `"user"` messages are scanned. `"assistant"` and
-//! `"system"` are operator-controlled and trusted.
+//! `"tool"`, `"function"` (legacy), and `"user"` are scanned. `"assistant"` is
+//! not (model output). `"system"` is not scanned by default (operator prompts
+//! often contain defensive wording like “ignore jailbreak attempts”).
+
 //!
 //! ## Pattern categories
 //!
@@ -132,13 +134,13 @@ pub fn scan_text(text: &str, role: &str) -> Option<InjectionFinding> {
 
 /// Scan a slice of [`UnifiedMessage`] values for injection patterns.
 ///
-/// Only messages with `role == "tool"` or `role == "user"` are scanned.
+/// Roles scanned: `tool`, `function` (legacy OpenAI), `user`.
 ///
 /// Returns the first [`InjectionFinding`] encountered, or `None`.
 pub fn scan_messages(messages: &[UnifiedMessage]) -> Option<InjectionFinding> {
     for msg in messages {
         let role = msg.role.as_str();
-        if role != "tool" && role != "user" {
+        if role != "tool" && role != "function" && role != "user" {
             continue;
         }
         let text = content_text(&msg.content);
