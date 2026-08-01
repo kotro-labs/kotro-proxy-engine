@@ -1,0 +1,100 @@
+name: Escape Lab
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "rust/**"
+      - "testdata/escape-lab/**"
+      - "scripts/escape-lab.py"
+      - ".github/workflows/escape-lab.yml"
+  pull_request:
+    paths:
+      - "rust/**"
+      - "testdata/escape-lab/**"
+      - "scripts/escape-lab.py"
+      - ".github/workflows/escape-lab.yml"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Cheap gate: corpus structure only. Runs in seconds, no build required, so a
+  # malformed scenario fails before anyone waits on a release build.
+  validate-corpus:
+    name: Validate scenario corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate corpus
+        run: python3 scripts/escape-lab.py --validate
+
+  run-matrix:
+    name: Run scenarios against proxy
+    runs-on: ubuntu-latest
+    needs: validate-corpus
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build proxy and mock upstream
+        run: |
+          cd rust && cargo build --release -p kotro-proxy
+          cd .. && go build -o bin/mock-upstream ./cmd/mockupstream
+
+      - name: Start stack
+        env:
+          KOTRO_CONTROL_TOKEN: escape-lab-ci-token
+        run: |
+          ./bin/mock-upstream &
+          sleep 1
+          RUST_LOG=info \
+          KOTRO_LISTEN_ADDR=127.0.0.1:8080 \
+          KOTRO_UPSTREAM_URL=http://127.0.0.1:9000 \
+          KOTRO_CACHE_DB=/tmp/escape-lab-cache.db \
+          KOTRO_ENABLE_METRICS=true \
+          KOTRO_METRICS_ADDR=127.0.0.1:9090 \
+          KOTRO_ENABLE_INJECTION_SCAN=true \
+          KOTRO_CONTROL_TOKEN=escape-lab-ci-token \
+            ./rust/target/release/kotro-proxy > /tmp/kotro-proxy.log 2>&1 &
+          for _ in $(seq 1 50); do
+            curl -sf http://127.0.0.1:8080/healthz >/dev/null && break
+            sleep 0.2
+          done
+          curl -sf http://127.0.0.1:8080/healthz || { cat /tmp/kotro-proxy.log; exit 1; }
+
+      - name: Run Escape Lab
+        env:
+          KOTRO_CONTROL_TOKEN: escape-lab-ci-token
+        run: |
+          python3 scripts/escape-lab.py \
+            --target http://127.0.0.1:8080 \
+            --out /tmp/escape-lab-results.json \
+            --markdown /tmp/ESCAPE-LAB-MATRIX.md
+
+      - name: Show proxy log on failure
+        if: failure()
+        run: tail -100 /tmp/kotro-proxy.log
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: escape-lab-results
+          path: |
+            /tmp/escape-lab-results.json
+            /tmp/ESCAPE-LAB-MATRIX.md
+          if-no-files-found: warn

@@ -1,0 +1,71 @@
+# Escape Lab
+
+A reproducible corpus of agent-security scenarios, and a runner that measures what
+Kotro actually does about each one.
+
+The point is not to show Kotro winning. Several scenarios are declared `none` —
+no coverage today — with a stated reason and the phase that addresses them. The
+run is green when a known gap behaves like a known gap. That makes this a
+regression gate rather than a scorecard.
+
+## Running it
+
+```bash
+# Structure only. No proxy needed, runs in seconds.
+python3 scripts/escape-lab.py --validate
+
+# Against a live proxy.
+python3 scripts/escape-lab.py \
+  --target http://127.0.0.1:8080 \
+  --control-token "$KOTRO_CONTROL_TOKEN" \
+  --out results.json \
+  --markdown docs/security/ESCAPE-LAB-MATRIX.md
+```
+
+Exit codes: `0` all scenarios matched their declaration, `1` divergence or invalid
+corpus, `2` no proxy reachable at `--target`.
+
+Without a control token the flight recorder is unreadable, so evidence columns
+report as unverified and outcomes are derived from status and headers alone. Pass
+the token for a complete run.
+
+## Outcome vocabulary
+
+| Outcome | Meaning |
+|---|---|
+| `prevent` | Blocked before the effect occurred |
+| `detect` | Allowed through, but flagged with evidence on the tape |
+| `observe` | Surfaced by a reporting endpoint, no security verdict |
+| `none` | No coverage today — a tracked gap with a stated reason |
+
+A generic `request` or `cache_*` flight event is deliberately **not** counted as
+coverage. Logging that something happened is not the same as governing it, and
+counting it would make the matrix flatter to Kotro than the truth.
+
+## Divergence is a failure in both directions
+
+The runner fails when observed behaviour differs from the declaration either way.
+A regression is obvious. An *improvement* also fails, on purpose: if a scenario
+declared `none` starts being prevented, someone should update the corpus
+deliberately and say so in the commit, rather than letting the matrix drift
+upward unnoticed.
+
+## Adding a scenario
+
+1. Append to `scenarios.json` with the next free `EL-NN`. IDs are stable and are
+   never reused or renumbered — published results reference them.
+2. Declare the outcome you expect **today**, not the one you want.
+3. If that outcome is `none`, `gap_reason` is required and must name either the
+   compensating control or the phase that closes the gap.
+4. Run `--validate`, then a live run.
+
+`scenario.schema.json` is the normative shape. The runner additionally enforces
+unique IDs and the `gap_reason` rule, which a generic JSON Schema validator
+cannot express.
+
+## Scope
+
+Scenarios exercise the HTTP path Kotro sits on: the model plane and the MCP
+action plane. An agent that shells out, opens a raw socket, or otherwise reaches
+the network without transiting the proxy is outside what this corpus can
+measure — see EL-09 and `docs/security/THREAT-MODEL.md`.
