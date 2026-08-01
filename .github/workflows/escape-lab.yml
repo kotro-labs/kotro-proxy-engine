@@ -34,9 +34,23 @@ jobs:
         run: python3 scripts/escape-lab.py --validate
 
   run-matrix:
-    name: Run scenarios against proxy
+    name: ${{ matrix.group }}
     runs-on: ubuntu-latest
     needs: validate-corpus
+    strategy:
+      fail-fast: false
+      matrix:
+        # One job per env group. Injection warn and block are mutually exclusive
+        # proxy configs, so they cannot be exercised in a single process.
+        include:
+          - group: default
+            env_flags: ""
+          - group: injection-warn
+            env_flags: "KOTRO_INJECTION_BLOCK=false"
+          - group: injection-block
+            env_flags: "KOTRO_INJECTION_BLOCK=true"
+          - group: budget
+            env_flags: "KOTRO_SESSION_TOKEN_BUDGET=200 KOTRO_BUDGET_BLOCK=true"
     steps:
       - uses: actions/checkout@v4
 
@@ -58,9 +72,11 @@ jobs:
       - name: Start stack
         env:
           KOTRO_CONTROL_TOKEN: escape-lab-ci-token
+          ENV_FLAGS: ${{ matrix.env_flags }}
         run: |
           ./bin/mock-upstream &
           sleep 1
+          env $ENV_FLAGS \
           RUST_LOG=info \
           KOTRO_LISTEN_ADDR=127.0.0.1:8080 \
           KOTRO_UPSTREAM_URL=http://127.0.0.1:9000 \
@@ -68,6 +84,7 @@ jobs:
           KOTRO_ENABLE_METRICS=true \
           KOTRO_METRICS_ADDR=127.0.0.1:9090 \
           KOTRO_ENABLE_INJECTION_SCAN=true \
+          KOTRO_ENABLE_REDACTION=true \
           KOTRO_CONTROL_TOKEN=escape-lab-ci-token \
             ./rust/target/release/kotro-proxy > /tmp/kotro-proxy.log 2>&1 &
           for _ in $(seq 1 50); do
@@ -82,8 +99,9 @@ jobs:
         run: |
           python3 scripts/escape-lab.py \
             --target http://127.0.0.1:8080 \
-            --out /tmp/escape-lab-results.json \
-            --markdown /tmp/ESCAPE-LAB-MATRIX.md
+            --env-group "${{ matrix.group }}" \
+            --out "/tmp/escape-lab-${{ matrix.group }}.json" \
+            --markdown "/tmp/ESCAPE-LAB-${{ matrix.group }}.md"
 
       - name: Show proxy log on failure
         if: failure()
@@ -93,8 +111,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: escape-lab-results
+          name: escape-lab-${{ matrix.group }}
           path: |
-            /tmp/escape-lab-results.json
-            /tmp/ESCAPE-LAB-MATRIX.md
+            /tmp/escape-lab-${{ matrix.group }}.json
+            /tmp/ESCAPE-LAB-${{ matrix.group }}.md
           if-no-files-found: warn

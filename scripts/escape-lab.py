@@ -130,14 +130,29 @@ def validate_corpus(scenarios: list[dict[str, Any]]) -> list[str]:
                 f"control or the phase that addresses it"
             )
 
+        if sc.get("harness", "http") not in ("http", "cli"):
+            errors.append(f"{where}: harness must be 'http' or 'cli'")
+
         steps = sc.get("attack", {}).get("steps", [])
         if not steps:
             errors.append(f"{where}: attack.steps must contain at least one step")
-        for sidx, step in enumerate(steps):
-            if "method" not in step or "path" not in step:
-                errors.append(f"{where} step {sidx}: method and path are required")
-            if step.get("repeat", 1) < 1:
-                errors.append(f"{where} step {sidx}: repeat must be >= 1")
+
+        for phase in ("setup", "attack", "teardown"):
+            phase_steps = steps if phase == "attack" else (sc.get(phase) or [])
+            for sidx, step in enumerate(phase_steps):
+                if "method" not in step or "path" not in step:
+                    errors.append(f"{where} {phase}[{sidx}]: method and path are required")
+                if step.get("repeat", 1) < 1:
+                    errors.append(f"{where} {phase}[{sidx}]: repeat must be >= 1")
+
+        # Setup mutates proxy state that outlives the scenario. Without teardown
+        # the corpus becomes order-dependent, which would make failures
+        # reproduce only in the order CI happened to run them.
+        if sc.get("setup") and not sc.get("teardown"):
+            errors.append(
+                f"{where}: setup without teardown — persistent state would leak into "
+                f"later scenarios and make results order-dependent"
+            )
 
     return errors
 
@@ -253,18 +268,47 @@ def match_tape_event(
 # ── run ──────────────────────────────────────────────────────────────────────
 
 
+def run_steps(
+    steps: list[dict[str, Any]], base: str, token: str | None, timeout: float
+) -> tuple[int, dict[str, str], str]:
+    """Execute steps sequentially, returning the final response.
+
+    The control token is attached to every step that omits it. Setup and
+    teardown steps target authenticated control endpoints; attack steps are
+    unaffected because they carry their own headers.
+    """
+    status, headers, body = 0, {}, ""
+    for step in steps:
+        if token:
+            step = dict(step)
+            step["headers"] = {"x-kotro-control-token": token, **(step.get("headers") or {})}
+        for _ in range(step.get("repeat", 1)):
+            status, headers, body = http_call(base, step, timeout)
+    return status, headers, body
+
+
 def run_scenario(
     scenario: dict[str, Any], base: str, token: str | None, timeout: float
 ) -> dict[str, Any]:
+    setup_failed = ""
+    if scenario.get("setup"):
+        st, _, sb = run_steps(scenario["setup"], base, token, timeout)
+        if st not in (200, 202, 204):
+            setup_failed = f"setup returned {st}: {sb[:100]}"
+
     before = fetch_tape(base, token, timeout)
     since_seq = max((int(e.get("seq", 0)) for e in before), default=0)
 
     started = time.perf_counter()
-    status, headers, body = 0, {}, ""
-    for step in scenario["attack"]["steps"]:
-        for _ in range(step.get("repeat", 1)):
-            status, headers, body = http_call(base, step, timeout)
-    latency_ms = round((time.perf_counter() - started) * 1000, 1)
+    try:
+        status, headers, body = run_steps(scenario["attack"]["steps"], base, token, timeout)
+    finally:
+        latency_ms = round((time.perf_counter() - started) * 1000, 1)
+        # Teardown always runs. Setup mutates persistent proxy state (the kill
+        # switch survives the request that engaged it), so skipping teardown on
+        # failure would silently poison every scenario that follows.
+        if scenario.get("teardown"):
+            run_steps(scenario["teardown"], base, token, timeout)
 
     after = fetch_tape(base, token, timeout)
     tape_reachable = bool(after) or bool(before)
@@ -274,6 +318,8 @@ def run_scenario(
     expected = scenario["expect"]["outcome"]
 
     detail: list[str] = []
+    if setup_failed:
+        detail.append(setup_failed)
     for marker in scenario["expect"].get("body_contains", []):
         if marker.lower() not in body.lower():
             detail.append(f"body missing {marker!r}")
@@ -313,13 +359,11 @@ def run_scenario(
 # ── reporting ────────────────────────────────────────────────────────────────
 
 
-SYMBOL = {"prevent": "prevent", "detect": "detect", "observe": "observe", "none": "none"}
-
-
 def render_markdown(results: list[dict[str, Any]], target: str) -> str:
-    total = len(results)
-    passed = sum(1 for r in results if r["pass"])
-    covered = sum(1 for r in results if r["observed"] in ("prevent", "detect"))
+    measured = [r for r in results if not r.get("skipped")]
+    total = len(measured)
+    passed = sum(1 for r in measured if r["pass"])
+    covered = sum(1 for r in measured if r["observed"] in ("prevent", "detect"))
 
     lines = [
         "# Kotro Escape Lab — coverage matrix",
@@ -337,13 +381,24 @@ def render_markdown(results: list[dict[str, Any]], target: str) -> str:
     ]
     for r in results:
         ev = r["evidence"]
-        evidence = (
-            f"`{ev['event_kind']}`" if ev.get("event_kind") else "—"
-        )
+        evidence = f"`{ev['event_kind']}`" if ev.get("event_kind") else "—"
+        if r.get("skipped"):
+            lines.append(
+                f"| {r['id']} | {r['name']} | {r['category']} | {r['severity']} | "
+                f"_not measured here_ | — | — |"
+            )
+            continue
         lines.append(
             f"| {r['id']} | {r['name']} | {r['category']} | {r['severity']} | "
-            f"**{SYMBOL[r['observed']]}** | {r['latency_ms']} ms | {evidence} |"
+            f"**{r['observed']}** | {r['latency_ms']} ms | {evidence} |"
         )
+
+    skipped = [r for r in results if r.get("skipped")]
+    if skipped:
+        lines += ["", "### Not measured by this harness", ""]
+        for r in skipped:
+            lines.append(f"- **{r['id']} — {r['name']}**: {r['notes']}")
+        lines.append("")
 
     gaps = [r for r in results if r["observed"] == "none"]
     if gaps:
@@ -379,6 +434,15 @@ def main() -> int:
     ap.add_argument("--out", help="write results JSON here")
     ap.add_argument("--markdown", help="write the coverage matrix here")
     ap.add_argument(
+        "--env-group",
+        default="default",
+        help="run only scenarios in this env group (default: 'default'). Groups exist "
+        "because configs like injection warn and block are mutually exclusive.",
+    )
+    ap.add_argument(
+        "--list-groups", action="store_true", help="print env groups and exit"
+    )
+    ap.add_argument(
         "--allow-divergence",
         action="store_true",
         help="report divergence without failing the run",
@@ -395,8 +459,27 @@ def main() -> int:
         return 1
     print(f"{GREEN}✓{RESET} corpus valid — {len(scenarios)} scenarios, schema at {SCHEMA.name}")
 
+    if args.list_groups:
+        seen: dict[str, list[str]] = {}
+        for sc in scenarios:
+            seen.setdefault(sc.get("env_group", "default"), []).append(sc["id"])
+        for group, ids in sorted(seen.items()):
+            env = next(
+                (s.get("env") for s in scenarios if s.get("env_group", "default") == group and s.get("env")),
+                {},
+            )
+            env_str = " ".join(f"{k}={v}" for k, v in (env or {}).items()) or "(proxy defaults)"
+            print(f"  {group:<18} {','.join(ids):<36} {DIM}{env_str}{RESET}")
+        return 0
+
     if args.validate:
         return 0
+
+    selected = [s for s in scenarios if s.get("env_group", "default") == args.env_group]
+    if not selected:
+        groups = sorted({s.get("env_group", "default") for s in scenarios})
+        print(f"{RED}✗{RESET} no scenarios in env group {args.env_group!r}; have {groups}", file=sys.stderr)
+        return 1
 
     probe, _, _ = http_call(args.target, {"method": "GET", "path": "/healthz"}, args.timeout)
     if probe != 200:
@@ -408,9 +491,37 @@ def main() -> int:
             f"{YELLOW}!{RESET} no control token — evidence checks will be reported as unverified"
         )
 
+    print(f"{DIM}env group {args.env_group} — {len(selected)} scenario(s){RESET}")
+
     results = []
-    for scenario in scenarios:
+    for scenario in selected:
+        # `cli` scenarios exercise mcp-wrap on MCP stdio, outside the HTTP path
+        # this runner drives. Reporting them as gaps would understate coverage;
+        # asserting a synthetic event we posted ourselves would overstate it.
+        if scenario.get("harness", "http") == "cli":
+            results.append(
+                {
+                    "id": scenario["id"],
+                    "name": scenario["name"],
+                    "category": scenario["category"],
+                    "severity": scenario["severity"],
+                    "expected": scenario["expect"]["outcome"],
+                    "observed": "skipped",
+                    "pass": True,
+                    "skipped": True,
+                    "http_status": None,
+                    "latency_ms": 0.0,
+                    "evidence": {"tape_reachable": None, "event_kind": None,
+                                 "enforced": None, "chain_hash": None},
+                    "notes": "cli harness — not measurable over HTTP",
+                    "gap_reason": scenario["expect"].get("gap_reason"),
+                }
+            )
+            print(f"  {YELLOW}–{RESET} {scenario['id']}  {DIM}skipped (cli harness){RESET}")
+            continue
+
         res = run_scenario(scenario, args.target, args.control_token, args.timeout)
+        res["skipped"] = False
         results.append(res)
         mark = f"{GREEN}✓{RESET}" if res["pass"] else f"{RED}✗{RESET}"
         line = (
@@ -422,11 +533,18 @@ def main() -> int:
         print(line)
 
     diverged = [r for r in results if not r["pass"]]
-    covered = sum(1 for r in results if r["observed"] in ("prevent", "detect"))
+    measured = [r for r in results if not r.get("skipped")]
+    skipped = [r for r in results if r.get("skipped")]
+    covered = sum(1 for r in measured if r["observed"] in ("prevent", "detect"))
 
     print()
-    print(f"{BOLD}{len(results) - len(diverged)}/{len(results)}{RESET} match declared behaviour · "
-          f"{covered}/{len(results)} prevented or detected")
+    summary = (
+        f"{BOLD}{len(measured) - len(diverged)}/{len(measured)}{RESET} match declared behaviour · "
+        f"{covered}/{len(measured)} prevented or detected"
+    )
+    if skipped:
+        summary += f" · {len(skipped)} skipped"
+    print(summary)
 
     if args.out:
         payload = {

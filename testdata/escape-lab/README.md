@@ -14,16 +14,53 @@ regression gate rather than a scorecard.
 # Structure only. No proxy needed, runs in seconds.
 python3 scripts/escape-lab.py --validate
 
-# Against a live proxy.
+# What groups exist and what env each needs.
+python3 scripts/escape-lab.py --list-groups
+
+# Against a live proxy, one group at a time.
 python3 scripts/escape-lab.py \
   --target http://127.0.0.1:8080 \
   --control-token "$KOTRO_CONTROL_TOKEN" \
+  --env-group default \
   --out results.json \
   --markdown docs/security/ESCAPE-LAB-MATRIX.md
 ```
 
 Exit codes: `0` all scenarios matched their declaration, `1` divergence or invalid
 corpus, `2` no proxy reachable at `--target`.
+
+## Env groups
+
+Some scenarios need mutually exclusive proxy configuration — injection warn mode
+and block mode cannot both be true in one process. Scenarios sharing a config
+form an `env_group`, and the runner executes one group per invocation. CI runs a
+job per group, starting the proxy with that group's environment.
+
+`--list-groups` prints each group with the environment it expects. A scenario
+with no special requirement belongs to `default`.
+
+## Harnesses
+
+`harness: http` (the default) means the scenario is measurable by this runner.
+`harness: cli` means enforcement lives outside the proxy's HTTP path — `mcp-wrap`
+sits on MCP stdio — so the runner **skips** it rather than reporting a gap.
+
+That distinction matters. EL-05 (tool rug pull) is a capability Kotro genuinely
+has; it is simply not observable from here. Reporting it as `none` would
+understate coverage, and posting a synthetic `tool_drift` event only to assert it
+came back would prove nothing about the quarantine logic. Skipping is the honest
+third option. Those scenarios need a CLI harness before they can be measured.
+
+## Setup and teardown
+
+Scenarios may declare `setup` steps that run before the attack and `teardown`
+steps that run after it, pass or fail. The control token is attached
+automatically.
+
+Teardown is **mandatory whenever setup exists**, and the validator enforces it.
+Setup usually mutates state that outlives the request — engaging the kill switch
+in EL-06 persists until something disengages it — so a missing teardown would
+leave every later scenario blocked and make results depend on execution order.
 
 Without a control token the flight recorder is unreadable, so evidence columns
 report as unverified and outcomes are derived from status and headers alone. Pass

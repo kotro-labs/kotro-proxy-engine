@@ -33,10 +33,31 @@
       "items": { "type": "string" },
       "description": "External mappings, e.g. OWASP Agentic Top 10 identifiers."
     },
+    "harness": {
+      "type": "string",
+      "enum": ["http", "cli"],
+      "default": "http",
+      "description": "Which harness can measure this scenario. 'cli' scenarios exercise mcp-wrap or another out-of-proxy path and are skipped by the HTTP runner rather than reported as a gap — the capability exists, it is simply not measurable here."
+    },
+    "env_group": {
+      "type": "string",
+      "default": "default",
+      "description": "Scenarios needing the same proxy environment share a group. The runner executes one group per invocation (--env-group); CI runs a job per group. This is what makes mutually exclusive configs like injection warn vs block both testable."
+    },
     "env": {
       "type": "object",
       "additionalProperties": { "type": "string" },
-      "description": "Proxy environment required for this scenario. The runner restarts the target when env differs from the previous scenario."
+      "description": "Proxy environment this scenario's env_group requires. Documentation for the CI job that starts the target; the runner does not apply it."
+    },
+    "setup": {
+      "type": "array",
+      "description": "Steps run before the attack, e.g. engaging the kill switch. The control token is attached automatically when available.",
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "teardown": {
+      "type": "array",
+      "description": "Steps run after the attack, whether or not it passed. Required when setup mutates persistent proxy state, so scenario order stays irrelevant.",
+      "items": { "$ref": "#/$defs/step" }
     },
     "attack": {
       "type": "object",
@@ -46,29 +67,7 @@
         "steps": {
           "type": "array",
           "minItems": 1,
-          "items": {
-            "type": "object",
-            "required": ["method", "path"],
-            "additionalProperties": false,
-            "properties": {
-              "method": { "type": "string", "enum": ["GET", "POST", "PUT", "DELETE"] },
-              "path": { "type": "string" },
-              "headers": {
-                "type": "object",
-                "additionalProperties": { "type": "string" }
-              },
-              "body": {
-                "description": "JSON request body. Omitted for GET.",
-                "type": ["object", "null"]
-              },
-              "repeat": {
-                "type": "integer",
-                "minimum": 1,
-                "default": 1,
-                "description": "Send this step N times. Used for loop and budget scenarios."
-              }
-            }
-          }
+          "items": { "$ref": "#/$defs/step" }
         }
       }
     },
@@ -128,5 +127,30 @@
         }
       }
     }
-  ]
+  ],
+  "$defs": {
+    "step": {
+      "type": "object",
+      "required": ["method", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "method": { "type": "string", "enum": ["GET", "POST", "PUT", "DELETE"] },
+        "path": { "type": "string" },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "body": {
+          "description": "JSON request body. Omitted for GET.",
+          "type": ["object", "null"]
+        },
+        "repeat": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Send this step N times. Used for loop and budget scenarios."
+        }
+      }
+    }
+  }
 }
