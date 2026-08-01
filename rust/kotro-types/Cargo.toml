@@ -1,0 +1,19 @@
+[package]
+name = "kotro-types"
+description = "Stable TaskEnvelope, Event, Action, and Decision schemas for the Kotro Agent Transaction Firewall"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository = "https://github.com/kotro-labs/kotro-proxy-engine"
+homepage = "https://github.com/kotro-labs/kotro-proxy-engine"
+keywords = ["llm", "ai", "agents", "security", "policy"]
+categories = ["api-bindings", "web-programming"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+serde_json = "1"

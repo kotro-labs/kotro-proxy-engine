@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kotro.dev/schemas/kotro-event-v1.json",
+  "title": "KotroEventV1",
+  "type": "object",
+  "required": ["api_version"],
+  "properties": {
+    "api_version": { "type": "string", "const": "kotro.dev/v1" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "at": { "type": "string" },
+    "plane": { "type": "string" },
+    "kind": { "type": "string" },
+    "session": { "type": "string" },
+    "task_id": { "type": "string" },
+    "parent_task_id": { "type": "string" },
+    "principal": {
+      "type": "object",
+      "properties": {
+        "subject": { "type": "string" },
+        "issuer": { "type": "string" }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "instance": { "type": "string" },
+        "workload_identity": { "type": "string" }
+      }
+    },
+    "decision_id": { "type": "string" },
+    "rule_id": { "type": "string" },
+    "policy_revision": { "type": "string" },
+    "tool_call_id": { "type": "string" },
+    "trace_id": { "type": "string" },
+    "span_id": { "type": "string" },
+    "provider": { "type": "string" },
+    "model": { "type": "string" },
+    "route": { "type": "string" },
+    "tool_name": { "type": "string" },
+    "server": { "type": "string" },
+    "destination": { "type": "string" },
+    "credential_id": { "type": "string" },
+    "cache_status": { "type": "string" },
+    "prompt_hash": { "type": "string" },
+    "estimated_tokens": { "type": "integer", "minimum": 0 },
+    "latency_ms": { "type": "integer", "minimum": 0 },
+    "redaction_count": { "type": "integer", "minimum": 0 },
+    "tool_rounds": { "type": "integer", "minimum": 0 },
+    "provenance": { "type": "string" },
+    "detail": { "type": "string" },
+    "enforced": { "type": "boolean" },
+    "prev_hash": { "type": "string" },
+    "hash": { "type": "string" }
+  },
+  "additionalProperties": true
+}

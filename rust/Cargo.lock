@@ -2337,6 +2337,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.10.1",
  "ipnet",
+ "kotro-types",
  "moka",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2365,6 +2366,15 @@ dependencies = [
  "tree-sitter-python",
  "tree-sitter-rust",
  "zstd",
+]
+
+[[package]]
+name = "kotro-types"
+version = "0.6.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

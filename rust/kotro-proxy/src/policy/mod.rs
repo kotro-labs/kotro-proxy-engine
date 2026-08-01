@@ -266,6 +266,15 @@ impl PolicyEngine {
         &self.file
     }
 
+    /// Stable fingerprint of the effective policy (hex SHA-256). Attached to
+    /// every action-plane event as `policy_revision`.
+    pub fn revision(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let bytes = serde_json::to_vec(&self.file).unwrap_or_default();
+        let digest = Sha256::digest(&bytes);
+        digest.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
     /// Evaluate a tool call. Deny rules are checked first, then ask, then
     /// allow, then per-class defaults. First match within each tier wins.
     pub fn evaluate(&self, ctx: &ToolCallContext) -> Decision {
@@ -744,5 +753,16 @@ mod tests {
         let parsed: PolicyFile = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(parsed.version, 1);
         PolicyEngine::compile(parsed).unwrap();
+    }
+
+
+    #[test]
+    fn revision_is_stable_for_same_policy() {
+        let a = PolicyEngine::compile(presets::developer()).unwrap();
+        let b = PolicyEngine::compile(presets::developer()).unwrap();
+        assert_eq!(a.revision(), b.revision());
+        assert_eq!(a.revision().len(), 64);
+        let locked = PolicyEngine::compile(presets::locked_down()).unwrap();
+        assert_ne!(a.revision(), locked.revision());
     }
 }

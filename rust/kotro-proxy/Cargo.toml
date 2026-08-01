@@ -11,6 +11,7 @@ name = "kotro-proxy"
 path = "src/main.rs"
 
 [dependencies]
+kotro-types = { path = "../kotro-types" }
 bytes = "1"
 sha2 = "0.10"
 thiserror = "2"

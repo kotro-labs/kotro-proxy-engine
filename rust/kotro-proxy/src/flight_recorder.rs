@@ -105,6 +105,33 @@ impl Default for FlightKind {
     }
 }
 
+impl FlightKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::CacheHit => "cache_hit",
+            Self::CacheMiss => "cache_miss",
+            Self::CircuitOpen => "circuit_open",
+            Self::ToolLoop => "tool_loop",
+            Self::ToolStorm => "tool_storm",
+            Self::RateLimit => "rate_limit",
+            Self::Budget => "budget",
+            Self::Injection => "injection",
+            Self::KillSwitch => "kill_switch",
+            Self::Observe => "observe",
+            Self::ToolDiscovery => "tool_discovery",
+            Self::ToolCall => "tool_call",
+            Self::ToolDenied => "tool_denied",
+            Self::ToolDrift => "tool_drift",
+            Self::ChainAlert => "chain_alert",
+            Self::Approval => "approval",
+            Self::PostureFinding => "posture_finding",
+        }
+    }
+}
+
+
+
 fn default_plane() -> String {
     "llm".into()
 }
@@ -127,6 +154,26 @@ pub struct FlightEvent {
     /// Session/scope identifier used for cross-plane correlation.
     #[serde(default)]
     pub session: String,
+    /// Task envelope id (empty until Phase 1 signing lands).
+    #[serde(default)]
+    pub task_id: String,
+    #[serde(default)]
+    pub parent_task_id: String,
+    /// Stable decision id for the policy evaluation that produced this event.
+    #[serde(default)]
+    pub decision_id: String,
+    /// Matched rule id when available.
+    #[serde(default)]
+    pub rule_id: String,
+    /// Fingerprint of the effective policy set.
+    #[serde(default)]
+    pub policy_revision: String,
+    #[serde(default)]
+    pub tool_call_id: String,
+    #[serde(default)]
+    pub destination: String,
+    #[serde(default)]
+    pub credential_id: String,
     #[serde(default)]
     pub provider: String,
     #[serde(default)]
@@ -179,6 +226,14 @@ impl FlightEvent {
             self.plane,
             self.kind,
             self.session,
+            self.task_id,
+            self.parent_task_id,
+            self.decision_id,
+            self.rule_id,
+            self.policy_revision,
+            self.tool_call_id,
+            self.destination,
+            self.credential_id,
             self.provider,
             self.model,
             self.route,
@@ -202,6 +257,46 @@ impl FlightEvent {
         let digest = Sha256::digest(self.chain_material());
         hex(&digest)
     }
+
+    /// Export as the stable `kotro-types` KotroEvent v1 shape.
+    pub fn to_kotro_event(&self) -> kotro_types::KotroEventV1 {
+        kotro_types::KotroEventV1 {
+            api_version: kotro_types::EVENT_SCHEMA_VERSION.to_string(),
+            seq: self.seq,
+            at: self.at.clone(),
+            plane: self.plane.clone(),
+            kind: self.kind.as_str().to_string(),
+            session: self.session.clone(),
+            task_id: kotro_types::TaskId::new(self.task_id.clone()),
+            parent_task_id: kotro_types::TaskId::new(self.parent_task_id.clone()),
+            principal: kotro_types::Principal::default(),
+            agent: kotro_types::AgentIdentity::default(),
+            decision_id: self.decision_id.clone(),
+            rule_id: self.rule_id.clone(),
+            policy_revision: self.policy_revision.clone(),
+            tool_call_id: self.tool_call_id.clone(),
+            trace_id: String::new(),
+            span_id: String::new(),
+            provider: self.provider.clone(),
+            model: self.model.clone(),
+            route: self.route.clone(),
+            tool_name: self.tool_name.clone(),
+            server: self.server.clone(),
+            destination: self.destination.clone(),
+            credential_id: self.credential_id.clone(),
+            cache_status: self.cache_status.clone(),
+            prompt_hash: self.prompt_hash.clone(),
+            estimated_tokens: self.estimated_tokens,
+            latency_ms: self.latency_ms,
+            redaction_count: self.redaction_count,
+            tool_rounds: self.tool_rounds,
+            provenance: self.provenance.clone(),
+            detail: self.detail.clone(),
+            enforced: self.enforced,
+            prev_hash: self.prev_hash.clone(),
+            hash: self.hash.clone(),
+        }
+    }
 }
 
 /// Partial event accepted from other planes (mcp-wrap, hook adapter) via the
@@ -214,6 +309,22 @@ pub struct FlightDraft {
     pub kind: FlightKind,
     #[serde(default)]
     pub session: String,
+    #[serde(default)]
+    pub task_id: String,
+    #[serde(default)]
+    pub parent_task_id: String,
+    #[serde(default)]
+    pub decision_id: String,
+    #[serde(default)]
+    pub rule_id: String,
+    #[serde(default)]
+    pub policy_revision: String,
+    #[serde(default)]
+    pub tool_call_id: String,
+    #[serde(default)]
+    pub destination: String,
+    #[serde(default)]
+    pub credential_id: String,
     #[serde(default)]
     pub provider: String,
     #[serde(default)]
@@ -390,6 +501,14 @@ impl FlightRecorder {
             plane: draft.plane,
             kind: draft.kind,
             session: draft.session,
+            task_id: draft.task_id,
+            parent_task_id: draft.parent_task_id,
+            decision_id: draft.decision_id,
+            rule_id: draft.rule_id,
+            policy_revision: draft.policy_revision,
+            tool_call_id: draft.tool_call_id,
+            destination: draft.destination,
+            credential_id: draft.credential_id,
             provider: draft.provider,
             model: draft.model,
             route: draft.route,
@@ -858,5 +977,26 @@ mod tests {
             },
         ];
         assert_eq!(count_tool_rounds(&msgs), 2);
+    }
+
+
+    #[test]
+    fn platform_ids_survive_record_and_export() {
+        let rec = FlightRecorder::new(true, 10);
+        let mut d = draft("denied");
+        d.task_id = "task-1".into();
+        d.decision_id = "dec-1".into();
+        d.rule_id = "deny-x".into();
+        d.policy_revision = "rev".into();
+        d.destination = "evil.example".into();
+        let ev = rec.record(d).unwrap();
+        assert_eq!(ev.task_id, "task-1");
+        assert_eq!(ev.decision_id, "dec-1");
+        assert_eq!(ev.rule_id, "deny-x");
+        let exported = ev.to_kotro_event();
+        assert_eq!(exported.api_version, kotro_types::EVENT_SCHEMA_VERSION);
+        assert_eq!(exported.task_id.as_str(), "task-1");
+        assert_eq!(exported.decision_id, "dec-1");
+        assert_eq!(exported.destination, "evil.example");
     }
 }

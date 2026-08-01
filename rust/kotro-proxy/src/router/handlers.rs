@@ -76,8 +76,9 @@ fn problem_response(status: StatusCode, title: &str, detail: &str) -> Response {
 /// - `Ok(Some(body))`   — plugins passed, body replaced with new JSON string
 /// - `Err(Response)`    — a plugin blocked the request; return the response immediately
 ///
-/// Warnings from plugin errors are logged but never surface as hard failures so
-/// that a broken plugin cannot take down the proxy's primary request path.
+/// Credential headers are stripped inside `PluginManager` unless
+/// `KOTRO_WASM_ALLOW_CREDENTIAL_HEADERS=true`. Plugin errors/timeouts deny the
+/// request when fail-closed (default).
 fn run_wasm_plugins(
     plugin_manager: &crate::plugins::wasm::PluginManager,
     uri: &str,

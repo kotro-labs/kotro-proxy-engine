@@ -26,6 +26,10 @@ jobs:
         working-directory: rust
         run: cargo test
 
+      - name: Phase 0 contract tests (kotro-types + event schema)
+        working-directory: rust
+        run: cargo test -p kotro-types
+
   go-compile-check:
     name: Go compile check (reference implementation — frozen at v0.1.0-go)
     runs-on: ubuntu-latest

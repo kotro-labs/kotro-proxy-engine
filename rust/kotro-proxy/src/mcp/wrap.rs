@@ -66,10 +66,45 @@ impl Governance {
     }
 
     fn event(&self, kind: &str, tool: &str, detail: String, enforced: bool) {
-        self.event_with(kind, tool, detail, enforced, "");
+        self.event_decision(kind, tool, detail, enforced, "", "", "");
     }
 
-    fn event_with(&self, kind: &str, tool: &str, detail: String, enforced: bool, provenance: &str) {
+    fn event_with(
+        &self,
+        kind: &str,
+        tool: &str,
+        detail: String,
+        enforced: bool,
+        provenance: &str,
+    ) {
+        self.event_decision(kind, tool, detail, enforced, provenance, "", "");
+    }
+
+    fn event_decision(
+        &self,
+        kind: &str,
+        tool: &str,
+        detail: String,
+        enforced: bool,
+        provenance: &str,
+        rule_id: &str,
+        reason_code: &str,
+    ) {
+        let policy_revision = self.engine.revision();
+        let decision_id = {
+            let material = serde_json::json!({
+                "session": self.reporter.session,
+                "server": self.server,
+                "tool": tool,
+                "kind": kind,
+                "rule_id": rule_id,
+                "reason_code": reason_code,
+                "policy_revision": policy_revision,
+                "detail": detail,
+            });
+            let bytes = serde_json::to_vec(&material).unwrap_or_default();
+            kotro_types::DecisionId::from_fingerprint(&bytes).0
+        };
         self.reporter.report(serde_json::json!({
             "plane": "mcp",
             "kind": kind,
@@ -79,8 +114,10 @@ impl Governance {
             "detail": detail,
             "enforced": enforced,
             "provenance": provenance,
+            "decision_id": decision_id,
+            "rule_id": rule_id,
+            "policy_revision": policy_revision,
         }));
-        // MCP OTel span — tool name + decision only, never arguments.
         let decision = if kind == "tool_denied" {
             if enforced { "deny" } else { "observe" }
         } else {
@@ -91,7 +128,7 @@ impl Governance {
             &self.server,
             tool,
             decision,
-            "",
+            rule_id,
         );
     }
 
@@ -169,22 +206,26 @@ impl Governance {
 
         match decision.action {
             policy::Action::Allow => {
-                self.event_with(
+                self.event_decision(
                     "tool_call",
                     &tool,
                     format!("allowed by {} ({})", decision.rule_id, decision.evidence),
                     false,
                     &provenance,
+                    &decision.rule_id,
+                    "allow",
                 );
                 Ok(())
             }
             policy::Action::Deny => {
-                self.event_with(
+                self.event_decision(
                     "tool_denied",
                     &tool,
                     format!("denied by {} ({})", decision.rule_id, decision.evidence),
                     true,
                     &provenance,
+                    &decision.rule_id,
+                    "deny",
                 );
                 Err((
                     ERR_POLICY_DENIED,
@@ -201,16 +242,18 @@ impl Governance {
                     .check_approval(&self.server, &tool, &args_hash, &decision.evidence)
                     .await
                 {
-                    self.event_with(
+                    self.event_decision(
                         "tool_call",
                         &tool,
                         format!("approved grant matched ({})", decision.rule_id),
                         false,
                         &provenance,
+                        &decision.rule_id,
+                        "approved",
                     );
                     return Ok(());
                 }
-                self.event_with(
+                self.event_decision(
                     "tool_denied",
                     &tool,
                     format!(
@@ -219,6 +262,8 @@ impl Governance {
                     ),
                     true,
                     &provenance,
+                    &decision.rule_id,
+                    "ask",
                 );
                 Err((
                     ERR_POLICY_DENIED,

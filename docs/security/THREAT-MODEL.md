@@ -303,7 +303,23 @@ The Rust proxy adds a local governance plane. Its security properties:
 
 ---
 
+### 9.9 Phase 0 trust contracts
+
+- **WASM plugins** do not receive credential headers by default
+  (`Authorization`, `x-api-key`, cookies, bridge/control tokens). Opt in with
+  `KOTRO_WASM_ALLOW_CREDENTIAL_HEADERS=true`. Plugin calls are budgeted by
+  `KOTRO_WASM_TIMEOUT_MS` (default 500). Errors and overruns fail **closed**
+  unless `KOTRO_WASM_FAIL_CLOSED=false`.
+- **Event contract (`kotro.dev/v1`)**: action events carry `task_id`,
+  `decision_id`, `rule_id`, and `policy_revision` (see
+  `schemas/kotro/event-v1.json` and the `kotro-types` crate). Task signing
+  lands in Phase 1; empty `task_id` means a legacy unscoped session.
+- **Enforcement dial**: `KOTRO_ENFORCEMENT_MODE` (`audit`|`enforce`) aliases
+  `KOTRO_KILL_SWITCH_MODE`. Audit records decisions without blocking;
+  enforce blocks.
+
 ## 10. Explicit non-goals (v0.2.x)
+
 
 Kotro **does not** currently provide:
 

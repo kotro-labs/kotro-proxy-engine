@@ -138,6 +138,15 @@ pub struct Config {
     pub dashboard_usd_per_token: f64,
     /// Comma-separated list of paths to WASM plugin files to load at startup.
     pub wasm_plugins: Vec<String>,
+    /// Wall-clock budget per WASM plugin call (ms). Default 500.
+    /// Env: `KOTRO_WASM_TIMEOUT_MS`.
+    pub wasm_timeout_ms: u64,
+    /// When true (default), WASM errors/timeouts deny the request.
+    /// Set `KOTRO_WASM_FAIL_CLOSED=false` to fail-open.
+    pub wasm_fail_closed: bool,
+    /// When true, credential headers are forwarded into WASM plugins.
+    /// Default **false**. Env: `KOTRO_WASM_ALLOW_CREDENTIAL_HEADERS`.
+    pub wasm_allow_credential_headers: bool,
     /// OpenTelemetry OTLP endpoint (e.g. "http://localhost:4317")
     pub otel_endpoint: Option<String>,
     /// Redis connection URL for shared team cache (e.g. "redis://127.0.0.1:6379/")
@@ -208,6 +217,9 @@ impl Default for Config {
             tool_cache_search_ttl_secs: 3600,
             dashboard_usd_per_token: 0.000015,
             wasm_plugins: Vec::new(),
+            wasm_timeout_ms: 500,
+            wasm_fail_closed: true,
+            wasm_allow_credential_headers: false,
             otel_endpoint: None,
             redis_url: None,
             bridge_token: None,
@@ -311,10 +323,19 @@ impl Config {
                 defaults.max_requests_per_minute as u64,
             ) as u32,
             max_tool_rounds: env_u64("KOTRO_MAX_TOOL_ROUNDS", defaults.max_tool_rounds as u64) as u32,
-            kill_switch_mode: KillSwitchMode::parse(&env_or(
-                "KOTRO_KILL_SWITCH_MODE",
-                defaults.kill_switch_mode.as_str().into(),
-            )),
+            kill_switch_mode: {
+                // Unified dial: KOTRO_ENFORCEMENT_MODE aliases kill-switch observe/enforce.
+                let raw = env::var("KOTRO_ENFORCEMENT_MODE")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        env_or(
+                            "KOTRO_KILL_SWITCH_MODE",
+                            defaults.kill_switch_mode.as_str().into(),
+                        )
+                    });
+                KillSwitchMode::parse(&raw)
+            },
             enable_flight_recorder: env_bool(
                 "KOTRO_ENABLE_FLIGHT_RECORDER",
                 defaults.enable_flight_recorder,
@@ -345,6 +366,12 @@ impl Config {
                 defaults.dashboard_usd_per_token,
             ),
             wasm_plugins: env_csv("KOTRO_WASM_PLUGINS", defaults.wasm_plugins),
+            wasm_timeout_ms: env_u64("KOTRO_WASM_TIMEOUT_MS", defaults.wasm_timeout_ms),
+            wasm_fail_closed: env_bool("KOTRO_WASM_FAIL_CLOSED", defaults.wasm_fail_closed),
+            wasm_allow_credential_headers: env_bool(
+                "KOTRO_WASM_ALLOW_CREDENTIAL_HEADERS",
+                defaults.wasm_allow_credential_headers,
+            ),
             otel_endpoint: env_opt("KOTRO_OTEL_ENDPOINT"),
             redis_url: env_opt("KOTRO_REDIS_URL"),
             bridge_token: env_opt("KOTRO_BRIDGE_TOKEN"),

@@ -179,10 +179,17 @@ impl AppState {
                     default: std::time::Duration::from_secs(60),
                 },
             )),
-            plugin_manager: Arc::new(crate::plugins::wasm::PluginManager::new(&cfg.wasm_plugins).unwrap_or_else(|e| {
-                tracing::error!("Failed to initialize WASM plugins: {}", e);
-                crate::plugins::wasm::PluginManager::new(&[]).unwrap()
-            })),
+            plugin_manager: Arc::new({
+                let trust = crate::plugins::wasm::PluginTrustOptions {
+                    timeout: std::time::Duration::from_millis(cfg.wasm_timeout_ms.max(1)),
+                    fail_closed: cfg.wasm_fail_closed,
+                    allow_credential_headers: cfg.wasm_allow_credential_headers,
+                };
+                crate::plugins::wasm::PluginManager::with_trust(&cfg.wasm_plugins, trust.clone()).unwrap_or_else(|e| {
+                    tracing::error!("Failed to initialize WASM plugins: {}", e);
+                    crate::plugins::wasm::PluginManager::with_trust(&[], trust).unwrap()
+                })
+            }),
             bridge_token: cfg.bridge_token.clone(),
             upstream_api_key: cfg.upstream_api_key.clone(),
         }
