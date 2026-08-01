@@ -28,6 +28,7 @@ pub mod metrics;
 pub mod dashboard_assets;
 pub mod plugins;
 pub mod telemetry;
+pub mod numbat;
 
 pub use config::Config;
 pub use sse::{Frame, Reader, SseFrameParser};

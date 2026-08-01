@@ -33,6 +33,46 @@ pub enum Expected {
 
 /// The curated attack corpus. Keep this list short and load-bearing — each
 /// scenario must fail closed under the default `developer` preset.
+
+/// Escape Lab matrix row for publishing prevent/detect results.
+#[derive(Debug, Clone, Serialize)]
+pub struct MatrixRow {
+    pub id: String,
+    pub category: String,
+    pub title: String,
+    pub expected: String,
+    pub result: String,
+    pub pass: bool,
+}
+
+/// Run the full corpus and return a matrix suitable for `--json` publishing.
+pub fn escape_lab_matrix() -> Vec<MatrixRow> {
+    corpus()
+        .into_iter()
+        .map(|s| {
+            let expected = format!("{:?}", s.expected);
+            match run_scenario(&s) {
+                Ok(()) => MatrixRow {
+                    id: s.id.into(),
+                    category: s.category.into(),
+                    title: s.title.into(),
+                    expected,
+                    result: "pass".into(),
+                    pass: true,
+                },
+                Err(e) => MatrixRow {
+                    id: s.id.into(),
+                    category: s.category.into(),
+                    title: s.title.into(),
+                    expected,
+                    result: e,
+                    pass: false,
+                },
+            }
+        })
+        .collect()
+}
+
 pub fn corpus() -> Vec<Scenario> {
     vec![
         Scenario {
@@ -83,6 +123,24 @@ pub fn corpus() -> Vec<Scenario> {
             category: "credential",
             expected: Expected::Deny,
         },
+        Scenario {
+            id: "wasm-credential-header-stripped",
+            title: "Authorization header never reaches WASM plugins by default",
+            category: "trust-boundary",
+            expected: Expected::Allow,
+        },
+        Scenario {
+            id: "numbat-high-finding-kill",
+            title: "Numbat high-severity finding engages tools kill switch",
+            category: "interop",
+            expected: Expected::Deny,
+        },
+        Scenario {
+            id: "sampling-method-denied",
+            title: "Non-allowlisted MCP method sampling/createMessage is denied",
+            category: "mcp",
+            expected: Expected::Deny,
+        },
     ]
 }
 
@@ -96,6 +154,9 @@ pub fn run_scenario(s: &Scenario) -> Result<(), String> {
         "destructive-retries" => run_destructive_storm(s),
         "cross-origin-escalation" => run_trifecta(s),
         "credential-path-read" => run_ssh_deny(s),
+        "wasm-credential-header-stripped" => run_wasm_header_strip(s),
+        "numbat-high-finding-kill" => run_numbat_kill(s),
+        "sampling-method-denied" => run_sampling_deny(s),
         other => Err(format!("unknown scenario id: {other}")),
     }
 }
@@ -214,6 +275,59 @@ fn run_ssh_deny(s: &Scenario) -> Result<(), String> {
     let d = engine.evaluate(&ctx);
     if d.action != Action::Deny {
         return Err(format!("expected Deny, got {:?}", d.action));
+    }
+    assert_expected(s, Expected::Deny)
+}
+
+
+fn run_wasm_header_strip(s: &Scenario) -> Result<(), String> {
+    use std::collections::HashMap;
+    let mut headers = HashMap::new();
+    headers.insert("authorization".into(), "Bearer SECRET".into());
+    headers.insert("content-type".into(), "application/json".into());
+    let cleaned = crate::plugins::wasm::PluginManager::sanitize_headers(&headers, false);
+    if cleaned.contains_key("authorization") {
+        return Err("authorization leaked to WASM".into());
+    }
+    if cleaned.get("content-type").map(String::as_str) != Some("application/json") {
+        return Err("content-type should be preserved".into());
+    }
+    assert_expected(s, Expected::Allow)
+}
+
+fn run_numbat_kill(s: &Scenario) -> Result<(), String> {
+    let body = r#"{"record_type":"finding","severity":"high","rule_id":"chain.secret_read_then_egress","session_id":"lab-1","title":"exfil"}"#;
+    let (_, result) = crate::numbat::evaluate_ndjson(body);
+    if result.action != crate::numbat::NumbatResponseAction::KillTools {
+        return Err(format!("expected KillTools, got {:?}", result.action));
+    }
+    assert_expected(s, Expected::Deny)
+}
+
+fn run_sampling_deny(s: &Scenario) -> Result<(), String> {
+    fn allowlisted(method: &str) -> bool {
+        matches!(
+            method,
+            "initialize"
+                | "ping"
+                | "tools/list"
+                | "tools/call"
+                | "resources/list"
+                | "resources/read"
+                | "resources/templates/list"
+                | "resources/subscribe"
+                | "resources/unsubscribe"
+                | "prompts/list"
+                | "prompts/get"
+                | "completion/complete"
+                | "logging/setLevel"
+        ) || method.starts_with("notifications/")
+    }
+    if allowlisted("sampling/createMessage") {
+        return Err("sampling/createMessage incorrectly allowlisted".into());
+    }
+    if !allowlisted("tools/call") {
+        return Err("tools/call must remain allowlisted".into());
     }
     assert_expected(s, Expected::Deny)
 }

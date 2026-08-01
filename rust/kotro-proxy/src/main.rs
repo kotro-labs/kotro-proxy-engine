@@ -590,9 +590,115 @@ fn run_isolate(args: &[String]) -> i32 {
     }
 }
 
-/// `kotro-proxy corpus list|run [--json]`
+
+/// `kotro-proxy numbat ingest [--file path] [--dry-run]`
+/// Reads Numbat NDJSON from a file or stdin and POSTs to the local control API
+/// (or prints the mapped response with `--dry-run`).
+fn run_numbat(args: &[String]) -> i32 {
+    match args.first().map(String::as_str) {
+        Some("ingest") => {
+            let dry = args.iter().any(|a| a == "--dry-run");
+            let file = arg_value(args, "--file");
+            let body = if let Some(path) = file {
+                match std::fs::read_to_string(&path) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("numbat ingest: read {path}: {e}");
+                        return 1;
+                    }
+                }
+            } else {
+                use std::io::Read;
+                let mut buf = String::new();
+                if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
+                    eprintln!("numbat ingest: stdin: {e}");
+                    return 1;
+                }
+                buf
+            };
+            let (records, result) = kotro_proxy::numbat::evaluate_ndjson(&body);
+            if dry {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".into())
+                );
+                println!("(dry-run: {} records parsed, not posted)", records.len());
+                return 0;
+            }
+            let metrics = std::env::var("KOTRO_METRICS_ADDR").unwrap_or_else(|_| "127.0.0.1:9090".into());
+            let host = if metrics.starts_with(':') {
+                format!("127.0.0.1{metrics}")
+            } else {
+                metrics
+            };
+            let state_dir = state_dir_path();
+            let token = std::env::var("KOTRO_CONTROL_TOKEN").ok().or_else(|| {
+                std::fs::read_to_string(state_dir.join("control.token"))
+                    .ok()
+                    .map(|t| t.trim().to_string())
+            });
+            let rt = tokio::runtime::Runtime::new().expect("runtime");
+            let status = rt.block_on(async {
+                let client = reqwest::Client::new();
+                let mut req = client
+                    .post(format!("http://{host}/api/numbat/findings"))
+                    .header("content-type", "application/x-ndjson")
+                    .body(body);
+                if let Some(t) = token {
+                    req = req.header("x-kotro-control-token", t);
+                }
+                match req.send().await {
+                    Ok(r) => {
+                        let code = r.status();
+                        let text = r.text().await.unwrap_or_default();
+                        println!("{text}");
+                        code.is_success()
+                    }
+                    Err(e) => {
+                        eprintln!("numbat ingest: proxy unreachable at {host}: {e}");
+                        false
+                    }
+                }
+            });
+            if status { 0 } else { 1 }
+        }
+        _ => {
+            eprintln!("usage: kotro-proxy numbat ingest [--file path] [--dry-run]");
+            1
+        }
+    }
+}
+
+/// `kotro-proxy corpus list|run|matrix [--json]`
 fn run_corpus(args: &[String]) -> i32 {
     match args.first().map(String::as_str) {
+        Some("matrix") => {
+            let rows = kotro_proxy::corpus::escape_lab_matrix();
+            let failed = rows.iter().filter(|r| !r.pass).count();
+            if args.iter().any(|a| a == "--json") {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&rows).unwrap_or_else(|_| "[]".into())
+                );
+            } else {
+                println!("{:<32} {:<8} {}", "scenario", "result", "category");
+                for r in &rows {
+                    println!(
+                        "{:<32} {:<8} {}",
+                        r.id,
+                        if r.pass { "PASS" } else { "FAIL" },
+                        r.category
+                    );
+                }
+                println!(
+                    "
+{}/{} scenarios passed",
+                    rows.len() - failed,
+                    rows.len()
+                );
+            }
+            if failed > 0 { 1 } else { 0 }
+        }
         Some("list") => {
             let scenarios = kotro_proxy::corpus::corpus();
             if args.iter().any(|a| a == "--json") {
@@ -628,7 +734,7 @@ fn run_corpus(args: &[String]) -> i32 {
             }
         }
         _ => {
-            eprintln!("usage: kotro-proxy corpus list|run [--json]");
+            eprintln!("usage: kotro-proxy corpus list|run|matrix [--json]");
             1
         }
     }
@@ -663,6 +769,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         Some("isolate") => {
             std::process::exit(run_isolate(&args[2..]));
+        }
+        Some("numbat") => {
+            std::process::exit(run_numbat(&args[2..]));
         }
         Some("corpus") => {
             std::process::exit(run_corpus(&args[2..]));

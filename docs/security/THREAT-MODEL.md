@@ -318,6 +318,18 @@ The Rust proxy adds a local governance plane. Its security properties:
   `KOTRO_KILL_SWITCH_MODE`. Audit records decisions without blocking;
   enforce blocks.
 
+### 9.10 Numbat interoperability
+
+- `POST /api/numbat/findings` (control-token authenticated) accepts Numbat NDJSON
+  records. High-severity findings engage the tools kill switch; critical engages
+  all. `kotro-proxy numbat ingest --file ~/.numbat/records.ndjson` posts the
+  same payload. Kotro does not reimplement Numbat detection rules.
+
+### 9.11 Loopback defaults
+
+- LLM proxy default listen is `127.0.0.1:8080`. Non-loopback binds are coerced
+  unless `KOTRO_ALLOW_REMOTE_LISTEN=true` (for authenticated tunnels).
+
 ## 10. Explicit non-goals (v0.2.x)
 
 

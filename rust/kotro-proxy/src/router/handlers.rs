@@ -480,6 +480,39 @@ pub async fn handle_api_mcp_event(
         .into_response()
 }
 
+
+
+/// Authenticated Numbat NDJSON ingest. High/critical findings engage the
+/// multi-plane kill switch and are recorded on the flight tape.
+pub async fn handle_api_numbat_findings(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: String,
+) -> Response {
+    if let Err(resp) = control_auth::require_control_token(&state.control_token, &headers) {
+        return resp;
+    }
+    let (records, result) = crate::numbat::evaluate_ndjson(&body);
+    let drafts = crate::numbat::flight_drafts_for(&records, &result);
+    for draft in drafts {
+        if let Some(event) = state.flight_recorder.record(draft) {
+            correlate(&state, &event);
+        }
+    }
+    if result.action != crate::numbat::NumbatResponseAction::None {
+        let scope = crate::flight_recorder::KillScope::parse(&result.kill_scope);
+        if state.kill_switch_mode.enforces() {
+            state.flight_recorder.set_kill_scope(scope);
+        }
+    }
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::to_string(&result).unwrap_or_else(|_| "{}".into()),
+    )
+        .into_response()
+}
+
 /// Provenance labels the correlator exports to the policy engine for one
 /// session. Read-only, loopback telemetry listener.
 pub async fn handle_api_session_labels(

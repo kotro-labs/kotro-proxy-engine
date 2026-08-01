@@ -33,6 +33,9 @@ impl KillSwitchMode {
 
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// LLM proxy listen address. Default `127.0.0.1:8080` (loopback).
+    /// A bare `:8080` still expands to `0.0.0.0` for tunnel/bridge use — prefer
+    /// an explicit `127.0.0.1` or set `KOTRO_ALLOW_REMOTE_LISTEN=true` with care.
     pub listen_addr: String,
     pub upstream_url: String,
     pub fallback_url: Option<String>,
@@ -164,7 +167,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            listen_addr: ":8080".into(),
+            listen_addr: "127.0.0.1:8080".into(),
             upstream_url: "http://127.0.0.1:9000".into(),
             fallback_url: None,
             fallback_model: None,

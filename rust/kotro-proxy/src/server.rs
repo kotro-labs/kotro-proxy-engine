@@ -53,7 +53,7 @@ impl Server {
     }
 
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let proxy_addr = normalize_listen_addr(&self.cfg.listen_addr);
+        let proxy_addr = resolve_proxy_addr(&self.cfg.listen_addr);
         let proxy_listener = tokio::net::TcpListener::bind(&proxy_addr).await?;
         let proxy_local = proxy_listener.local_addr()?;
 
@@ -120,6 +120,33 @@ impl Server {
     }
 }
 
+
+
+/// Resolve the LLM proxy listen address. Defaults and non-loopback binds are
+/// coerced to loopback unless `KOTRO_ALLOW_REMOTE_LISTEN=true` (tunnels/bridge).
+fn resolve_proxy_addr(addr: &str) -> SocketAddr {
+    let resolved = normalize_listen_addr(addr);
+    if resolved.ip().is_loopback() {
+        return resolved;
+    }
+    let allow_remote = std::env::var("KOTRO_ALLOW_REMOTE_LISTEN")
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    if allow_remote {
+        tracing::warn!(
+            requested = %resolved,
+            "KOTRO_ALLOW_REMOTE_LISTEN is set — the LLM proxy is reachable off-host.              Prefer a bridge token and an authenticated tunnel."
+        );
+        return resolved;
+    }
+    let coerced = SocketAddr::from(([127, 0, 0, 1], resolved.port()));
+    tracing::warn!(
+        requested = %resolved,
+        bound = %coerced,
+        "proxy refused a non-loopback bind; coerced to loopback.          Set KOTRO_ALLOW_REMOTE_LISTEN=true to override (e.g. public tunnel)."
+    );
+    coerced
+}
 
 fn normalize_listen_addr(addr: &str) -> SocketAddr {
     if let Ok(parsed) = addr.parse::<SocketAddr>() {
@@ -222,5 +249,12 @@ mod tests {
     fn control_addr_preserves_explicit_loopback() {
         let addr = resolve_control_addr("127.0.0.1:9090");
         assert_eq!(addr.to_string(), "127.0.0.1:9090");
+    }
+
+    #[test]
+    fn proxy_addr_coerces_non_loopback() {
+        let addr = resolve_proxy_addr(":8080");
+        assert!(addr.ip().is_loopback(), "got {addr}");
+        assert_eq!(addr.port(), 8080);
     }
 }
