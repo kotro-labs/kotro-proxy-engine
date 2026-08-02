@@ -44,13 +44,17 @@ jobs:
         # proxy configs, so they cannot be exercised in a single process.
         include:
           - group: default
-            env_flags: ""
+            env_flags: "KOTRO_MODE=enforce"
           - group: injection-warn
-            env_flags: "KOTRO_INJECTION_BLOCK=false"
+            env_flags: "KOTRO_MODE=enforce KOTRO_INJECTION_BLOCK=false"
           - group: injection-block
-            env_flags: "KOTRO_INJECTION_BLOCK=true"
+            env_flags: "KOTRO_MODE=enforce KOTRO_INJECTION_BLOCK=true"
           - group: budget
-            env_flags: "KOTRO_SESSION_TOKEN_BUDGET=200 KOTRO_BUDGET_BLOCK=true"
+            env_flags: "KOTRO_MODE=enforce KOTRO_SESSION_TOKEN_BUDGET=200 KOTRO_BUDGET_BLOCK=true"
+          - group: mode-audit
+            env_flags: "KOTRO_MODE=audit KOTRO_INJECTION_BLOCK=true"
+          - group: mode-disabled
+            env_flags: "KOTRO_MODE=disabled KOTRO_INJECTION_BLOCK=true"
     steps:
       - uses: actions/checkout@v4
 

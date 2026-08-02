@@ -181,6 +181,44 @@ def http_call(
         return 0, {}, f"transport error: {exc}"
 
 
+def fetch_observed_mode(control_base: str, token: str | None, timeout: float) -> str | None:
+    """Read enforcement_mode from /api/runtime-posture (preferred) or kill-switch."""
+    headers = {}
+    if token:
+        headers["x-kotro-control-token"] = token
+    status, _, body = http_call(
+        control_base, {"method": "GET", "path": "/api/runtime-posture", "headers": headers}, timeout
+    )
+    if status == 200:
+        try:
+            parsed = json.loads(body)
+            mode = parsed.get("enforcement_mode") or (parsed.get("kill_switch") or {}).get("mode")
+            if isinstance(mode, str) and mode.strip():
+                return mode.strip().lower()
+        except json.JSONDecodeError:
+            pass
+    status, _, body = http_call(
+        control_base, {"method": "GET", "path": "/api/kill-switch", "headers": headers}, timeout
+    )
+    if status == 200:
+        try:
+            parsed = json.loads(body)
+            mode = parsed.get("enforcement_mode") or parsed.get("mode")
+            if isinstance(mode, str) and mode.strip():
+                return mode.strip().lower()
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def security_events_since(tape: list[dict[str, Any]], since_seq: int) -> list[dict[str, Any]]:
+    return [
+        e
+        for e in tape
+        if int(e.get("seq", 0)) > since_seq and e.get("kind") in SECURITY_KINDS
+    ]
+
+
 def fetch_tape(control_base: str, token: str | None, timeout: float) -> list[dict[str, Any]]:
     """Read the flight recorder tape from the control/metrics listener (:9090)."""
     step = {"method": "GET", "path": "/api/flight-recorder", "headers": {}}
@@ -351,6 +389,7 @@ def run_scenario(
     after = fetch_tape(control_base, token, timeout)
     tape_reachable = bool(after) or bool(before)
     event = match_tape_event(after, scenario, since_seq)
+    header_mode = (headers.get("x-kotro-mode") or "").strip().lower() or None
 
     observed = classify(scenario, status, headers, body, event)
     expected = scenario["expect"]["outcome"]
@@ -367,6 +406,11 @@ def run_scenario(
     for name in scenario["expect"].get("headers_absent", []):
         if name.lower() in headers:
             detail.append(f"unexpected header {name}")
+    want_mode = scenario["expect"].get("kotro_mode")
+    if want_mode:
+        got_mode = header_mode or ""
+        if got_mode != str(want_mode).strip().lower():
+            detail.append(f"x-kotro-mode {got_mode!r} != {want_mode!r}")
     allowed = scenario["expect"].get("http_status")
     if allowed and status not in allowed:
         detail.append(f"status {status} not in {allowed}")
@@ -375,25 +419,44 @@ def run_scenario(
         got = int((event or {}).get("redaction_count") or 0)
         if got < min_redactions:
             detail.append(f"redaction_count {got} < {min_redactions}")
+    if "flight_enforced" in scenario["expect"]:
+        want_enf = bool(scenario["expect"]["flight_enforced"])
+        if event is None:
+            detail.append("missing flight event for flight_enforced check")
+        elif bool(event.get("enforced")) != want_enf:
+            detail.append(
+                f"flight enforced={event.get('enforced')!r} != {want_enf}"
+            )
+    if scenario["expect"].get("no_security_events"):
+        leaked = security_events_since(after, since_seq)
+        if leaked:
+            kinds = ",".join(sorted({str(e.get("kind")) for e in leaked}))
+            detail.append(f"unexpected security events: {kinds}")
     if status == 0:
         detail.append(body[:120])
+
+    matched = observed == expected and not detail
 
     return {
         "id": scenario["id"],
         "name": scenario["name"],
         "category": scenario["category"],
         "severity": scenario["severity"],
+        "env_group": scenario.get("env_group", "default"),
         "expected": expected,
         "observed": observed,
-        "pass": observed == expected,
+        "pass": matched,
         "http_status": status,
         "latency_ms": latency_ms,
+        "kotro_mode": header_mode,
+        "mode_dial": bool(scenario["expect"].get("mode_dial")),
         "evidence": {
             "tape_reachable": tape_reachable,
             "event_kind": (event or {}).get("kind"),
             "enforced": (event or {}).get("enforced"),
             "redaction_count": (event or {}).get("redaction_count"),
             "chain_hash": (event or {}).get("hash", "")[:16] or None,
+            "x_kotro_mode": header_mode,
         },
         "notes": "; ".join(detail),
         "gap_reason": scenario["expect"].get("gap_reason"),
@@ -403,13 +466,28 @@ def run_scenario(
 # ── reporting ────────────────────────────────────────────────────────────────
 
 
-def render_markdown(results: list[dict[str, Any]], target: str) -> str:
+def render_markdown(
+    results: list[dict[str, Any]],
+    target: str,
+    *,
+    env_group: str | None = None,
+    observed_mode: str | None = None,
+) -> str:
     measured = [r for r in results if not r.get("skipped")]
     total = len(measured)
     passed = sum(1 for r in measured if r["pass"])
     covered = sum(1 for r in measured if r["observed"] in ("prevent", "transform", "detect"))
+    modes = sorted({r.get("kotro_mode") for r in measured if r.get("kotro_mode")})
+    mode_note = observed_mode or (modes[0] if len(modes) == 1 else None)
+    if not mode_note and modes:
+        mode_note = ",".join(modes)
+    groups = sorted({r.get("env_group") for r in results if r.get("env_group")})
+    group_note = env_group or (",".join(g for g in groups if g) or None)
 
     lines = [
+        "<!-- Generated by Escape Lab live matrix run. Do not edit by hand. -->",
+        f"<!-- groups: {group_note or 'unknown'} -->",
+        f"<!-- kotro_mode: {mode_note or 'unknown'} -->",
         "# Kotro Escape Lab — coverage matrix",
         "",
         "Generated by `scripts/escape-lab.py`. Do not edit by hand.",
@@ -417,25 +495,41 @@ def render_markdown(results: list[dict[str, Any]], target: str) -> str:
         f"Scenarios: **{total}** · matching declared behaviour: **{passed}/{total}** · "
         f"prevented, transformed, or detected: **{covered}/{total}**",
         "",
+    ]
+    if mode_note or group_note:
+        lines.append(
+            f"**Measured under** `KOTRO_MODE` / `x-kotro-mode`: **`{mode_note or 'unknown'}`**"
+            + (f" · env group: `{group_note}`" if group_note else "")
+            + "."
+        )
+        lines.append("")
+        lines.append(
+            "Outcomes that say `prevent` for injection assume `KOTRO_MODE=enforce`. "
+            "At `audit` the same payload is `detect`; at `disabled` it is `none` "
+            "(see EL-12 / EL-13)."
+        )
+        lines.append("")
+    lines += [
         "`prevent` = blocked before effect. `transform` = allowed, harmful content removed. "
         "`detect` = allowed intact, flagged with evidence. "
         "`observe` = recorded without a verdict. `none` = no coverage today.",
         "",
-        "| ID | Scenario | Category | Severity | Outcome | Latency | Evidence |",
-        "|----|----------|----------|----------|---------|---------|----------|",
+        "| ID | Scenario | Category | Severity | Mode | Outcome | Latency | Evidence |",
+        "|----|----------|----------|----------|------|---------|---------|----------|",
     ]
     for r in results:
         ev = r["evidence"]
         evidence = f"`{ev['event_kind']}`" if ev.get("event_kind") else "—"
+        mode = r.get("kotro_mode") or "—"
         if r.get("skipped"):
             lines.append(
                 f"| {r['id']} | {r['name']} | {r['category']} | {r['severity']} | "
-                f"_not measured here_ | — | — |"
+                f"— | _not measured here_ | — | — |"
             )
             continue
         lines.append(
             f"| {r['id']} | {r['name']} | {r['category']} | {r['severity']} | "
-            f"**{r['observed']}** | {r['latency_ms']} ms | {evidence} |"
+            f"`{mode}` | **{r['observed']}** | {r['latency_ms']} ms | {evidence} |"
         )
 
     skipped = [r for r in results if r.get("skipped")]
@@ -445,7 +539,18 @@ def render_markdown(results: list[dict[str, Any]], target: str) -> str:
             lines.append(f"- **{r['id']} — {r['name']}**: {r['notes']}")
         lines.append("")
 
-    gaps = [r for r in results if r["observed"] == "none"]
+    dial_rows = [r for r in results if r.get("mode_dial") and not r.get("skipped")]
+    gaps = [
+        r
+        for r in results
+        if r["observed"] == "none" and not r.get("mode_dial") and not r.get("skipped")
+    ]
+    if dial_rows:
+        lines += ["", "## Mode dial assertions", ""]
+        for r in dial_rows:
+            lines.append(f"**{r['id']} — {r['name']}**  ")
+            lines.append(f"{r.get('gap_reason') or 'Asserts KOTRO_MODE dial behaviour.'}")
+            lines.append("")
     if gaps:
         lines += ["", "## Known gaps", ""]
         for r in gaps:
@@ -458,9 +563,10 @@ def render_markdown(results: list[dict[str, Any]], target: str) -> str:
         "",
         f"Each scenario is replayed against a live proxy at `{target}` from the corpus in "
         "`testdata/escape-lab/scenarios.json`. Outcome is derived from the response status, "
-        "Kotro guardrail headers, and the matching flight recorder event. Latency covers the "
-        "full scenario including repeated steps, so multi-step scenarios are not comparable "
-        "to single-request ones.",
+        "Kotro guardrail headers (including `x-kotro-mode`), and the matching flight recorder "
+        "event. The matrix header records the observed enforcement mode so prevent/detect "
+        "rows stay reproducible after C7. Latency covers the full scenario including repeated "
+        "steps, so multi-step scenarios are not comparable to single-request ones.",
         "",
         "Scenarios declaring `none` are tracked gaps with a stated compensating control or "
         "owning phase. They are expected to fail and the run is green when they do — the "
@@ -555,8 +661,11 @@ def main() -> int:
             file=sys.stderr,
         )
 
+    observed_mode = fetch_observed_mode(args.control_target, args.control_token, args.timeout)
+    mode_label = observed_mode or "unknown"
     print(
         f"{DIM}env group {args.env_group} — {len(selected)} scenario(s) · "
+        f"KOTRO_MODE={mode_label} · "
         f"proxy {args.target} · control {args.control_target}{RESET}"
     )
 
@@ -572,15 +681,18 @@ def main() -> int:
                     "name": scenario["name"],
                     "category": scenario["category"],
                     "severity": scenario["severity"],
+                    "env_group": scenario.get("env_group", "default"),
                     "expected": scenario["expect"]["outcome"],
                     "observed": "skipped",
                     "pass": True,
                     "skipped": True,
                     "http_status": None,
                     "latency_ms": 0.0,
+                    "kotro_mode": None,
+                    "mode_dial": bool(scenario["expect"].get("mode_dial")),
                     "evidence": {"tape_reachable": None, "event_kind": None,
                                  "enforced": None, "redaction_count": None,
-                                 "chain_hash": None},
+                                 "chain_hash": None, "x_kotro_mode": None},
                     "notes": "cli harness — not measurable over HTTP",
                     "gap_reason": scenario["expect"].get("gap_reason"),
                 }
@@ -620,6 +732,8 @@ def main() -> int:
         payload = {
             "target": args.target,
             "control_target": args.control_target,
+            "env_group": args.env_group,
+            "kotro_mode": observed_mode,
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "summary": {
                 "total": len(results),
@@ -633,7 +747,15 @@ def main() -> int:
 
     if args.markdown:
         Path(args.markdown).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.markdown).write_text(render_markdown(results, args.target), encoding="utf-8")
+        Path(args.markdown).write_text(
+            render_markdown(
+                results,
+                args.target,
+                env_group=args.env_group,
+                observed_mode=observed_mode,
+            ),
+            encoding="utf-8",
+        )
         print(f"{DIM}wrote {args.markdown}{RESET}")
 
     if diverged:

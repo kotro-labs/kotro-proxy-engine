@@ -536,6 +536,47 @@ mod tests {
     }
 
     #[test]
+    fn private_scope_isolates_across_sessions() {
+        // Shared-deployment claim: Private entries keyed by distinct auth
+        // scopes (e.g. two bearer tenants) must never cross-hit.
+        let c = cache();
+        let hints = CacheHints {
+            ttl_ms: Some(60_000),
+            cache_scope: CacheScope::Private,
+        };
+        let args = r#"{"path":"secret.txt"}"#;
+
+        assert!(c.put_with_hints(
+            "bearer:tenant_A",
+            "read_file",
+            args,
+            "Top Secret A",
+            Some(hints),
+        ));
+        assert!(c.put_with_hints(
+            "bearer:tenant_B",
+            "read_file",
+            args,
+            "Top Secret B",
+            Some(hints),
+        ));
+
+        assert_eq!(
+            c.get("bearer:tenant_A", "read_file", args)
+                .unwrap()
+                .content,
+            "Top Secret A"
+        );
+        assert_eq!(
+            c.get("bearer:tenant_B", "read_file", args)
+                .unwrap()
+                .content,
+            "Top Secret B"
+        );
+        assert!(c.get("bearer:tenant_C", "read_file", args).is_none());
+    }
+
+    #[test]
     fn private_scope_rejects_empty_key() {
         let c = cache();
         let hints = CacheHints {

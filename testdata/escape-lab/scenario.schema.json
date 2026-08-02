@@ -113,6 +113,19 @@
           "type": "boolean",
           "description": "Expected value of the enforced flag on the matching flight event."
         },
+        "kotro_mode": {
+          "type": "string",
+          "enum": ["disabled", "audit", "enforce"],
+          "description": "Expected value of the x-kotro-mode response header (C7 dial)."
+        },
+        "no_security_events": {
+          "type": "boolean",
+          "description": "When true, no security-kind flight events may appear after the attack (used by KOTRO_MODE=disabled)."
+        },
+        "mode_dial": {
+          "type": "boolean",
+          "description": "When true, this row asserts dial behaviour rather than a product coverage gap. Excluded from the Known gaps section."
+        },
         "gap_reason": {
           "type": "string",
           "description": "Required when outcome is none. States why there is no coverage and which phase addresses it."

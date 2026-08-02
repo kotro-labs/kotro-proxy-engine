@@ -32,12 +32,18 @@ corpus, `2` no proxy reachable at `--target`.
 ## Env groups
 
 Some scenarios need mutually exclusive proxy configuration — injection warn mode
-and block mode cannot both be true in one process. Scenarios sharing a config
+and block mode cannot both be true in one process, and `KOTRO_MODE` is a
+three-way dial (`disabled` | `audit` | `enforce`). Scenarios sharing a config
 form an `env_group`, and the runner executes one group per invocation. CI runs a
 job per group, starting the proxy with that group's environment.
 
 `--list-groups` prints each group with the environment it expects. A scenario
 with no special requirement belongs to `default`.
+
+Every response carries `x-kotro-mode`. The runner records the observed mode in
+results JSON and stamps it into the matrix header so published `prevent` /
+`detect` rows stay reproducible. EL-12 (`mode-audit`) and EL-13
+(`mode-disabled`) assert the dial itself.
 
 ## Harnesses
 
