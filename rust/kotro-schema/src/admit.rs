@@ -248,9 +248,7 @@ fn walk_schema(
             }
 
             if let Some(arr) = obj.get("enum").and_then(Value::as_array) {
-                stats.enum_entries = stats
-                    .enum_entries
-                    .saturating_add(arr.len() as u32);
+                stats.enum_entries = stats.enum_entries.saturating_add(arr.len() as u32);
                 stats.enum_bytes = stats
                     .enum_bytes
                     .saturating_add(serde_json::to_vec(arr).map(|b| b.len()).unwrap_or(0));
@@ -258,9 +256,8 @@ fn walk_schema(
 
             for key in ["allOf", "anyOf", "oneOf"] {
                 if let Some(arr) = obj.get(key).and_then(Value::as_array) {
-                    stats.combinator_branches = stats
-                        .combinator_branches
-                        .saturating_add(arr.len() as u32);
+                    stats.combinator_branches =
+                        stats.combinator_branches.saturating_add(arr.len() as u32);
                     for sub in arr {
                         walk_schema(sub, depth + 1, limits, stats)?;
                     }

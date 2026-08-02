@@ -16,8 +16,8 @@ pub use error::{AdmissionOutcome, DecisionReason, SanitizedError, SchemaError};
 pub use jcs::{args_hash, canonicalize, short_args_hash};
 pub use limits::ResourceLimits;
 pub use validate::{
-    apply_mode, compile, parse_arguments, parse_json_rejecting_duplicates,
-    AdmittedSchema, ValidationResult,
+    apply_mode, compile, parse_arguments, parse_json_rejecting_duplicates, AdmittedSchema,
+    ValidationResult,
 };
 
 /// Compatibility shim matching the old `mcp::schema::validate` signature.

@@ -17,10 +17,23 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y pkg-config
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: rust -> target
+
+      # Whole-workspace rustfmt is currently blocked by kotro-core's declared
+      # but not-yet-landed optional semantic module. Keep the security-contract
+      # crates clean now and expand this gate when that module lands.
+      - name: Contract crate formatting
+        working-directory: rust
+        run: cargo fmt -p kotro-schema -p kotro-types -- --check
+
+      - name: Contract crate clippy
+        working-directory: rust
+        run: cargo clippy -p kotro-schema -p kotro-types --all-targets -- -D warnings
 
       - name: Rust tests
         working-directory: rust

@@ -46,7 +46,12 @@ impl TrustStore {
         serde_json::from_slice(&bytes).map_err(|_| TaskReason::TaskMalformed)
     }
 
-    pub fn find_active(&self, key_id: &str, issuer: &str, now: &str) -> Result<&TrustKey, TaskReason> {
+    pub fn find_active(
+        &self,
+        key_id: &str,
+        issuer: &str,
+        now: &str,
+    ) -> Result<&TrustKey, TaskReason> {
         if self.revoked_key_ids.iter().any(|k| k == key_id) {
             return Err(TaskReason::TaskKeyRevoked);
         }

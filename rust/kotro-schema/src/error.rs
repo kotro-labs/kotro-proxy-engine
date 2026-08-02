@@ -12,7 +12,11 @@ pub struct SanitizedError {
 }
 
 impl SanitizedError {
-    pub fn new(path: impl Into<String>, keyword: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(
+        path: impl Into<String>,
+        keyword: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             path: path.into(),
             keyword: keyword.into(),

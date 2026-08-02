@@ -183,9 +183,6 @@ pub fn envelope_digest(envelope: &TaskEnvelope) -> Result<String, String> {
 pub fn key_id_for_public_key(raw32: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(raw32);
-    let b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-        digest,
-    );
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, digest);
     format!("ed25519:{b64}")
 }

@@ -1,7 +1,10 @@
 //! TaskEnvelope verification, non-expansion, and authority intersection.
 
+use std::collections::HashSet;
+
 use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::Value;
 
 use crate::envelope::{
@@ -36,8 +39,7 @@ pub fn parse_envelope_bytes(raw: &[u8]) -> Result<TaskEnvelope, TaskReason> {
     let value = if looks_like_yaml(text) {
         parse_restricted_yaml(text)?
     } else {
-        reject_duplicate_keys(raw)?;
-        serde_json::from_slice(raw).map_err(|_| TaskReason::TaskMalformed)?
+        parse_json_rejecting_duplicates(raw)?
     };
     // `deny_unknown_fields` on TaskEnvelope rejects undeclared properties.
     serde_json::from_value(value).map_err(|_| TaskReason::TaskSchemaInvalid)
@@ -59,14 +61,16 @@ fn parse_restricted_yaml(text: &str) -> Result<Value, TaskReason> {
     {
         return Err(TaskReason::TaskMalformed);
     }
-    let v: Value = serde_yaml::from_str(text).map_err(|_| TaskReason::TaskMalformed)?;
+    let mut documents = serde_yaml::Deserializer::from_str(text);
+    let document = documents.next().ok_or(TaskReason::TaskMalformed)?;
+    let v = NoDuplicateValue
+        .deserialize(document)
+        .map_err(|_| TaskReason::TaskMalformed)?;
+    if documents.next().is_some() {
+        return Err(TaskReason::TaskMalformed);
+    }
     reject_non_json_yaml(&v)?;
-    // Re-serialize to JSON bytes and reject duplicate keys in that form is
-    // insufficient for YAML duplicates; serde_yaml already errors on some.
-    // Round-trip through JSON with deny_unknown on struct parse.
-    let bytes = serde_json::to_vec(&v).map_err(|_| TaskReason::TaskMalformed)?;
-    reject_duplicate_keys(&bytes)?;
-    serde_json::from_slice(&bytes).map_err(|_| TaskReason::TaskMalformed)
+    Ok(v)
 }
 
 fn reject_non_json_yaml(v: &Value) -> Result<(), TaskReason> {
@@ -96,125 +100,106 @@ fn reject_non_json_yaml(v: &Value) -> Result<(), TaskReason> {
     }
 }
 
-/// Structural scan that rejects duplicate object keys before serde collapses them.
-fn reject_duplicate_keys(raw: &[u8]) -> Result<(), TaskReason> {
-    let text = std::str::from_utf8(raw).map_err(|_| TaskReason::TaskMalformed)?;
-    let mut chars = text.chars().peekable();
-    scan_json_value(&mut chars)
+fn parse_json_rejecting_duplicates(raw: &[u8]) -> Result<Value, TaskReason> {
+    let mut deserializer = serde_json::Deserializer::from_slice(raw);
+    let value = NoDuplicateValue
+        .deserialize(&mut deserializer)
+        .map_err(|_| TaskReason::TaskMalformed)?;
+    deserializer.end().map_err(|_| TaskReason::TaskMalformed)?;
+    Ok(value)
 }
 
-fn scan_json_value(
-    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
-) -> Result<(), TaskReason> {
-    skip_ws(chars);
-    match chars.peek().copied() {
-        Some('{') => scan_json_object(chars),
-        Some('[') => {
-            chars.next();
-            skip_ws(chars);
-            if chars.peek() == Some(&']') {
-                chars.next();
-                return Ok(());
+struct NoDuplicateValue;
+
+impl<'de> DeserializeSeed<'de> for NoDuplicateValue {
+    type Value = Value;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(NoDuplicateValueVisitor)
+    }
+}
+
+struct NoDuplicateValueVisitor;
+
+impl<'de> Visitor<'de> for NoDuplicateValueVisitor {
+    type Value = Value;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a JSON-compatible value without duplicate object keys")
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+        Ok(Value::Bool(value))
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(Value::Number(value.into()))
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(Value::Number(value.into()))
+    }
+
+    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        serde_json::Number::from_f64(value)
+            .map(Value::Number)
+            .ok_or_else(|| E::custom("invalid JSON number"))
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(Value::String(value.to_owned()))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+        Ok(Value::String(value))
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        NoDuplicateValue.deserialize(deserializer)
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut values = Vec::new();
+        while let Some(value) = sequence.next_element_seed(NoDuplicateValue)? {
+            values.push(value);
+        }
+        Ok(Value::Array(values))
+    }
+
+    fn visit_map<A>(self, mut object: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut seen = HashSet::new();
+        let mut values = serde_json::Map::new();
+        while let Some(key) = object.next_key::<String>()? {
+            if !seen.insert(key.clone()) {
+                return Err(de::Error::custom("duplicate object key"));
             }
-            loop {
-                scan_json_value(chars)?;
-                skip_ws(chars);
-                match chars.next() {
-                    Some(',') => continue,
-                    Some(']') => return Ok(()),
-                    _ => return Err(TaskReason::TaskMalformed),
-                }
-            }
+            values.insert(key, object.next_value_seed(NoDuplicateValue)?);
         }
-        Some('"') => {
-            let _ = read_json_string(chars)?;
-            Ok(())
-        }
-        Some('t') => consume_lit(chars, "true"),
-        Some('f') => consume_lit(chars, "false"),
-        Some('n') => consume_lit(chars, "null"),
-        Some('-') | Some('0'..='9') => {
-            while matches!(chars.peek(), Some(c) if "0123456789-+eE.".contains(*c)) {
-                chars.next();
-            }
-            Ok(())
-        }
-        _ => Err(TaskReason::TaskMalformed),
+        Ok(Value::Object(values))
     }
-}
-
-fn scan_json_object(
-    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
-) -> Result<(), TaskReason> {
-    chars.next();
-    skip_ws(chars);
-    let mut seen = std::collections::HashSet::new();
-    if chars.peek() == Some(&'}') {
-        chars.next();
-        return Ok(());
-    }
-    loop {
-        skip_ws(chars);
-        let key = read_json_string(chars)?;
-        if !seen.insert(key) {
-            return Err(TaskReason::TaskMalformed);
-        }
-        skip_ws(chars);
-        if chars.next() != Some(':') {
-            return Err(TaskReason::TaskMalformed);
-        }
-        scan_json_value(chars)?;
-        skip_ws(chars);
-        match chars.next() {
-            Some(',') => continue,
-            Some('}') => return Ok(()),
-            _ => return Err(TaskReason::TaskMalformed),
-        }
-    }
-}
-
-fn skip_ws(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
-    while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
-        chars.next();
-    }
-}
-
-fn read_json_string(
-    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
-) -> Result<String, TaskReason> {
-    if chars.next() != Some('"') {
-        return Err(TaskReason::TaskMalformed);
-    }
-    let mut out = String::new();
-    loop {
-        match chars.next() {
-            Some('\\') => {
-                let esc = chars.next().ok_or(TaskReason::TaskMalformed)?;
-                out.push('\\');
-                out.push(esc);
-                if esc == 'u' {
-                    for _ in 0..4 {
-                        out.push(chars.next().ok_or(TaskReason::TaskMalformed)?);
-                    }
-                }
-            }
-            Some('"') => return Ok(out),
-            Some(c) => out.push(c),
-            None => return Err(TaskReason::TaskMalformed),
-        }
-    }
-}
-
-fn consume_lit(
-    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
-    lit: &str,
-) -> Result<(), TaskReason> {
-    for expected in lit.chars() {
-        if chars.next() != Some(expected) {
-            return Err(TaskReason::TaskMalformed);
-        }
-    }
-    Ok(())
 }
 
 pub fn verify(
@@ -344,7 +329,10 @@ fn validate_shape(envelope: &TaskEnvelope) -> Result<(), TaskReason> {
     Ok(())
 }
 
-fn verify_signature(envelope: &TaskEnvelope, ctx: &VerificationContext<'_>) -> Result<(), TaskReason> {
+fn verify_signature(
+    envelope: &TaskEnvelope,
+    ctx: &VerificationContext<'_>,
+) -> Result<(), TaskReason> {
     let key_b64 = if envelope.parent.is_none() {
         ctx.trust
             .find_active(
@@ -388,7 +376,10 @@ fn resolve_child_public_key(
     envelope: &TaskEnvelope,
     ctx: &VerificationContext<'_>,
 ) -> Result<String, TaskReason> {
-    let parent_ref = envelope.parent.as_ref().ok_or(TaskReason::TaskParentMissing)?;
+    let parent_ref = envelope
+        .parent
+        .as_ref()
+        .ok_or(TaskReason::TaskParentMissing)?;
     let parent = ctx
         .parents
         .get(&parent_ref.digest)
@@ -454,12 +445,13 @@ pub fn check_non_expansion(parent: &TaskEnvelope, child: &TaskEnvelope) -> Resul
     if child.delegation.max_depth > parent.delegation.max_depth {
         return Err(TaskReason::TaskCapabilityExpansion);
     }
-    if !child
-        .delegation
-        .signers
-        .iter()
-        .all(|s| parent.delegation.signers.iter().any(|p| p.key_id == s.key_id))
-    {
+    if !child.delegation.signers.iter().all(|s| {
+        parent
+            .delegation
+            .signers
+            .iter()
+            .any(|p| p.key_id == s.key_id)
+    }) {
         return Err(TaskReason::TaskCapabilityExpansion);
     }
     check_caps_narrow(&parent.capabilities, &child.capabilities)?;
@@ -481,7 +473,10 @@ fn check_caps_narrow(parent: &Capabilities, child: &Capabilities) -> Result<(), 
             _ => {}
         }
         match (&pt.arguments, &ct.arguments) {
-            (Some(ArgumentConstraint::Exact { hashes: ph }), Some(ArgumentConstraint::Exact { hashes: ch })) => {
+            (
+                Some(ArgumentConstraint::Exact { hashes: ph }),
+                Some(ArgumentConstraint::Exact { hashes: ch }),
+            ) => {
                 if !ch.iter().all(|h| ph.contains(h)) {
                     return Err(TaskReason::TaskCapabilityExpansion);
                 }
@@ -510,7 +505,11 @@ fn check_caps_narrow(parent: &Capabilities, child: &Capabilities) -> Result<(), 
         }
     }
     for cd in &child.destinations {
-        if !parent.destinations.iter().any(|pd| destination_narrows(pd, cd)) {
+        if !parent
+            .destinations
+            .iter()
+            .any(|pd| destination_narrows(pd, cd))
+        {
             return Err(TaskReason::TaskCapabilityExpansion);
         }
     }
@@ -523,7 +522,10 @@ fn check_caps_narrow(parent: &Capabilities, child: &Capabilities) -> Result<(), 
         }
     }
     for cf in &child.filesystem {
-        let Some(pf) = parent.filesystem.iter().find(|p| path_is_descendant(&p.root, &cf.root))
+        let Some(pf) = parent
+            .filesystem
+            .iter()
+            .find(|p| path_is_descendant(&p.root, &cf.root))
         else {
             return Err(TaskReason::TaskCapabilityExpansion);
         };
@@ -567,7 +569,10 @@ fn destination_narrows(parent: &DestinationCapability, child: &DestinationCapabi
 }
 
 fn path_is_descendant(parent_root: &str, child_root: &str) -> bool {
-    match (normalize_fs_path(parent_root), normalize_fs_path(child_root)) {
+    match (
+        normalize_fs_path(parent_root),
+        normalize_fs_path(child_root),
+    ) {
         (Some(p), Some(c)) => path_prefix_descendant(&p, &c),
         _ => false,
     }
@@ -782,7 +787,10 @@ mod tests {
             expected_audience: Some("kotro://deployment/acme"),
             kill_engaged: false,
         };
-        assert_eq!(verify(&env, &ctx).unwrap_err(), TaskReason::TaskSignatureInvalid);
+        assert_eq!(
+            verify(&env, &ctx).unwrap_err(),
+            TaskReason::TaskSignatureInvalid
+        );
     }
 
     #[test]
@@ -835,15 +843,41 @@ mod tests {
         let sk = SigningKey::generate(&mut OsRng);
         let env = sample_envelope(&sk);
         let mut v = serde_json::to_value(&env).unwrap();
-        v.as_object_mut().unwrap().insert("extra".into(), serde_json::json!(true));
+        v.as_object_mut()
+            .unwrap()
+            .insert("extra".into(), serde_json::json!(true));
         let raw = serde_json::to_vec(&v).unwrap();
-        assert_eq!(parse_envelope_bytes(&raw).unwrap_err(), TaskReason::TaskSchemaInvalid);
+        assert_eq!(
+            parse_envelope_bytes(&raw).unwrap_err(),
+            TaskReason::TaskSchemaInvalid
+        );
     }
 
     #[test]
     fn rejects_duplicate_json_keys() {
         let raw = br#"{"api_version":"kotro.dev/v1alpha1","api_version":"x"}"#;
-        assert_eq!(parse_envelope_bytes(raw).unwrap_err(), TaskReason::TaskMalformed);
+        assert_eq!(
+            parse_envelope_bytes(raw).unwrap_err(),
+            TaskReason::TaskMalformed
+        );
+    }
+
+    #[test]
+    fn rejects_escaped_duplicate_json_keys() {
+        let raw = br#"{"api_version":"kotro.dev/v1alpha1","api_\u0076ersion":"x"}"#;
+        assert_eq!(
+            parse_envelope_bytes(raw).unwrap_err(),
+            TaskReason::TaskMalformed
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_yaml_keys() {
+        let raw = b"api_version: kotro.dev/v1alpha1\napi_version: x\n";
+        assert_eq!(
+            parse_envelope_bytes(raw).unwrap_err(),
+            TaskReason::TaskMalformed
+        );
     }
 
     #[test]
@@ -870,7 +904,10 @@ mod tests {
             expected_audience: Some("kotro://deployment/acme"),
             kill_engaged: false,
         };
-        assert_eq!(verify(&env, &ctx_expired).unwrap_err(), TaskReason::TaskExpired);
+        assert_eq!(
+            verify(&env, &ctx_expired).unwrap_err(),
+            TaskReason::TaskExpired
+        );
     }
 
     #[test]
@@ -886,7 +923,10 @@ mod tests {
             expected_audience: Some("kotro://deployment/other"),
             kill_engaged: false,
         };
-        assert_eq!(verify(&env, &ctx).unwrap_err(), TaskReason::TaskActionOutOfScope);
+        assert_eq!(
+            verify(&env, &ctx).unwrap_err(),
+            TaskReason::TaskActionOutOfScope
+        );
     }
 
     #[test]

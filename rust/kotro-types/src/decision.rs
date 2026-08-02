@@ -38,11 +38,7 @@ impl DecisionId {
 
 mod hex {
     pub fn encode_from_digest(digest: &impl AsRef<[u8]>) -> String {
-        digest
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect()
+        digest.as_ref().iter().map(|b| format!("{b:02x}")).collect()
     }
 }
 
