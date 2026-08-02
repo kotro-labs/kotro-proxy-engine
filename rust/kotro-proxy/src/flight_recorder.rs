@@ -29,7 +29,7 @@ const META: TableDefinition<&str, &[u8]> = TableDefinition::new("flight_meta");
 /// Chain-hash layout written by this build. Bump only when adding a field to
 /// the hashed body, and add a matching `chain_material_vN` — never edit an
 /// existing one.
-pub const CHAIN_SCHEMA_VERSION: u16 = 1;
+pub const CHAIN_SCHEMA_VERSION: u16 = 2;
 
 const META_HMAC_KEY: &str = "hmac_key";
 const META_KILL_SCOPE: &str = "kill_scope";
@@ -193,6 +193,15 @@ pub struct FlightEvent {
     pub trace_id: String,
     #[serde(default)]
     pub span_id: String,
+    /// Principal subject (email / OIDC sub / local user). Chained at v2+.
+    #[serde(default)]
+    pub principal_subject: String,
+    #[serde(default)]
+    pub principal_issuer: String,
+    #[serde(default)]
+    pub agent_name: String,
+    #[serde(default)]
+    pub agent_instance: String,
     #[serde(default)]
     pub destination: String,
     #[serde(default)]
@@ -243,7 +252,8 @@ impl FlightEvent {
     fn chain_material(&self) -> Vec<u8> {
         match self.schema_version {
             0 => self.chain_material_v0(),
-            _ => self.chain_material_v1(),
+            1 => self.chain_material_v1(),
+            _ => self.chain_material_v2(),
         }
     }
 
@@ -335,6 +345,53 @@ impl FlightEvent {
         out
     }
 
+    /// Chain body for `schema_version == 2`: v1 plus principal/agent identity.
+    ///
+    /// COMPATIBILITY: do not edit `chain_material_v1`; identity fields land here
+    /// behind a version bump so v1 tapes still verify.
+    fn chain_material_v2(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(384);
+        out.extend_from_slice(self.prev_hash.as_bytes());
+        let body = serde_json::json!([
+            self.schema_version,
+            self.seq,
+            self.at,
+            self.plane,
+            self.kind,
+            self.session,
+            self.task_id,
+            self.parent_task_id,
+            self.decision_id,
+            self.rule_id,
+            self.policy_revision,
+            self.tool_call_id,
+            self.trace_id,
+            self.span_id,
+            self.principal_subject,
+            self.principal_issuer,
+            self.agent_name,
+            self.agent_instance,
+            self.destination,
+            self.credential_id,
+            self.provider,
+            self.model,
+            self.route,
+            self.tool_name,
+            self.server,
+            self.cache_status,
+            self.prompt_hash,
+            self.estimated_tokens,
+            self.latency_ms,
+            self.redaction_count,
+            self.tool_rounds,
+            self.provenance,
+            self.detail,
+            self.enforced,
+        ]);
+        out.extend_from_slice(serde_json::to_string(&body).unwrap_or_default().as_bytes());
+        out
+    }
+
     fn compute_hash(&self) -> String {
         let digest = Sha256::digest(self.chain_material());
         hex(&digest)
@@ -351,8 +408,15 @@ impl FlightEvent {
             session: self.session.clone(),
             task_id: kotro_types::TaskId::new(self.task_id.clone()),
             parent_task_id: kotro_types::TaskId::new(self.parent_task_id.clone()),
-            principal: kotro_types::Principal::default(),
-            agent: kotro_types::AgentIdentity::default(),
+            principal: kotro_types::Principal {
+                subject: self.principal_subject.clone(),
+                issuer: self.principal_issuer.clone(),
+            },
+            agent: kotro_types::AgentIdentity {
+                name: self.agent_name.clone(),
+                instance: self.agent_instance.clone(),
+                workload_identity: String::new(),
+            },
             decision_id: self.decision_id.clone(),
             rule_id: self.rule_id.clone(),
             policy_revision: self.policy_revision.clone(),
@@ -407,6 +471,14 @@ pub struct FlightDraft {
     pub trace_id: String,
     #[serde(default)]
     pub span_id: String,
+    #[serde(default)]
+    pub principal_subject: String,
+    #[serde(default)]
+    pub principal_issuer: String,
+    #[serde(default)]
+    pub agent_name: String,
+    #[serde(default)]
+    pub agent_instance: String,
     #[serde(default)]
     pub destination: String,
     #[serde(default)]
@@ -596,6 +668,10 @@ impl FlightRecorder {
             tool_call_id: draft.tool_call_id,
             trace_id: draft.trace_id,
             span_id: draft.span_id,
+            principal_subject: draft.principal_subject,
+            principal_issuer: draft.principal_issuer,
+            agent_name: draft.agent_name,
+            agent_instance: draft.agent_instance,
             destination: draft.destination,
             credential_id: draft.credential_id,
             provider: draft.provider,
@@ -1071,7 +1147,7 @@ mod tests {
 
         let rec = FlightRecorder::open(true, 50, DEFAULT_MAX_AGE_SECS, &path).unwrap();
         let modern = rec.record(draft("modern")).expect("recorded");
-        assert_eq!(modern.schema_version, 1, "new events must be written at v1");
+        assert_eq!(modern.schema_version, CHAIN_SCHEMA_VERSION, "new events must be written at current chain version");
         assert_eq!(
             modern.prev_hash, legacy[1].hash,
             "v1 event did not chain onto the trailing v0 event"
@@ -1096,7 +1172,7 @@ mod tests {
         let ev = rec.record(d).expect("recorded");
 
         assert_eq!(ev.schema_version, CHAIN_SCHEMA_VERSION);
-        assert_eq!(ev.schema_version, 1);
+        assert_eq!(ev.schema_version, 2);
 
         // Rewriting trace attribution must break the chain. Before this change
         // the fields sat outside the hash and this mutation verified clean.
@@ -1135,6 +1211,32 @@ mod tests {
              part of the v1 hashed body"
         );
     }
+
+
+    #[test]
+    fn v2_covers_principal_and_agent() {
+        let rec = FlightRecorder::new(true, 10);
+        let mut d = draft("id");
+        d.principal_subject = "alice".into();
+        d.principal_issuer = "https://issuer.example".into();
+        d.agent_name = "claude-code".into();
+        d.agent_instance = "laptop".into();
+        let ev = rec.record(d).unwrap();
+        assert_eq!(ev.schema_version, 2);
+        let exported = ev.to_kotro_event();
+        assert_eq!(exported.principal.subject, "alice");
+        assert_eq!(exported.agent.name, "claude-code");
+
+        let mut forged = ev.clone();
+        forged.principal_subject = "mallory".into();
+        assert_ne!(forged.compute_hash(), ev.hash, "principal must be chained at v2");
+
+        // Downgrade to v1 sheds identity from the digest.
+        let mut downgraded = ev.clone();
+        downgraded.schema_version = 1;
+        assert_ne!(downgraded.compute_hash(), ev.hash);
+    }
+
 
     #[test]
     fn tamper_detection_on_modified_event() {

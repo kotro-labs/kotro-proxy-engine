@@ -18,6 +18,7 @@ pub mod flight_recorder;
 pub mod graph;
 pub mod guardrail;
 pub mod hook;
+pub mod identity_ctx;
 pub mod isolate;
 pub mod mcp;
 pub mod optimizer;

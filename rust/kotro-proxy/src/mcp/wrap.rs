@@ -61,6 +61,8 @@ struct Governance {
     enforces: bool,
     /// SEP-2549 list/resource-read result cache.
     list_cache: super::list_cache::ListResultCache,
+    /// Process/env identity (task, principal, agent) for flight + approvals.
+    identity: crate::identity_ctx::IdentityContext,
 }
 
 impl Governance {
@@ -85,6 +87,7 @@ impl Governance {
             admitted: Mutex::new(HashMap::new()),
             enforces,
             list_cache: super::list_cache::ListResultCache::new(),
+            identity: crate::identity_ctx::IdentityContext::from_env(),
         })
     }
 
@@ -122,6 +125,7 @@ impl Governance {
             rule_id,
             reason_code,
             &super::trace::TraceContext::default(),
+            &self.identity,
         );
     }
 
@@ -135,6 +139,7 @@ impl Governance {
         rule_id: &str,
         reason_code: &str,
         trace: &super::trace::TraceContext,
+        identity: &crate::identity_ctx::IdentityContext,
     ) {
         let policy_revision = self.engine.revision();
         let decision_id = {
@@ -151,7 +156,7 @@ impl Governance {
             let bytes = serde_json::to_vec(&material).unwrap_or_default();
             kotro_types::DecisionId::from_fingerprint(&bytes).0
         };
-        self.reporter.report(serde_json::json!({
+        let mut draft = serde_json::json!({
             "plane": "mcp",
             "kind": kind,
             "server": self.server,
@@ -165,7 +170,11 @@ impl Governance {
             "policy_revision": policy_revision,
             "trace_id": trace.trace_id,
             "span_id": trace.span_id,
-        }));
+        });
+        if let Some(obj) = draft.as_object_mut() {
+            obj.extend(identity.to_report_fields());
+        }
+        self.reporter.report(draft);
         let decision = if kind == "tool_denied" {
             if enforced { "deny" } else { "observe" }
         } else {
@@ -190,6 +199,10 @@ impl Governance {
             .to_string();
         let args = params.get("arguments").cloned().unwrap_or(Value::Null);
         let trace = super::trace::TraceContext::from_rpc_params(&params);
+        let mut call_identity = self.identity.clone();
+        if let Some(meta) = params.get("_meta") {
+            call_identity.merge_mcp_meta(meta);
+        }
         // Bound encoded argument size before any schema work (MCP Value path).
         if serde_json::to_vec(&args).map(|b| b.len()).unwrap_or(usize::MAX)
             > kotro_schema::ResourceLimits::HARD.encoded_arguments_size
@@ -306,6 +319,7 @@ impl Governance {
                     &decision.rule_id,
                     "allow",
                     &trace,
+                    &call_identity,
                 );
                 Ok(())
             }
@@ -319,6 +333,7 @@ impl Governance {
                     &decision.rule_id,
                     "deny",
                     &trace,
+                    &call_identity,
                 );
                 Err((
                     ERR_POLICY_DENIED,
@@ -329,11 +344,25 @@ impl Governance {
                 ))
             }
             policy::Action::Ask => {
-                let args_hash = kotro_schema::short_args_hash(&args)
-                    .unwrap_or_else(|_| short_sha256(args.to_string().as_bytes()));
+                let args_hash = kotro_schema::args_hash(&args).unwrap_or_else(|_| {
+                    format!("sha256:{}", short_sha256(args.to_string().as_bytes()))
+                });
+                let schema_digest = self
+                    .admitted
+                    .lock()
+                    .get(&tool)
+                    .map(|s| s.digest.clone())
+                    .unwrap_or_default();
                 if self
                     .reporter
-                    .check_approval(&self.server, &tool, &args_hash, &decision.evidence)
+                    .check_approval(
+                        &self.server,
+                        &tool,
+                        &args_hash,
+                        &call_identity.task_id,
+                        &schema_digest,
+                        &decision.evidence,
+                    )
                     .await
                 {
                     self.event_decision_traced(
@@ -345,6 +374,7 @@ impl Governance {
                         &decision.rule_id,
                         "approved",
                         &trace,
+                    &call_identity,
                     );
                     return Ok(());
                 }
@@ -360,13 +390,20 @@ impl Governance {
                     &decision.rule_id,
                     "ask",
                     &trace,
+                    &call_identity,
                 );
                 Err((
                     ERR_POLICY_DENIED,
                     format!(
                         "[KOTRO APPROVAL REQUIRED] '{tool}' needs approval ({}). Grant it with: \
-                         kotro-proxy approve --server {} --tool {tool} --args-hash {args_hash}",
-                        decision.evidence, self.server
+                         kotro-proxy approve --server {} --tool {tool} --args-hash {args_hash}{}",
+                        decision.evidence,
+                        self.server,
+                        if call_identity.task_id.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" --task-id {}", call_identity.task_id)
+                        }
                     ),
                 ))
             }

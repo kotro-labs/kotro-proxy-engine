@@ -171,6 +171,8 @@ async fn run_approve(args: &[String]) -> i32 {
         return 1;
     };
     let session = arg_value(args, "--session");
+    let task_id = arg_value(args, "--task-id");
+    let schema_digest = arg_value(args, "--schema-digest");
     let ttl_secs = arg_value(args, "--ttl")
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(300);
@@ -203,6 +205,8 @@ async fn run_approve(args: &[String]) -> i32 {
         "server": server,
         "tool": tool,
         "args_hash": args_hash,
+        "task_id": task_id,
+        "schema_digest": schema_digest,
         "session": session,
         "ttl_secs": ttl_secs,
     });
@@ -215,8 +219,9 @@ async fn run_approve(args: &[String]) -> i32 {
     match resp {
         Ok(r) if r.status().is_success() => {
             println!(
-                "approved '{tool}' on '{server}' (args {args_hash}) for {ttl_secs}s{}",
-                session.map(|s| format!(" in session {s}")).unwrap_or_default()
+                "approved '{tool}' on '{server}' (args {args_hash}) for {ttl_secs}s{}{}",
+                session.map(|s| format!(" in session {s}")).unwrap_or_default(),
+                task_id.map(|t| format!(" task {t}")).unwrap_or_default()
             );
             0
         }

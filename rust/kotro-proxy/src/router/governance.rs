@@ -132,7 +132,7 @@ pub fn record_flight(
     } else {
         (String::new(), 0)
     };
-    let event = state.flight_recorder.record(FlightDraft {
+    let mut draft = FlightDraft {
         plane: "llm".into(),
         kind,
         session: session.into(),
@@ -148,7 +148,9 @@ pub fn record_flight(
         detail: detail.into(),
         enforced,
         ..Default::default()
-    });
+    };
+    crate::identity_ctx::IdentityContext::from_env().apply_to_draft(&mut draft);
+    let event = state.flight_recorder.record(draft);
     // GenAI OTel span — identifiers only, never prompt content.
     crate::telemetry::genai::record_llm_span(
         session,

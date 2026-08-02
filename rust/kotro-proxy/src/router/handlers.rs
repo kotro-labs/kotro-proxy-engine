@@ -601,6 +601,10 @@ pub struct ApprovalQuery {
     pub tool: String,
     pub args_hash: String,
     #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub schema_digest: Option<String>,
+    #[serde(default)]
     pub session: Option<String>,
     /// Optional reason string; when present and the check misses, the call is
     /// queued as a pending approval for the local approval UX.
@@ -618,17 +622,30 @@ pub async fn handle_api_approvals_check(
     Query(q): Query<ApprovalQuery>,
 ) -> Response {
     let session = q.session.as_deref().unwrap_or("");
-    let granted = state
-        .approvals
-        .check(&q.server, &q.tool, &q.args_hash, session);
+    let task_id = q.task_id.as_deref().unwrap_or("");
+    let schema_digest = q.schema_digest.as_deref().unwrap_or("");
+    let granted = state.approvals.check(
+        &q.server,
+        &q.tool,
+        &q.args_hash,
+        task_id,
+        schema_digest,
+        session,
+    );
     if !granted {
         if let Some(reason) = q.reason.as_deref().filter(|r| !r.is_empty()) {
             if let Err(resp) = control_auth::require_control_token(&state.control_token, &headers) {
                 return resp;
             }
-            state
-                .approvals
-                .note_pending(&q.server, &q.tool, &q.args_hash, session, reason);
+            state.approvals.note_pending(
+                &q.server,
+                &q.tool,
+                &q.args_hash,
+                task_id,
+                schema_digest,
+                session,
+                reason,
+            );
         }
     }
     (
@@ -656,6 +673,10 @@ pub struct ApprovalGrantBody {
     pub tool: String,
     pub args_hash: String,
     #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub schema_digest: Option<String>,
+    #[serde(default)]
     pub session: Option<String>,
     /// Seconds; clamped to [1, 3600]. Default 300.
     #[serde(default)]
@@ -673,21 +694,31 @@ pub async fn handle_api_approvals_grant(
     }
     let ttl = std::time::Duration::from_secs(body.ttl_secs.unwrap_or(300));
     let session = body.session.as_deref().unwrap_or("");
-    state
-        .approvals
-        .grant(&body.server, &body.tool, &body.args_hash, session, ttl);
+    let task_id = body.task_id.as_deref().unwrap_or("");
+    let schema_digest = body.schema_digest.as_deref().unwrap_or("");
+    state.approvals.grant(
+        &body.server,
+        &body.tool,
+        &body.args_hash,
+        task_id,
+        schema_digest,
+        session,
+        ttl,
+    );
     state.flight_recorder.record(FlightDraft {
         plane: "ops".into(),
         kind: FlightKind::Approval,
         session: session.into(),
+        task_id: task_id.into(),
         server: body.server.clone(),
         tool_name: body.tool.clone(),
         route: "/api/approvals".into(),
         detail: format!(
-            "operator granted '{}' on '{}' (args {}) for {}s",
+            "operator granted '{}' on '{}' (args {}, task {}) for {}s",
             body.tool,
             body.server,
             body.args_hash,
+            if task_id.is_empty() { "-" } else { task_id },
             ttl.as_secs()
         ),
         enforced: false,

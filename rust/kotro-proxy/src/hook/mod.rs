@@ -183,7 +183,10 @@ pub async fn evaluate(
     let reporter = Reporter::new(state_dir, event.session.clone());
     let ctx = context_for(event);
     let provenance = signal_tokens(&ctx, &event.input);
-    let args_hash = short_sha256(event.input.to_string().as_bytes());
+    let identity = crate::identity_ctx::IdentityContext::from_env();
+    let args_hash = kotro_schema::args_hash(&event.input).unwrap_or_else(|_| {
+        format!("sha256:{}", short_sha256(event.input.to_string().as_bytes()))
+    });
 
     // PostToolUse: observe only (scan output for secrets, feed the graph).
     if event.is_post() {
@@ -199,7 +202,7 @@ pub async fn evaluate(
             }
             prov.push_str(graph::SECRET_OUTPUT);
         }
-        reporter.report(serde_json::json!({
+        let mut draft = serde_json::json!({
             "plane": "hook",
             "kind": "tool_call",
             "server": "claude-code",
@@ -208,7 +211,11 @@ pub async fn evaluate(
             "detail": format!("post-tool-use observed ({})", ctx.class.as_str()),
             "enforced": false,
             "provenance": prov,
-        }));
+        });
+        if let Some(obj) = draft.as_object_mut() {
+            obj.extend(identity.to_report_fields());
+        }
+        reporter.report(draft);
         return HookOutcome {
             decision: Action::Allow,
             reason: String::new(),
@@ -224,7 +231,7 @@ pub async fn evaluate(
         .map(|s| s.halts_tools())
         .unwrap_or(false)
     {
-        report_decision(&reporter, event, "tool_denied", "kill switch engaged (tools halted)", true, &provenance);
+        report_decision(&reporter, event, "tool_denied", "kill switch engaged (tools halted)", true, &provenance, &identity);
         return HookOutcome {
             decision: Action::Deny,
             reason: "Kotro kill switch engaged (tools halted).".into(),
@@ -252,6 +259,7 @@ pub async fn evaluate(
                 &format!("allowed by {} ({})", decision.rule_id, decision.evidence),
                 false,
                 &provenance,
+                &identity,
             );
             HookOutcome {
                 decision: Action::Allow,
@@ -268,6 +276,7 @@ pub async fn evaluate(
                 &format!("denied by {} ({})", decision.rule_id, decision.evidence),
                 true,
                 &provenance,
+                &identity,
             );
             HookOutcome {
                 decision: Action::Deny,
@@ -279,7 +288,14 @@ pub async fn evaluate(
         Action::Ask => {
             // Honor an existing short-lived approval grant.
             if reporter
-                .check_approval("claude-code", &event.tool, &args_hash, &decision.evidence)
+                .check_approval(
+                    "claude-code",
+                    &event.tool,
+                    &args_hash,
+                    &identity.task_id,
+                    "",
+                    &decision.evidence,
+                )
                 .await
             {
                 report_decision(
@@ -289,6 +305,7 @@ pub async fn evaluate(
                     &format!("approved grant matched ({})", decision.rule_id),
                     false,
                     &provenance,
+                    &identity,
                 );
                 return HookOutcome {
                     decision: Action::Allow,
@@ -304,13 +321,22 @@ pub async fn evaluate(
                 &format!("requires approval ({})", decision.evidence),
                 true,
                 &provenance,
+                &identity,
             );
             HookOutcome {
                 decision: Action::Ask,
                 reason: format!(
                     "[Kotro] {} — approve with: kotro-proxy approve --server claude-code \
-                     --tool {} --args-hash {} --session {}",
-                    decision.evidence, event.tool, args_hash, event.session
+                     --tool {} --args-hash {} --session {}{}",
+                    decision.evidence,
+                    event.tool,
+                    args_hash,
+                    event.session,
+                    if identity.task_id.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" --task-id {}", identity.task_id)
+                    }
                 ),
                 rule_id: decision.rule_id,
                 args_hash,
@@ -326,8 +352,9 @@ fn report_decision(
     detail: &str,
     enforced: bool,
     provenance: &str,
+    identity: &crate::identity_ctx::IdentityContext,
 ) {
-    reporter.report(serde_json::json!({
+    let mut draft = serde_json::json!({
         "plane": "hook",
         "kind": kind,
         "server": "claude-code",
@@ -336,7 +363,11 @@ fn report_decision(
         "detail": detail,
         "enforced": enforced,
         "provenance": provenance,
-    }));
+    });
+    if let Some(obj) = draft.as_object_mut() {
+        obj.extend(identity.to_report_fields());
+    }
+    reporter.report(draft);
 }
 
 /// Render the Claude Code hook JSON response for a decision.

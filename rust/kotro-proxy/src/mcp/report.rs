@@ -139,14 +139,18 @@ impl Reporter {
         server: &str,
         tool: &str,
         args_hash: &str,
+        task_id: &str,
+        schema_digest: &str,
         reason: &str,
     ) -> bool {
         let mut req = self.client.get(format!(
-            "{}/api/approvals/check?server={}&tool={}&args_hash={}&session={}&reason={}",
+            "{}/api/approvals/check?server={}&tool={}&args_hash={}&task_id={}&schema_digest={}&session={}&reason={}",
             self.base_url,
             urlencode(server),
             urlencode(tool),
             urlencode(args_hash),
+            urlencode(task_id),
+            urlencode(schema_digest),
             urlencode(&self.session),
             urlencode(reason),
         ));
