@@ -121,3 +121,52 @@ jobs:
             /tmp/escape-lab-${{ matrix.group }}.json
             /tmp/ESCAPE-LAB-${{ matrix.group }}.md
           if-no-files-found: warn
+
+  merge-matrix:
+    name: Merge published matrix
+    runs-on: ubuntu-latest
+    needs: run-matrix
+    if: always() && needs.run-matrix.result != 'cancelled'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download per-group results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: escape-lab-*
+          path: /tmp/escape-lab-artifacts
+          merge-multiple: true
+      - name: Merge into one matrix
+        run: |
+          set -euo pipefail
+          ls -la /tmp/escape-lab-artifacts
+          mapfile -t FILES < <(find /tmp/escape-lab-artifacts -name 'escape-lab-*.json' | sort)
+          if [[ ${#FILES[@]} -eq 0 ]]; then
+            echo "no per-group JSON artifacts to merge" >&2
+            exit 1
+          fi
+          python3 scripts/escape-lab.py \
+            --merge "${FILES[@]}" \
+            --out /tmp/escape-lab-merged.json \
+            --markdown /tmp/ESCAPE-LAB-MATRIX.md \
+            --allow-divergence
+          # Fail the job if any measured row diverged (allow-divergence only for markdown emit).
+          python3 - <<'PY'
+          import json, sys
+          payload = json.load(open("/tmp/escape-lab-merged.json"))
+          bad = [r for r in payload["results"] if not r.get("pass")]
+          if bad:
+              for r in bad:
+                  print(f"divergence: {r['id']} declared {r['expected']} observed {r['observed']}", file=sys.stderr)
+              sys.exit(1)
+          print(f"merged ok: {payload['summary']}")
+          PY
+      - name: Upload merged matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: escape-lab-merged
+          path: |
+            /tmp/escape-lab-merged.json
+            /tmp/ESCAPE-LAB-MATRIX.md

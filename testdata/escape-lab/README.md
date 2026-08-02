@@ -22,7 +22,17 @@ python3 scripts/escape-lab.py \
   --target http://127.0.0.1:8080 \
   --control-token "$KOTRO_CONTROL_TOKEN" \
   --env-group default \
-  --out results.json \
+  --out /tmp/escape-lab-default.json \
+  --markdown /tmp/ESCAPE-LAB-default.md
+
+# Full published matrix (all env groups, restart proxy per group, then merge):
+bash scripts/run-escape-lab-matrix.sh
+# writes docs/security/ESCAPE-LAB-MATRIX.md
+
+# Or merge existing per-group JSON files without contacting a proxy:
+python3 scripts/escape-lab.py \
+  --merge /tmp/escape-lab-*.json \
+  --out /tmp/escape-lab-merged.json \
   --markdown docs/security/ESCAPE-LAB-MATRIX.md
 ```
 
