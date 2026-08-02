@@ -10,17 +10,22 @@
 //! - the multi-plane kill switch (`tools` / `all` scopes),
 //! - flight-recorder reporting through the proxy control API.
 
+pub mod list_cache;
 pub mod pin;
 pub mod protect;
 pub mod report;
 pub mod schema;
+pub mod trace;
 pub mod wrap;
 
 use serde_json::Value;
 
 /// JSON-RPC error codes used by the governance layer.
 pub const ERR_POLICY_DENIED: i64 = -32001;
-pub const ERR_KILL_SWITCH: i64 = -32002;
+/// Operator kill switch. Uses `-32050` (implementation-defined server-error
+/// range) rather than `-32002`, which older MCP clients treat as the legacy
+/// "resource not found" semantic before that meaning moved to `-32602`.
+pub const ERR_KILL_SWITCH: i64 = -32050;
 pub const ERR_INVALID_ARGS: i64 = -32602;
 
 /// Build a JSON-RPC error response for a blocked request.

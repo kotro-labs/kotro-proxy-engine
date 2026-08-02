@@ -170,6 +170,13 @@ pub struct FlightEvent {
     pub policy_revision: String,
     #[serde(default)]
     pub tool_call_id: String,
+    /// W3C Trace Context ids from MCP `params._meta.traceparent` (SEP-414).
+    /// Correlational metadata — intentionally excluded from the chain hash so
+    /// adding these fields does not invalidate persisted tapes.
+    #[serde(default)]
+    pub trace_id: String,
+    #[serde(default)]
+    pub span_id: String,
     #[serde(default)]
     pub destination: String,
     #[serde(default)]
@@ -275,8 +282,8 @@ impl FlightEvent {
             rule_id: self.rule_id.clone(),
             policy_revision: self.policy_revision.clone(),
             tool_call_id: self.tool_call_id.clone(),
-            trace_id: String::new(),
-            span_id: String::new(),
+            trace_id: self.trace_id.clone(),
+            span_id: self.span_id.clone(),
             provider: self.provider.clone(),
             model: self.model.clone(),
             route: self.route.clone(),
@@ -321,6 +328,10 @@ pub struct FlightDraft {
     pub policy_revision: String,
     #[serde(default)]
     pub tool_call_id: String,
+    #[serde(default)]
+    pub trace_id: String,
+    #[serde(default)]
+    pub span_id: String,
     #[serde(default)]
     pub destination: String,
     #[serde(default)]
@@ -507,6 +518,8 @@ impl FlightRecorder {
             rule_id: draft.rule_id,
             policy_revision: draft.policy_revision,
             tool_call_id: draft.tool_call_id,
+            trace_id: draft.trace_id,
+            span_id: draft.span_id,
             destination: draft.destination,
             credential_id: draft.credential_id,
             provider: draft.provider,
@@ -998,5 +1011,21 @@ mod tests {
         assert_eq!(exported.task_id.as_str(), "task-1");
         assert_eq!(exported.decision_id, "dec-1");
         assert_eq!(exported.destination, "evil.example");
+    }
+
+    #[test]
+    fn trace_context_survives_record_and_export() {
+        let rec = FlightRecorder::new(true, 10);
+        let mut d = draft("traced");
+        d.trace_id = "4bf92f3577b34da6a3ce929d0e0e4736".into();
+        d.span_id = "00f067aa0ba902b7".into();
+        let ev = rec.record(d).unwrap();
+        assert_eq!(ev.trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert_eq!(ev.span_id, "00f067aa0ba902b7");
+        let exported = ev.to_kotro_event();
+        assert_eq!(exported.trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert_eq!(exported.span_id, "00f067aa0ba902b7");
+        // Trace fields must not break the integrity chain.
+        assert!(rec.verify_ring().is_ok());
     }
 }

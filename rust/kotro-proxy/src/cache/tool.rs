@@ -2,8 +2,16 @@
 //!
 //! Caches tool call results that flow through the proxy as `role: "tool"` messages
 //! (OpenAI) or `type: "tool_result"` content blocks (Anthropic). Results are keyed
-//! by `(scope, tool_name, SHA-256(canonicalized_args))` with short per-category TTLs
-//! so stale filesystem or git state is never served.
+//! by `(scope, tool_name, SHA-256(canonicalized_args))`.
+//!
+//! ## TTL policy (SEP-2549)
+//!
+//! When a server declares `ttlMs` / `cacheScope` on a cacheable result, those hints
+//! take precedence via [`ToolCache::put_with_hints`]. Absent hints (LLM-plane tool
+//! messages, legacy servers) fall back to name-inferred category TTLs below.
+//!
+//! `cacheScope: "private"` requires a session-/auth-scoped `scope` key — shared
+//! gateways must not reuse a public key for private results.
 //!
 //! ## What is saved
 //!
@@ -16,7 +24,7 @@
 //! mode where Kotro intercepts tool call requests before they reach the MCP server and
 //! returns cached results directly.
 //!
-//! ## Tool category TTLs
+//! ## Tool category TTLs (fallback when `ttlMs` absent)
 //!
 //! | Category | Env var | Default | Examples |
 //! |----------|---------|---------|---------|
@@ -34,6 +42,75 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 
+/// MCP SEP-2549 `cacheScope` — who may reuse a cached response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CacheScope {
+    /// Safe to share across users / authorization contexts.
+    #[default]
+    Public,
+    /// Bound to one authorization context; must not cross sessions/tokens.
+    Private,
+}
+
+impl CacheScope {
+    pub fn parse(raw: Option<&str>) -> Self {
+        match raw.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+            Some("private") => Self::Private,
+            _ => Self::Public,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Private => "private",
+        }
+    }
+}
+
+/// Server-declared freshness hints on cacheable MCP results (`ttlMs`, `cacheScope`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CacheHints {
+    /// Milliseconds of freshness. `None` means the field was absent (legacy server).
+    pub ttl_ms: Option<i64>,
+    pub cache_scope: CacheScope,
+}
+
+impl CacheHints {
+    /// Parse hints from an MCP result object (not the full JSON-RPC envelope).
+    pub fn from_result(result: &serde_json::Value) -> Self {
+        let ttl_ms = result.get("ttlMs").and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_u64().map(|u| u as i64))
+                .or_else(|| v.as_f64().map(|f| f as i64))
+        });
+        let cache_scope = CacheScope::parse(result.get("cacheScope").and_then(|v| v.as_str()));
+        Self {
+            ttl_ms,
+            cache_scope,
+        }
+    }
+
+    /// Resolve a concrete storage TTL.
+    ///
+    /// - `ttl_ms <= 0` or negative → do not cache (`None`)
+    /// - `ttl_ms > 0` → that duration
+    /// - absent + `honor_absent_as_stale` → do not cache (spec default for modern clients)
+    /// - absent otherwise → `fallback` (name-inferred category TTL for LLM-plane path)
+    pub fn resolve_ttl(
+        &self,
+        fallback: Duration,
+        honor_absent_as_stale: bool,
+    ) -> Option<Duration> {
+        match self.ttl_ms {
+            Some(ms) if ms <= 0 => None,
+            Some(ms) => Some(Duration::from_millis(ms as u64)),
+            None if honor_absent_as_stale => None,
+            None => Some(fallback),
+        }
+    }
+}
+
 /// Cached result for a single tool call.
 #[derive(Clone, Debug)]
 pub struct ToolEntry {
@@ -45,6 +122,8 @@ pub struct ToolEntry {
     pub content: String,
     /// When this entry was stored (for age-based metrics, not eviction).
     pub cached_at: Instant,
+    /// Server-declared cache scope when known.
+    pub cache_scope: CacheScope,
 }
 
 /// Tool category determines the applicable TTL.
@@ -183,13 +262,43 @@ impl ToolCache {
         format!("tool:{:x}", hash)
     }
 
-    /// Store a tool result. Returns `false` when the cache is disabled.
+    /// Store a tool result using name-inferred category TTL (no server hints).
+    /// Returns `false` when the cache is disabled.
     pub fn put(&self, scope: &str, tool_name: &str, args_json: &str, content: &str) -> bool {
+        self.put_with_hints(scope, tool_name, args_json, content, None)
+    }
+
+    /// Store a tool result, preferring server-declared [`CacheHints`] when present.
+    ///
+    /// For `cacheScope: "private"`, `scope` MUST identify the authorization
+    /// context (session / token hash). Returns `false` when disabled, when
+    /// `ttlMs` is 0/negative, or when private scope is paired with an empty
+    /// `scope` key (refuses to store a shareable entry by mistake).
+    pub fn put_with_hints(
+        &self,
+        scope: &str,
+        tool_name: &str,
+        args_json: &str,
+        content: &str,
+        hints: Option<CacheHints>,
+    ) -> bool {
         if !self.enabled {
             return false;
         }
         let cat = ToolCategory::from_name(tool_name);
-        let ttl = self.ttls.for_category(cat);
+        let fallback = self.ttls.for_category(cat);
+        let (ttl, cache_scope) = match hints {
+            Some(h) => {
+                if h.cache_scope == CacheScope::Private && scope.is_empty() {
+                    return false;
+                }
+                match h.resolve_ttl(fallback, true) {
+                    Some(d) => (d, h.cache_scope),
+                    None => return false,
+                }
+            }
+            None => (fallback, CacheScope::Private),
+        };
         let key = Self::cache_key(scope, tool_name, args_json);
         let canonical = canonicalize_args(args_json);
         let entry = ToolEntry {
@@ -197,6 +306,7 @@ impl ToolCache {
             args_json: canonical,
             content: content.to_string(),
             cached_at: Instant::now(),
+            cache_scope,
         };
         let expires_at = Instant::now() + ttl;
         if let Ok(mut guard) = self.store.lock() {
@@ -391,5 +501,56 @@ mod tests {
         c.put("s", "read_file", r#"{"path":"a.rs"}"#, "a");
         c.put("s", "read_file", r#"{"path":"b.rs"}"#, "b");
         assert_eq!(c.live_count(), 2);
+    }
+
+    // ── SEP-2549 hints ────────────────────────────────────────────────────────
+
+    #[test]
+    fn server_ttl_overrides_category() {
+        let c = ToolCache::new(
+            true,
+            ToolCacheTtls {
+                read: Duration::from_secs(30),
+                ..Default::default()
+            },
+        );
+        let hints = CacheHints {
+            ttl_ms: Some(5),
+            cache_scope: CacheScope::Private,
+        };
+        assert!(c.put_with_hints("s", "read_file", r#"{"path":"f.rs"}"#, "x", Some(hints)));
+        assert!(c.get("s", "read_file", r#"{"path":"f.rs"}"#).is_some());
+        std::thread::sleep(Duration::from_millis(15));
+        assert!(c.get("s", "read_file", r#"{"path":"f.rs"}"#).is_none());
+    }
+
+    #[test]
+    fn ttl_zero_skips_store() {
+        let c = cache();
+        let hints = CacheHints {
+            ttl_ms: Some(0),
+            cache_scope: CacheScope::Public,
+        };
+        assert!(!c.put_with_hints("s", "read_file", r#"{"path":"f.rs"}"#, "x", Some(hints)));
+        assert!(c.get("s", "read_file", r#"{"path":"f.rs"}"#).is_none());
+    }
+
+    #[test]
+    fn private_scope_rejects_empty_key() {
+        let c = cache();
+        let hints = CacheHints {
+            ttl_ms: Some(60_000),
+            cache_scope: CacheScope::Private,
+        };
+        assert!(!c.put_with_hints("", "read_file", r#"{}"#, "x", Some(hints)));
+    }
+
+    #[test]
+    fn parses_cache_hints_from_result() {
+        let v = serde_json::json!({"tools": [], "ttlMs": 300000, "cacheScope": "private"});
+        let h = CacheHints::from_result(&v);
+        assert_eq!(h.ttl_ms, Some(300_000));
+        assert_eq!(h.cache_scope, CacheScope::Private);
+        assert_eq!(CacheHints::from_result(&serde_json::json!({})).cache_scope, CacheScope::Public);
     }
 }

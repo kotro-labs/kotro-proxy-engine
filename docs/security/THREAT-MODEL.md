@@ -257,11 +257,23 @@ frames. Redaction applies on both paths and records `redaction_count` on the tap
   validate `tools/call` arguments against the pinned schema, and enforce the
   deny-first local policy before forwarding.
 - Every inbound method is subject to the multi-plane kill switch. Only an
-  allowlist is relayed (`initialize`, `ping`, `tools/*`, `resources/*`,
-  `prompts/*`, `completion/complete`, `logging/setLevel`, `notifications/*`);
+  allowlist is relayed (`initialize` for back-compat, `server/discover`,
+  `ping`, `tools/*`, `resources/*`, `prompts/*`, `completion/complete`,
+  `logging/setLevel` (deprecated), `tasks/*`, `notifications/*`);
   other methods (for example `sampling/createMessage`) are denied.
   Full schema/policy enforcement applies to `tools/call`; other allowlisted
   methods are kill-switch gated but not argument-policy gated.
+- Cacheable list/read results honor server-declared `ttlMs` / `cacheScope`
+  (SEP-2549). `private` scope is keyed by wrap session; `public` may be shared
+  within the wrap process. Cached `tools/list` bodies are still re-run through
+  pin/quarantine on every hit. `list_changed` notifications invalidate the cache.
+- W3C Trace Context (`traceparent` / `tracestate` / `baggage` in `params._meta`,
+  SEP-414) is parsed on `tools/call` and stamped onto flight events as
+  `trace_id` / `span_id` (correlational; not part of the hash chain).
+- Streamable HTTP mode emits `MCP-Protocol-Version`, `Mcp-Method`, and
+  `Mcp-Name` on upstream POSTs (SEP-2243 client side). Server-side rejection of
+  header↔body disagreement is out of scope until Kotro terminates Streamable
+  HTTP as a server rather than wrapping as a client.
 - First-seen tool metadata is trusted (TOFU). Review and `mcp repin` after
   installing or updating an MCP server.
 - `kotro protect` / `unprotect` rewrite supported client MCP configs (with a

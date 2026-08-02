@@ -6,8 +6,14 @@
 //! Interception points:
 //! - all inbound methods: kill switch + allowlist (deny unknown methods).
 //! - `tools/list` responses: pin metadata, quarantine drift (rug pulls).
+//! - cacheable list/read results: honor server `ttlMs` / `cacheScope` (SEP-2549).
 //! - `tools/call` requests: quarantine → schema validation →
-//!   deny/ask/allow policy (with approval grants and session labels).
+//!   deny/ask/allow policy (with approval grants and session labels);
+//!   propagate W3C Trace Context from `params._meta` into flight events (SEP-414).
+//! - Streamable HTTP mode: emit `MCP-Protocol-Version`, `Mcp-Method`, and
+//!   `Mcp-Name` on upstream POSTs (SEP-2243 client side). Server-side
+//!   header↔body agreement checks apply only if Kotro terminates HTTP as a
+//!   server (out of scope for wrap-as-client).
 //!
 //! Known limitation (documented): in HTTP mode, server-initiated messages on
 //! a standalone GET stream are not relayed; request/response and SSE-response
@@ -53,6 +59,8 @@ struct Governance {
     admitted: Mutex<HashMap<String, kotro_schema::AdmittedSchema>>,
     /// When true, schema quarantine / invalid args are enforced.
     enforces: bool,
+    /// SEP-2549 list/resource-read result cache.
+    list_cache: super::list_cache::ListResultCache,
 }
 
 impl Governance {
@@ -76,6 +84,7 @@ impl Governance {
             schemas: Mutex::new(HashMap::new()),
             admitted: Mutex::new(HashMap::new()),
             enforces,
+            list_cache: super::list_cache::ListResultCache::new(),
         })
     }
 
@@ -104,6 +113,29 @@ impl Governance {
         rule_id: &str,
         reason_code: &str,
     ) {
+        self.event_decision_traced(
+            kind,
+            tool,
+            detail,
+            enforced,
+            provenance,
+            rule_id,
+            reason_code,
+            &super::trace::TraceContext::default(),
+        );
+    }
+
+    fn event_decision_traced(
+        &self,
+        kind: &str,
+        tool: &str,
+        detail: String,
+        enforced: bool,
+        provenance: &str,
+        rule_id: &str,
+        reason_code: &str,
+        trace: &super::trace::TraceContext,
+    ) {
         let policy_revision = self.engine.revision();
         let decision_id = {
             let material = serde_json::json!({
@@ -131,6 +163,8 @@ impl Governance {
             "decision_id": decision_id,
             "rule_id": rule_id,
             "policy_revision": policy_revision,
+            "trace_id": trace.trace_id,
+            "span_id": trace.span_id,
         }));
         let decision = if kind == "tool_denied" {
             if enforced { "deny" } else { "observe" }
@@ -155,6 +189,7 @@ impl Governance {
             .unwrap_or("unknown")
             .to_string();
         let args = params.get("arguments").cloned().unwrap_or(Value::Null);
+        let trace = super::trace::TraceContext::from_rpc_params(&params);
         // Bound encoded argument size before any schema work (MCP Value path).
         if serde_json::to_vec(&args).map(|b| b.len()).unwrap_or(usize::MAX)
             > kotro_schema::ResourceLimits::HARD.encoded_arguments_size
@@ -262,7 +297,7 @@ impl Governance {
 
         match decision.action {
             policy::Action::Allow => {
-                self.event_decision(
+                self.event_decision_traced(
                     "tool_call",
                     &tool,
                     format!("allowed by {} ({})", decision.rule_id, decision.evidence),
@@ -270,11 +305,12 @@ impl Governance {
                     &provenance,
                     &decision.rule_id,
                     "allow",
+                    &trace,
                 );
                 Ok(())
             }
             policy::Action::Deny => {
-                self.event_decision(
+                self.event_decision_traced(
                     "tool_denied",
                     &tool,
                     format!("denied by {} ({})", decision.rule_id, decision.evidence),
@@ -282,6 +318,7 @@ impl Governance {
                     &provenance,
                     &decision.rule_id,
                     "deny",
+                    &trace,
                 );
                 Err((
                     ERR_POLICY_DENIED,
@@ -299,7 +336,7 @@ impl Governance {
                     .check_approval(&self.server, &tool, &args_hash, &decision.evidence)
                     .await
                 {
-                    self.event_decision(
+                    self.event_decision_traced(
                         "tool_call",
                         &tool,
                         format!("approved grant matched ({})", decision.rule_id),
@@ -307,10 +344,11 @@ impl Governance {
                         &provenance,
                         &decision.rule_id,
                         "approved",
+                        &trace,
                     );
                     return Ok(());
                 }
-                self.event_decision(
+                self.event_decision_traced(
                     "tool_denied",
                     &tool,
                     format!(
@@ -321,6 +359,7 @@ impl Governance {
                     &provenance,
                     &decision.rule_id,
                     "ask",
+                    &trace,
                 );
                 Err((
                     ERR_POLICY_DENIED,
@@ -484,9 +523,13 @@ fn signal_tokens(ctx: &crate::policy::ToolCallContext, args: &Value) -> String {
 /// methods. `tools/call` still gets full policy; other allowlisted methods
 /// still honor the multi-plane kill switch.
 fn method_is_allowlisted(method: &str) -> bool {
+    // `initialize` kept for back-compat with pre-2026-07-28 clients; modern
+    // clients use `server/discover`. `logging/setLevel` is deprecated but still
+    // relayed. `tasks/*` is required when the Tasks extension is negotiated.
     matches!(
         method,
         "initialize"
+            | "server/discover"
             | "ping"
             | "tools/list"
             | "tools/call"
@@ -498,8 +541,9 @@ fn method_is_allowlisted(method: &str) -> bool {
             | "prompts/list"
             | "prompts/get"
             | "completion/complete"
-            | "logging/setLevel"
+            | "logging/setLevel" // deprecated in 2026-07-28; still relayed
     ) || method.starts_with("notifications/")
+        || method.starts_with("tasks/")
 }
 
 impl Governance {
@@ -518,9 +562,30 @@ impl Governance {
         Err((
             ERR_POLICY_DENIED,
             format!(
-                "[KOTRO] MCP method '{method}' is not allowlisted by mcp-wrap;                  only initialize/ping/tools/resources/prompts/completion/logging                  and notifications are relayed"
+                "[KOTRO] MCP method '{method}' is not allowlisted by mcp-wrap; \
+                 only initialize/server.discover/ping/tools/resources/prompts/\
+                 completion/logging/tasks and notifications are relayed"
             ),
         ))
+    }
+}
+
+
+/// Protocol version advertised on Streamable HTTP upstream requests.
+const MCP_PROTOCOL_VERSION: &str = "2026-07-28";
+
+/// Primitive name for the `Mcp-Name` routing header (SEP-2243), when applicable.
+fn mcp_routing_name(method: &str, params: &Value) -> Option<String> {
+    match method {
+        "tools/call" | "prompts/get" => params
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        "resources/read" | "resources/subscribe" | "resources/unsubscribe" => params
+            .get("uri")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        _ => None,
     }
 }
 
@@ -607,7 +672,9 @@ async fn run_stdio(gov: Arc<Governance>, command: &[String]) -> Result<(), Strin
     let child_stdout = child.stdout.take().ok_or("child stdout unavailable")?;
 
     let stdout = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
-    let pending_lists: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    // Cacheable method ids → (method, params) for SEP-2549 result caching.
+    let pending_cacheable: Arc<Mutex<HashMap<String, (String, Value)>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     // Forwarded tools/call ids → tool name, for output secret scanning.
     let pending_calls: Arc<Mutex<HashMap<String, String>>> =
         Arc::new(Mutex::new(HashMap::new()));
@@ -618,19 +685,35 @@ async fn run_stdio(gov: Arc<Governance>, command: &[String]) -> Result<(), Strin
     let out_task = {
         let gov = gov.clone();
         let stdout = stdout.clone();
-        let pending_lists = pending_lists.clone();
+        let pending_cacheable = pending_cacheable.clone();
         let pending_calls = pending_calls.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(child_stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 let emitted = if let Some(msg) = parse_message(&line) {
+                    // Server-push list_changed → invalidate SEP-2549 cache.
+                    if let Some(method) = msg.method.as_deref() {
+                        if let Some(target) = super::list_cache::list_changed_target(method) {
+                            gov.list_cache.invalidate_method(target);
+                        }
+                    }
                     if let Some(id) = &msg.id {
                         if let Some(tool) = pending_calls.lock().remove(&id_key(id)) {
                             gov.scan_tool_output(&tool, &line);
                         }
-                        if pending_lists.lock().remove(&id_key(id)) {
+                        if let Some((method, params)) =
+                            pending_cacheable.lock().remove(&id_key(id))
+                        {
+                            gov.list_cache.put(
+                                &gov.reporter.session,
+                                &method,
+                                &params,
+                                &msg.raw,
+                            );
                             let mut modified = msg.raw.clone();
-                            gov.process_tools_list_response(&mut modified);
+                            if method == "tools/list" {
+                                gov.process_tools_list_response(&mut modified);
+                            }
                             Some(modified.to_string())
                         } else {
                             None
@@ -690,9 +773,34 @@ async fn run_stdio(gov: Arc<Governance>, command: &[String]) -> Result<(), Strin
                                 .to_string();
                             pending_calls.lock().insert(id_key(id), tool);
                         }
-                    } else if method == "tools/list" {
-                        if let Some(id) = &msg.id {
-                            pending_lists.lock().insert(id_key(id));
+                    } else if super::list_cache::is_cacheable_method(method) {
+                        let params = msg
+                            .raw
+                            .get("params")
+                            .cloned()
+                            .unwrap_or(Value::Null);
+                        if let Some(cached) =
+                            gov.list_cache
+                                .get(&gov.reporter.session, method, &params)
+                        {
+                            forward = false;
+                            let mut modified = cached;
+                            // Preserve the client's request id on the cached body.
+                            if let Some(id) = &msg.id {
+                                modified["id"] = id.clone();
+                            }
+                            if method == "tools/list" {
+                                gov.process_tools_list_response(&mut modified);
+                            }
+                            let out_line = modified.to_string();
+                            let mut out = stdout.lock().await;
+                            let _ = out.write_all(out_line.as_bytes()).await;
+                            let _ = out.write_all(b"\n").await;
+                            let _ = out.flush().await;
+                        } else if let Some(id) = &msg.id {
+                            pending_cacheable
+                                .lock()
+                                .insert(id_key(id), (method.to_string(), params));
                         }
                     }
                 }
@@ -735,12 +843,11 @@ async fn run_http(gov: Arc<Governance>, url: String) -> Result<(), String> {
         };
 
         let method = msg.method.as_deref().unwrap_or("");
+        let params = msg.raw.get("params").cloned().unwrap_or(Value::Null);
         let is_tools_list = method == "tools/list";
         let is_tools_call = method == "tools/call";
-        let call_tool = msg
-            .raw
-            .get("params")
-            .and_then(|p| p.get("name"))
+        let call_tool = params
+            .get("name")
             .and_then(Value::as_str)
             .unwrap_or("unknown")
             .to_string();
@@ -759,12 +866,37 @@ async fn run_http(gov: Arc<Governance>, url: String) -> Result<(), String> {
             }
         }
 
+        // SEP-2549: serve fresh cached list/read results without an upstream round-trip.
+        if super::list_cache::is_cacheable_method(method) {
+            if let Some(mut cached) =
+                gov.list_cache
+                    .get(&gov.reporter.session, method, &params)
+            {
+                if let Some(id) = &msg.id {
+                    cached["id"] = id.clone();
+                }
+                if is_tools_list {
+                    gov.process_tools_list_response(&mut cached);
+                }
+                write_line(&stdout, &cached.to_string()).await;
+                continue;
+            }
+        }
+
         let mut req = client
             .post(&url)
             .header("content-type", "application/json")
             .header("accept", "application/json, text/event-stream")
+            // SEP-2243 routing headers — wrap acts as Streamable HTTP *client*.
+            .header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION)
+            .header("Mcp-Method", method)
             .body(line.clone());
+        if let Some(name) = mcp_routing_name(method, &params) {
+            req = req.header("Mcp-Name", name);
+        }
         if let Some(sid) = &mcp_session {
+            // Legacy servers may still expect a session id; modern 2026-07-28
+            // servers ignore it. Kept for back-compat with older remotes.
             req = req.header("mcp-session-id", sid.clone());
         }
         let resp = match req.send().await {
@@ -810,10 +942,10 @@ async fn run_http(gov: Arc<Governance>, url: String) -> Result<(), String> {
                 .map(str::trim)
                 .filter(|d| !d.is_empty())
             {
-                emit_response(&gov, &stdout, data, is_tools_list).await;
+                emit_response(&gov, &stdout, data, method, &params).await;
             }
         } else {
-            emit_response(&gov, &stdout, &body, is_tools_list).await;
+            emit_response(&gov, &stdout, &body, method, &params).await;
         }
     }
     Ok(())
@@ -823,14 +955,26 @@ async fn emit_response(
     gov: &Arc<Governance>,
     stdout: &Arc<tokio::sync::Mutex<tokio::io::Stdout>>,
     payload: &str,
-    intercept_tools_list: bool,
+    method: &str,
+    params: &Value,
 ) {
-    if intercept_tools_list {
-        if let Ok(mut v) = serde_json::from_str::<Value>(payload) {
-            if v.get("result").map(|r| r.get("tools").is_some()).unwrap_or(false) {
-                gov.process_tools_list_response(&mut v);
-                write_line(stdout, &v.to_string()).await;
-                return;
+    if let Ok(mut v) = serde_json::from_str::<Value>(payload) {
+        if v.get("result").is_some() && super::list_cache::is_cacheable_method(method) {
+            gov.list_cache
+                .put(&gov.reporter.session, method, params, &v);
+        }
+        if method == "tools/list"
+            && v.get("result")
+                .map(|r| r.get("tools").is_some())
+                .unwrap_or(false)
+        {
+            gov.process_tools_list_response(&mut v);
+            write_line(stdout, &v.to_string()).await;
+            return;
+        }
+        if let Some(note) = v.get("method").and_then(Value::as_str) {
+            if let Some(target) = super::list_cache::list_changed_target(note) {
+                gov.list_cache.invalidate_method(target);
             }
         }
     }
@@ -971,10 +1115,13 @@ mod method_gate_tests {
 
     #[test]
     fn method_allowlist_covers_core_mcp() {
-        assert!(method_is_allowlisted("initialize"));
+        assert!(method_is_allowlisted("initialize")); // back-compat
+        assert!(method_is_allowlisted("server/discover"));
         assert!(method_is_allowlisted("tools/call"));
         assert!(method_is_allowlisted("resources/read"));
         assert!(method_is_allowlisted("notifications/progress"));
+        assert!(method_is_allowlisted("tasks/get"));
+        assert!(method_is_allowlisted("tasks/list"));
         assert!(!method_is_allowlisted("sampling/createMessage"));
     }
 }
