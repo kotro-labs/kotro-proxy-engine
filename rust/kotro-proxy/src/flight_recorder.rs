@@ -26,6 +26,11 @@ pub const DEFAULT_MAX_AGE_SECS: u64 = 7 * 24 * 3600;
 const EVENTS: TableDefinition<u64, &[u8]> = TableDefinition::new("flight_events");
 const META: TableDefinition<&str, &[u8]> = TableDefinition::new("flight_meta");
 
+/// Chain-hash layout written by this build. Bump only when adding a field to
+/// the hashed body, and add a matching `chain_material_vN` — never edit an
+/// existing one.
+pub const CHAIN_SCHEMA_VERSION: u16 = 1;
+
 const META_HMAC_KEY: &str = "hmac_key";
 const META_KILL_SCOPE: &str = "kill_scope";
 
@@ -140,6 +145,16 @@ fn default_plane() -> String {
 /// events, hook decisions, and operator actions all serialize to this shape.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FlightEvent {
+    /// Chain-hash schema version. `0` is the pre-trace-context layout and is
+    /// what every persisted tape written before this field existed
+    /// deserializes to. `1` extends the hashed body with the W3C trace ids.
+    ///
+    /// The recorder always writes the current version; older values exist only
+    /// when reading historical tapes. Never renumber: the value selects which
+    /// byte layout `chain_material` reproduces, so changing it retroactively
+    /// invalidates the tapes it was meant to preserve.
+    #[serde(default)]
+    pub schema_version: u16,
     /// Monotonic sequence number assigned by the recorder.
     #[serde(default)]
     pub seq: u64,
@@ -171,8 +186,9 @@ pub struct FlightEvent {
     #[serde(default)]
     pub tool_call_id: String,
     /// W3C Trace Context ids from MCP `params._meta.traceparent` (SEP-414).
-    /// Correlational metadata — intentionally excluded from the chain hash so
-    /// adding these fields does not invalidate persisted tapes.
+    /// Covered by the chain hash at `schema_version >= 1`. These carry the
+    /// correlation to external traces, so leaving them outside the chain would
+    /// let an event's attribution be rewritten while the tape still verified.
     #[serde(default)]
     pub trace_id: String,
     #[serde(default)]
@@ -225,6 +241,21 @@ pub struct FlightEvent {
 impl FlightEvent {
     /// Bytes covered by the chain hash: every field except `hash` itself.
     fn chain_material(&self) -> Vec<u8> {
+        match self.schema_version {
+            0 => self.chain_material_v0(),
+            _ => self.chain_material_v1(),
+        }
+    }
+
+    /// Chain body for `schema_version == 0`.
+    ///
+    /// COMPATIBILITY ARTIFACT — do not refactor, reorder, or "tidy" this
+    /// function. Every byte it produces must stay identical to the layout that
+    /// wrote the tapes already on disk; any change silently fails verification
+    /// for historical events, which is precisely the property the chain exists
+    /// to provide. New fields belong in `chain_material_v1` behind a version
+    /// bump, never here.
+    fn chain_material_v0(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(256);
         out.extend_from_slice(self.prev_hash.as_bytes());
         let body = serde_json::json!([
@@ -239,6 +270,50 @@ impl FlightEvent {
             self.rule_id,
             self.policy_revision,
             self.tool_call_id,
+            self.destination,
+            self.credential_id,
+            self.provider,
+            self.model,
+            self.route,
+            self.tool_name,
+            self.server,
+            self.cache_status,
+            self.prompt_hash,
+            self.estimated_tokens,
+            self.latency_ms,
+            self.redaction_count,
+            self.tool_rounds,
+            self.provenance,
+            self.detail,
+            self.enforced,
+        ]);
+        out.extend_from_slice(serde_json::to_string(&body).unwrap_or_default().as_bytes());
+        out
+    }
+
+    /// Chain body for `schema_version == 1`: v0 plus the W3C trace ids.
+    ///
+    /// The version is hashed first so a v0 and v1 event with otherwise equal
+    /// fields cannot collide, and so a downgrade attack that rewrites
+    /// `schema_version` to 0 to shed the trace fields changes the digest.
+    fn chain_material_v1(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(320);
+        out.extend_from_slice(self.prev_hash.as_bytes());
+        let body = serde_json::json!([
+            self.schema_version,
+            self.seq,
+            self.at,
+            self.plane,
+            self.kind,
+            self.session,
+            self.task_id,
+            self.parent_task_id,
+            self.decision_id,
+            self.rule_id,
+            self.policy_revision,
+            self.tool_call_id,
+            self.trace_id,
+            self.span_id,
             self.destination,
             self.credential_id,
             self.provider,
@@ -507,6 +582,7 @@ impl FlightRecorder {
         }
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut event = FlightEvent {
+            schema_version: CHAIN_SCHEMA_VERSION,
             seq: inner.next_seq,
             at: now_rfc3339(),
             plane: draft.plane,
@@ -902,6 +978,159 @@ mod tests {
         };
         let rec = FlightRecorder::open(true, 10, DEFAULT_MAX_AGE_SECS, &path).unwrap();
         assert_eq!(fp1, rec.prompt_fingerprint("same prompt"));
+    }
+
+    /// Chain hashes for a three-event `schema_version: 0` tape, computed
+    /// independently of this crate (see the fixture note below). They encode
+    /// the exact v0 byte layout, so if `chain_material_v0` is ever edited —
+    /// reordered, re-indented into a different JSON shape, a field added — this
+    /// stops matching and the test fails. Self-computed expectations could not
+    /// catch that, because they would drift along with the code.
+    const GOLDEN_V0_HASHES: [&str; 3] = [
+        "fb2886740dd9fc2ac45a524bc5c509f4669534fb0ea4e10a2a4993c2bb21cb82",
+        "ac003ff32907d00deb0ffd54d07bef1077ed040ec40addca4a5dab476237f0c9",
+        "5fc1f761b87e378740d86edebe6d3624f98f25638fb17a9c0ee3de8bd853b454",
+    ];
+
+    /// Builds the golden v0 event for `seq`, matching the fixture generator.
+    fn golden_v0_event(seq: u64, prev_hash: &str) -> FlightEvent {
+        FlightEvent {
+            schema_version: 0,
+            seq,
+            at: "2026-01-15T09:30:00Z".into(),
+            plane: "llm".into(),
+            kind: FlightKind::Request,
+            session: "golden-s1".into(),
+            provider: "openai".into(),
+            model: "gpt-4o".into(),
+            route: "/v1/chat/completions".into(),
+            cache_status: "miss".into(),
+            prompt_hash: format!("ph{seq}"),
+            estimated_tokens: 100,
+            latency_ms: 42,
+            provenance: "trusted_user".into(),
+            detail: format!("golden-{seq}"),
+            prev_hash: prev_hash.into(),
+            hash: String::new(),
+            ..Default::default()
+        }
+    }
+
+    /// A tape written before `schema_version` existed must still verify.
+    ///
+    /// This is the load-bearing test for the whole versioning scheme: it is the
+    /// only one that fails if v0 material silently changes, and the tamper
+    /// evidence claim is worthless if historical tapes stop verifying.
+    #[test]
+    fn golden_v0_tape_still_verifies() {
+        let mut prev = String::new();
+        for (i, expected) in GOLDEN_V0_HASHES.iter().enumerate() {
+            let ev = golden_v0_event(i as u64, &prev);
+            let got = ev.compute_hash();
+            assert_eq!(
+                &got, expected,
+                "v0 chain material changed at seq {i}; historical tapes would \
+                 no longer verify. chain_material_v0 must not be modified."
+            );
+            prev = got;
+        }
+    }
+
+    /// v0 and v1 events on one tape both verify, and each uses its own layout.
+    #[test]
+    fn mixed_v0_v1_tape_verifies() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("flight.redb");
+
+        // Seed two legacy v0 events, then append via the recorder (which
+        // writes v1) and confirm the chain is continuous across the boundary.
+        let mut prev = String::new();
+        let mut legacy = Vec::new();
+        for i in 0..2u64 {
+            let mut ev = golden_v0_event(i, &prev);
+            ev.hash = ev.compute_hash();
+            prev = ev.hash.clone();
+            legacy.push(ev);
+        }
+        {
+            let db = Database::create(&path).unwrap();
+            let write = db.begin_write().unwrap();
+            {
+                let mut events = write.open_table(EVENTS).unwrap();
+                for ev in &legacy {
+                    events
+                        .insert(ev.seq, serde_json::to_vec(ev).unwrap().as_slice())
+                        .unwrap();
+                }
+            }
+            write.commit().unwrap();
+        }
+
+        let rec = FlightRecorder::open(true, 50, DEFAULT_MAX_AGE_SECS, &path).unwrap();
+        let modern = rec.record(draft("modern")).expect("recorded");
+        assert_eq!(modern.schema_version, 1, "new events must be written at v1");
+        assert_eq!(
+            modern.prev_hash, legacy[1].hash,
+            "v1 event did not chain onto the trailing v0 event"
+        );
+
+        match rec.verify() {
+            Ok(n) => assert_eq!(n, 3, "expected 3 verified events, got {n}"),
+            Err(e) => panic!("mixed v0/v1 tape failed verification: {e}"),
+        }
+    }
+
+    /// New events are written at the current version and cover the trace ids.
+    #[test]
+    fn v1_covers_trace_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("flight.redb");
+        let rec = FlightRecorder::open(true, 50, DEFAULT_MAX_AGE_SECS, &path).unwrap();
+
+        let mut d = draft("traced");
+        d.trace_id = "4bf92f3577b34da6a3ce929d0e0e4736".into();
+        d.span_id = "00f067aa0ba902b7".into();
+        let ev = rec.record(d).expect("recorded");
+
+        assert_eq!(ev.schema_version, CHAIN_SCHEMA_VERSION);
+        assert_eq!(ev.schema_version, 1);
+
+        // Rewriting trace attribution must break the chain. Before this change
+        // the fields sat outside the hash and this mutation verified clean.
+        let mut forged = ev.clone();
+        forged.trace_id = "00000000000000000000000000000000".into();
+        assert_ne!(
+            forged.compute_hash(),
+            ev.hash,
+            "trace_id is not covered by the chain at v1"
+        );
+
+        let mut forged_span = ev.clone();
+        forged_span.span_id = "0000000000000000".into();
+        assert_ne!(forged_span.compute_hash(), ev.hash, "span_id is not covered");
+    }
+
+    /// Downgrading `schema_version` must not let an attacker shed the trace
+    /// fields while keeping a valid-looking digest.
+    #[test]
+    fn version_downgrade_breaks_chain() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("flight.redb");
+        let rec = FlightRecorder::open(true, 50, DEFAULT_MAX_AGE_SECS, &path).unwrap();
+
+        let mut d = draft("traced");
+        d.trace_id = "4bf92f3577b34da6a3ce929d0e0e4736".into();
+        d.span_id = "00f067aa0ba902b7".into();
+        let ev = rec.record(d).expect("recorded");
+
+        let mut downgraded = ev.clone();
+        downgraded.schema_version = 0;
+        assert_ne!(
+            downgraded.compute_hash(),
+            ev.hash,
+            "version downgrade produced a matching digest — the version must be \
+             part of the v1 hashed body"
+        );
     }
 
     #[test]
