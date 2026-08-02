@@ -61,3 +61,7 @@ distributions/vscode-extension/bin/*
 # Packaged VS Code extensions (local artifacts)
 *.vsix
 distributions/**/*.vsix
+
+# Python bytecode from scripts/escape-lab.py and friends
+__pycache__/
+*.py[cod]
