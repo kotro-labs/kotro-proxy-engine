@@ -58,9 +58,12 @@ static VALIDATION_LATENCY_NS: AtomicU64 = AtomicU64::new(0);
 static COMPILE_SAMPLES: AtomicU64 = AtomicU64::new(0);
 static COMPILE_LATENCY_NS: AtomicU64 = AtomicU64::new(0);
 
-static HOOK: OnceLock<Mutex<Option<Box<dyn Fn(SchemaEvent) + Send + Sync>>>> = OnceLock::new();
+type SchemaHook = Box<dyn Fn(SchemaEvent) + Send + Sync>;
+type SchemaHookSlot = Mutex<Option<SchemaHook>>;
 
-fn hook_slot() -> &'static Mutex<Option<Box<dyn Fn(SchemaEvent) + Send + Sync>>> {
+static HOOK: OnceLock<SchemaHookSlot> = OnceLock::new();
+
+fn hook_slot() -> &'static SchemaHookSlot {
     HOOK.get_or_init(|| Mutex::new(None))
 }
 

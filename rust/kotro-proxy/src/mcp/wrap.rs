@@ -87,11 +87,8 @@ impl Governance {
         let enforces = mode.enforces();
         let evaluates = mode.evaluates();
         let task_gate = super::task_gate::TaskGate::from_env()?;
-        // Mirror schema-pool telemetry into process metrics when the proxy
-        // control plane is co-located; atomics always update either way.
-        let metrics = crate::metrics::MetricsRegistry::new();
-        metrics.attach_schema_telemetry();
-        std::mem::forget(metrics); // keep Prometheus counter Arcs alive for the process
+        let reporter = Reporter::new(&opts.state_dir, opts.session.clone());
+        reporter.attach_schema_telemetry();
         let mut identity = crate::identity_ctx::IdentityContext::from_env();
         let overlay = task_gate.identity_overlay();
         // Envelope identity wins over bare env when present.
@@ -116,7 +113,7 @@ impl Governance {
             server: opts.name.clone(),
             engine,
             state_dir: opts.state_dir.clone(),
-            reporter: Reporter::new(&opts.state_dir, opts.session.clone()),
+            reporter,
             halted: Arc::new(AtomicBool::new(false)),
             quarantined: Mutex::new(HashSet::new()),
             schemas: Mutex::new(HashMap::new()),

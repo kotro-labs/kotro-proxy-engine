@@ -79,7 +79,9 @@ When Claude Code / Cursor includes a poisoned tool or file result in the next `/
 **Honest one-liner:**  
 “Poisoned tool/file content rides into the next API call → Kotro detects → warns (default) or blocks (`KOTRO_INJECTION_BLOCK=true`).”
 
-Do **not** claim MCP stdio intercept unless that hop is actually implemented.
+The original recording demonstrates the LLM HTTP plane. Kotro now also ships
+direct MCP interception through `kotro-proxy mcp-wrap` for stdio and
+Streamable HTTP servers; keep the two planes distinct in launch copy.
 
 ### Deliverables
 - [x] Repro script + docs under `docs/launch/` (`scripts/demo-injection.sh`, `exploit-demo.md`)
@@ -91,21 +93,21 @@ Do **not** claim MCP stdio intercept unless that hop is actually implemented.
 ## Day 5 — Show HN
 
 ### Title (security first)
-> Show HN: Kotro – local firewall for Claude Code and Cursor that blocks MCP prompt injection
+> Show HN: Kotro – local agent firewall for Claude Code / Cursor (LLM proxy + MCP wrap)
 
 ### Body order
 1. Exploit story (honest path)
 2. Dashboard screenshot (Detected / Loops / Budget Hits + $)
 3. Savings as habit / secondary (68% demo ok if reproducible)
-4. Install: brew / curl / Marketplace
-5. Real question (e.g. MiniLM ~26ms overhead worth it?)
+4. Install: curl / npm; Homebrew after the v0.6.2 tap sync
+5. Real question: audit→enforce onboarding vs enforce-by-default
 
 ### Pre-post checklist
 - [x] Tile labels match warn vs block behavior (draft + README aligned)
 - [x] Status codes in copy: injection **400**, budget **429**
-- [x] Install path truth: `brew install kotro-labs/tap/kotro-proxy` (not `/kotro`); tap formula bumped to **v0.5.2**
+- [x] Install path truth: curl/npm release **v0.6.2**; in-repo Homebrew formula stamped for **v0.6.2**
 - [x] Show HN draft rewritten security-first — [`show-hn-draft.md`](./show-hn-draft.md)
-- [x] Fresh-machine install works — `brew upgrade` 0.4.0→**0.5.2** + `scripts/install.sh` both install; note: binary `--version` prints **1.0.0** (Cargo crate) while GitHub/tag is **v0.5.2**
+- [ ] Sync the stamped **v0.6.2** formula to `kotro-labs/homebrew-tap`, then fresh-install reverify brew + curl
 - [ ] Post Tue/Wed **8–10am US Eastern**
 - [ ] Repo URL as submission link
 

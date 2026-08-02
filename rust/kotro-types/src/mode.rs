@@ -56,7 +56,10 @@ mod tests {
     fn parse_aliases() {
         assert_eq!(EnforcementMode::parse("observe"), EnforcementMode::Audit);
         assert_eq!(EnforcementMode::parse("AUDIT"), EnforcementMode::Audit);
-        assert_eq!(EnforcementMode::parse("disabled"), EnforcementMode::Disabled);
+        assert_eq!(
+            EnforcementMode::parse("disabled"),
+            EnforcementMode::Disabled
+        );
         assert_eq!(EnforcementMode::parse("enforce"), EnforcementMode::Enforce);
         assert!(EnforcementMode::Enforce.enforces());
         assert!(!EnforcementMode::Audit.enforces());

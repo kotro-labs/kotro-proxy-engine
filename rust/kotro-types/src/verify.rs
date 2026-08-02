@@ -1048,16 +1048,31 @@ mod tests {
         };
         let auth = verify(&env, &ctx).unwrap();
         assert!(auth
-            .allows_tool("files", "read_file", Some("sha256:args1"), Some("sha256:schema1"))
+            .allows_tool(
+                "files",
+                "read_file",
+                Some("sha256:args1"),
+                Some("sha256:schema1")
+            )
             .is_ok());
         assert_eq!(
-            auth.allows_tool("files", "read_file", Some("sha256:other"), Some("sha256:schema1"))
-                .unwrap_err(),
+            auth.allows_tool(
+                "files",
+                "read_file",
+                Some("sha256:other"),
+                Some("sha256:schema1")
+            )
+            .unwrap_err(),
             TaskReason::TaskActionOutOfScope
         );
         assert_eq!(
-            auth.allows_tool("files", "write_file", Some("sha256:args1"), Some("sha256:schema1"))
-                .unwrap_err(),
+            auth.allows_tool(
+                "files",
+                "write_file",
+                Some("sha256:args1"),
+                Some("sha256:schema1")
+            )
+            .unwrap_err(),
             TaskReason::TaskActionOutOfScope
         );
     }

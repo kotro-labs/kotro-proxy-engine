@@ -15,6 +15,10 @@ use serde_json::Value;
 use crate::flight_recorder::KillScope;
 use crate::router::control_auth::CONTROL_TOKEN_FILE;
 
+const SCHEMA_TELEMETRY_BATCH_CAPACITY: usize = 256;
+const SCHEMA_TELEMETRY_BATCH_MAX: usize = 64;
+const SCHEMA_TELEMETRY_BATCH_DELAY: Duration = Duration::from_millis(25);
+
 #[derive(Clone)]
 pub struct Reporter {
     base_url: String,
@@ -52,6 +56,60 @@ impl Reporter {
             fallback_path: state_dir.join("mcp-events.jsonl"),
             session,
         }
+    }
+
+    /// Forward process-local schema-pool events to the proxy control plane in
+    /// bounded batches so telemetry never blocks MCP enforcement.
+    pub fn attach_schema_telemetry(&self) {
+        let (sender, mut receiver) =
+            tokio::sync::mpsc::channel::<Value>(SCHEMA_TELEMETRY_BATCH_CAPACITY);
+        kotro_schema::telemetry::install_hook(move |event| {
+            use kotro_schema::telemetry::SchemaEvent;
+            let wire = match event {
+                SchemaEvent::Unavailable(cause) => serde_json::json!({
+                    "kind": "unavailable", "cause": cause.as_str(),
+                }),
+                // QueueFull already emits Unavailable(QueueFull); the proxy
+                // reconstructs both counters from that one wire event.
+                SchemaEvent::QueueSaturated => return,
+                SchemaEvent::ValidationLatency(duration) => serde_json::json!({
+                    "kind": "validation_latency",
+                    "duration_ns": duration.as_nanos().min(u64::MAX as u128) as u64,
+                }),
+                SchemaEvent::CompileLatency(duration) => serde_json::json!({
+                    "kind": "compile_latency",
+                    "duration_ns": duration.as_nanos().min(u64::MAX as u128) as u64,
+                }),
+            };
+            let _ = sender.try_send(wire);
+        });
+
+        let reporter = self.clone();
+        tokio::spawn(async move {
+            while let Some(first) = receiver.recv().await {
+                let mut batch = Vec::with_capacity(SCHEMA_TELEMETRY_BATCH_MAX);
+                batch.push(first);
+                tokio::time::sleep(SCHEMA_TELEMETRY_BATCH_DELAY).await;
+                while batch.len() < SCHEMA_TELEMETRY_BATCH_MAX {
+                    match receiver.try_recv() {
+                        Ok(event) => batch.push(event),
+                        Err(_) => break,
+                    }
+                }
+                reporter.post_schema_telemetry(&batch).await;
+            }
+        });
+    }
+
+    async fn post_schema_telemetry(&self, batch: &[Value]) {
+        let mut req = self
+            .client
+            .post(format!("{}/api/schema-telemetry", self.base_url))
+            .json(batch);
+        if let Some(token) = &self.token {
+            req = req.header("x-kotro-control-token", token);
+        }
+        let _ = req.send().await;
     }
 
     /// Fire-and-forget event report. `draft` is a `FlightDraft`-shaped object.

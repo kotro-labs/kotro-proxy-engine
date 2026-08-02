@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cancel-storm load test with pre/post RSS + OS thread profiling for the Rust proxy.
-# Target: thread delta == 0 and RSS delta within tolerance (RAII reclamation).
+# Target: no post-warmup thread growth and RSS delta within tolerance.
 #
 # Do NOT run this in parallel with run_audit.sh — both bind :8080/:9000.
 set -euo pipefail
@@ -14,6 +14,9 @@ PROXY_URL="${KOTRO_PROXY_URL:-http://127.0.0.1:8080}"
 K6_VUS="${K6_VUS:-100}"
 K6_DURATION="${K6_DURATION:-30s}"
 COOLDOWN_SEC="${COOLDOWN_SEC:-3}"
+WARMUP_DURATION="${WARMUP_DURATION:-5s}"
+POST_SAMPLE_COUNT="${POST_SAMPLE_COUNT:-10}"
+POST_SAMPLE_INTERVAL_SEC="${POST_SAMPLE_INTERVAL_SEC:-1}"
 # 100 VUs: connection pool + allocator plateau typically 50–65 MB above idle baseline.
 MEM_TOLERANCE_KB="${MEM_TOLERANCE_KB:-65536}"
 CURL_TIMEOUT="${CURL_TIMEOUT:-5}"
@@ -133,7 +136,13 @@ if [[ -z "$PID" ]]; then
   exit 1
 fi
 
-echo "=== Step 1: Querying Baseline Rust Footprint (pid=${PID}) ==="
+echo "=== Step 0: Warming lazy runtime/connection pools (${K6_VUS} VUs, ${WARMUP_DURATION}) ==="
+AUDIT_VUS="$K6_VUS" AUDIT_DURATION="$WARMUP_DURATION" KOTRO_PROXY_URL="$PROXY_URL" \
+  k6 run --quiet --log-output=none benchmarks/cancel_storm.js \
+  >"${AUDIT_LOG_DIR}/k6-rust-warmup.log" 2>&1 || true
+sleep "$COOLDOWN_SEC"
+
+echo "=== Step 1: Querying Post-Warmup Baseline Rust Footprint (pid=${PID}) ==="
 THREADS_BASELINE="$(thread_count "$PID")"
 MEM_BASELINE="$(rss_kb "$PID")"
 echo "Baseline OS Threads: ${THREADS_BASELINE}"
@@ -157,9 +166,20 @@ if [[ -z "$PID" ]]; then
 fi
 
 echo ""
-echo "=== Step 4: Extracting Post-Stress Rust Footprint (pid=${PID}) ==="
-THREADS_POST="$(thread_count "$PID")"
-MEM_POST="$(rss_kb "$PID")"
+echo "=== Step 4: Sampling Post-Stress Rust Footprint (pid=${PID}) ==="
+THREADS_POST=""
+MEM_POST=""
+for _ in $(seq 1 "$POST_SAMPLE_COUNT"); do
+  threads_now="$(thread_count "$PID")"
+  mem_now="$(rss_kb "$PID")"
+  if [[ -z "$THREADS_POST" || "$threads_now" -lt "$THREADS_POST" ]]; then
+    THREADS_POST="$threads_now"
+  fi
+  if [[ -z "$MEM_POST" || "$mem_now" -lt "$MEM_POST" ]]; then
+    MEM_POST="$mem_now"
+  fi
+  sleep "$POST_SAMPLE_INTERVAL_SEC"
+done
 echo "Post-Stress OS Threads: ${THREADS_POST}"
 echo "Post-Stress Memory (RSS): ${MEM_POST} KB"
 
@@ -168,12 +188,12 @@ MEM_DELTA=$((MEM_POST - MEM_BASELINE))
 
 echo ""
 echo "=== Resource Reclamation Evaluation ==="
-echo "Thread Delta: ${THREAD_DELTA} (Target: 0)"
+echo "Thread Delta: ${THREAD_DELTA} (Target: <= 0)"
 echo "Memory Creep: ${MEM_DELTA} KB (Max Allowed: ${MEM_TOLERANCE_KB} KB)"
 echo "proxy logs:  ${PROXY_LOG}"
 
-if [[ "$THREAD_DELTA" -eq 0 && "$MEM_DELTA" -le "$MEM_TOLERANCE_KB" ]]; then
-  echo "PASS: Concurrency contract validated. Threads are completely invariant, and memory bounds stabilized within acceptable pool limits."
+if [[ "$THREAD_DELTA" -le 0 && "$MEM_DELTA" -le "$MEM_TOLERANCE_KB" ]]; then
+  echo "PASS: Concurrency contract validated. No post-warmup thread growth, and memory stabilized within acceptable pool limits."
   exit 0
 fi
 

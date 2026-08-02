@@ -558,6 +558,60 @@ pub async fn handle_api_mcp_event(
         .into_response()
 }
 
+/// Authenticated schema-pool telemetry forwarded by standalone mcp-wrap
+/// processes. This updates runtime-posture atomics and Prometheus metrics.
+pub async fn handle_api_schema_telemetry(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(events): Json<Vec<Value>>,
+) -> Response {
+    if let Err(resp) = control_auth::require_control_token(&state.control_token, &headers) {
+        return resp;
+    }
+    let accepted = ingest_schema_telemetry(&events);
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::json!({ "accepted": accepted }).to_string(),
+    )
+        .into_response()
+}
+
+fn ingest_schema_telemetry(events: &[Value]) -> usize {
+    use kotro_schema::telemetry::{self, UnavailableCause};
+
+    let mut accepted = 0;
+    for event in events.iter().take(256) {
+        let recorded = match event.get("kind").and_then(Value::as_str) {
+            Some("unavailable") => {
+                let cause = match event.get("cause").and_then(Value::as_str) {
+                    Some("queue_full") => Some(UnavailableCause::QueueFull),
+                    Some("deadline") => Some(UnavailableCause::Deadline),
+                    Some("worker_panic") => Some(UnavailableCause::WorkerPanic),
+                    Some("pool_init") => Some(UnavailableCause::PoolInit),
+                    _ => None,
+                };
+                cause.map(|cause| telemetry::record_unavailable(cause)).is_some()
+            }
+            Some("validation_latency") => event
+                .get("duration_ns")
+                .and_then(Value::as_u64)
+                .map(Duration::from_nanos)
+                .map(telemetry::record_validation_latency)
+                .is_some(),
+            Some("compile_latency") => event
+                .get("duration_ns")
+                .and_then(Value::as_u64)
+                .map(Duration::from_nanos)
+                .map(telemetry::record_compile_latency)
+                .is_some(),
+            _ => false,
+        };
+        accepted += usize::from(recorded);
+    }
+    accepted
+}
+
 
 
 /// Authenticated Numbat NDJSON ingest. High/critical findings engage the
@@ -2252,6 +2306,29 @@ mod cache_key_tests {
         assert!(super::store_cache_key_for_test(true, false).is_empty());
         assert!(!super::store_cache_key_for_test(true, true).is_empty());
         assert!(super::store_cache_key_for_test(false, true).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod schema_telemetry_tests {
+    use super::*;
+
+    #[test]
+    fn forwarded_schema_telemetry_updates_proxy_snapshot() {
+        let before = kotro_schema::telemetry::snapshot();
+        let accepted = ingest_schema_telemetry(&[
+            serde_json::json!({"kind": "unavailable", "cause": "queue_full"}),
+            serde_json::json!({"kind": "validation_latency", "duration_ns": 42}),
+            serde_json::json!({"kind": "compile_latency", "duration_ns": 84}),
+            serde_json::json!({"kind": "unknown"}),
+        ]);
+        let after = kotro_schema::telemetry::snapshot();
+
+        assert_eq!(accepted, 3);
+        assert!(after.unavailable_queue_full > before.unavailable_queue_full);
+        assert!(after.queue_saturated > before.queue_saturated);
+        assert!(after.validation_samples > before.validation_samples);
+        assert!(after.compile_samples > before.compile_samples);
     }
 }
 

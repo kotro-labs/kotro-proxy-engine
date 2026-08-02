@@ -403,7 +403,7 @@ mod tests {
     }
 
     // Not a correctness gate: wall-clock p95 flaps under parallel CI load.
-    // Stable latency assertions live in `benches/mcp_hot_path.rs` (Criterion).
+    // Stable latency measurements live in `benches/mcp_hot_path.rs` (Criterion).
     // Run with: cargo test -p kotro-proxy --lib -- --ignored
     //        or: cargo bench -p kotro-proxy --bench mcp_hot_path
     #[test]

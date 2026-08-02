@@ -6,7 +6,7 @@
 //!   cargo bench -p kotro-proxy --bench mcp_hot_path
 
 use std::hint::black_box;
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::Instant;
 
@@ -43,29 +43,53 @@ fn admitted_validate_plus_policy(c: &mut Criterion) {
 fn schema_pool_saturation(c: &mut Criterion) {
     let schema = serde_json::json!({
         "type": "object",
-        "required": ["path"],
-        "properties": {"path": {"type": "string"}}
+        "required": ["items"],
+        "properties": {
+            "items": {"type": "array", "items": {"type": "integer"}}
+        }
     });
     let admitted = Arc::new(compile(&schema, &ResourceLimits::initial()).unwrap());
-    let args = serde_json::json!({"path": "/tmp/notes.txt"});
+    // Keep workers occupied long enough for a synchronized burst to exceed
+    // 4 active workers + 16 queued jobs.
+    let args = serde_json::json!({
+        "items": (0..10_000).collect::<Vec<i64>>()
+    });
+    const CALLERS: usize = 64;
 
-    c.bench_function("schema_pool_concurrent_validate_8", |b| {
+    c.bench_function("schema_pool_saturation_64", |b| {
         b.iter(|| {
-            let mut handles = Vec::new();
-            for _ in 0..8 {
+            let barrier = Arc::new(Barrier::new(CALLERS + 1));
+            let before = kotro_schema::telemetry::snapshot();
+            let mut handles = Vec::with_capacity(CALLERS);
+            for _ in 0..CALLERS {
                 let admitted = Arc::clone(&admitted);
                 let args = args.clone();
+                let barrier = Arc::clone(&barrier);
                 handles.push(thread::spawn(move || {
+                    barrier.wait();
                     let t0 = Instant::now();
                     let ok = admitted.validate_value(&args).ok;
                     (ok, t0.elapsed())
                 }));
             }
+            barrier.wait();
             let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-            black_box(results);
+            let after = kotro_schema::telemetry::snapshot();
+            let queue_rejections = after
+                .unavailable_queue_full
+                .saturating_sub(before.unavailable_queue_full);
+            assert!(
+                queue_rejections > 0,
+                "burst did not saturate the schema queue"
+            );
+            black_box((results, queue_rejections));
         })
     });
 }
 
-criterion_group!(benches, admitted_validate_plus_policy, schema_pool_saturation);
+criterion_group!(
+    benches,
+    admitted_validate_plus_policy,
+    schema_pool_saturation
+);
 criterion_main!(benches);

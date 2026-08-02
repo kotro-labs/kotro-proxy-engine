@@ -1,16 +1,16 @@
 class KotroProxy < Formula
   desc "Local security and efficiency layer for MCP-native agentic AI — injection scanning, secret redaction, semantic cache, agent loop protection"
   homepage "https://github.com/kotro-labs/kotro-proxy-engine"
-  version "0.6.0"
+  version "0.6.2"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.6.0/kotro-proxy-aarch64-apple-darwin.tar.gz"
-      sha256 "6cddff6e4d626cd901be49f39bfd29f27b0e81f745fd8de32b357bd7a28e9f8f"
+      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.6.2/kotro-proxy-aarch64-apple-darwin.tar.gz"
+      sha256 "987b69f89c07bdcf76e1c37b160c82f43548d1d83321a429f560a8cf90519793"
     else
-      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.6.0/kotro-proxy-x86_64-apple-darwin.tar.gz"
-      sha256 "d7419f6ec37dec1e192e579ebc5d5c542f8454996fc6eb88d614d03e1df2603d"
+      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.6.2/kotro-proxy-x86_64-apple-darwin.tar.gz"
+      sha256 "754eb8c69d4253ae2233be078923ceff05b2522165eafeb219a649138bf92e4b"
     end
   end
 
@@ -21,7 +21,7 @@ class KotroProxy < Formula
   end
 
   test do
-    # Binary --version tracks the crate (may differ from formula/tag, e.g. 1.0.0 vs 0.5.2)
+    # Binary --version tracks the crate version embedded in the release.
     assert_match(/kotro-proxy/, shell_output("#{bin}/kotro-proxy --version"))
   end
 end

@@ -266,7 +266,9 @@ frames. Redaction applies on both paths and records `redaction_count` on the tap
   silent security bypass of the dial. Operators can watch
   `kotro_schema_unavailable_total{cause=…}`, queue saturation, and
   validation/compile latency on `/metrics` (and `schema_validation` on
-  `/api/runtime-posture`).
+  `/api/runtime-posture`). Standalone `mcp-wrap` processes forward these
+  process-local events in bounded, fail-open batches to the authenticated
+  proxy control plane; telemetry backpressure never changes enforcement.
 - Every inbound method is subject to the multi-plane kill switch. Only an
   allowlist is relayed (`initialize` for back-compat, `server/discover`,
   `ping`, `tools/*`, `resources/*`, `prompts/*`, `completion/complete`,

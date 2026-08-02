@@ -32,7 +32,7 @@ use handlers::{
     handle_api_flight_recorder, handle_api_flight_export, handle_api_flight_verify,
     handle_api_kill_switch, handle_api_kill_switch_status, handle_api_posture,
     handle_api_runtime_posture,
-    handle_api_mcp_event,
+    handle_api_mcp_event, handle_api_schema_telemetry,
     handle_api_numbat_findings, handle_api_session_labels, handle_api_session_graph,
     handle_api_approvals_check, handle_api_approvals_grant, handle_api_approvals_pending,
 };
@@ -287,6 +287,7 @@ pub fn create_telemetry_router(state: AppState) -> Router {
         .route("/api/posture", get(handle_api_posture))
         .route("/api/runtime-posture", get(handle_api_runtime_posture))
         .route("/api/mcp-event", post(handle_api_mcp_event))
+        .route("/api/schema-telemetry", post(handle_api_schema_telemetry))
         .route("/api/numbat/findings", post(handle_api_numbat_findings))
         .route("/api/session-labels", get(handle_api_session_labels))
         .route("/api/session-graph", get(handle_api_session_graph))

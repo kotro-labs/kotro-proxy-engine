@@ -59,7 +59,7 @@ Repro (no API key — mock upstream):
 
 Install:
   curl -sL https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/scripts/install.sh | bash
-  # or: brew install kotro-labs/tap/kotro-proxy
+  # Homebrew after the v0.6.2 tap sync: brew install kotro-labs/tap/kotro-proxy
   kotro-proxy
   # Point local agents at http://127.0.0.1:8080/v1
   # Wrap an MCP server: kotro-proxy mcp-wrap --name files -- npx -y @modelcontextprotocol/server-filesystem /tmp
@@ -85,7 +85,7 @@ path, or would you rather start enforce-by-default with a loud kill switch?
 - [x] Honest boundary: LLM HTTP path **and** MCP wrap (stdio / Streamable HTTP)
 - [x] Mode dial + kill-switch precedence mentioned
 - [x] Load-degradation: one sentence in post; detail in THREAT-MODEL
-- [x] Fresh-machine install paths current
+- [ ] Sync Homebrew tap to v0.6.2 and fresh-install reverify brew + curl
 - [ ] Post Tue/Wed **8–10am US Eastern**
 - [ ] Submission URL = repo
 
