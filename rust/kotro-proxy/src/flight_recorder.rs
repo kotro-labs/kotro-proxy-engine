@@ -1044,10 +1044,13 @@ mod tests {
 
         // Seed two legacy v0 events, then append via the recorder (which
         // writes v1) and confirm the chain is continuous across the boundary.
+        // Use a fresh `at` — the golden fixture's January timestamp would be
+        // pruned by persist()'s 7-day max-age when the modern event is written.
         let mut prev = String::new();
         let mut legacy = Vec::new();
         for i in 0..2u64 {
             let mut ev = golden_v0_event(i, &prev);
+            ev.at = now_rfc3339();
             ev.hash = ev.compute_hash();
             prev = ev.hash.clone();
             legacy.push(ev);

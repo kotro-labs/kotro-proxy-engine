@@ -269,7 +269,9 @@ frames. Redaction applies on both paths and records `redaction_count` on the tap
   pin/quarantine on every hit. `list_changed` notifications invalidate the cache.
 - W3C Trace Context (`traceparent` / `tracestate` / `baggage` in `params._meta`,
   SEP-414) is parsed on `tools/call` and stamped onto flight events as
-  `trace_id` / `span_id` (correlational; not part of the hash chain).
+  `trace_id` / `span_id`. New events use `schema_version: 1`, which covers those
+  fields in the hash chain; legacy tapes deserialize as `schema_version: 0` and
+  still verify with the frozen v0 material.
 - Streamable HTTP mode emits `MCP-Protocol-Version`, `Mcp-Method`, and
   `Mcp-Name` on upstream POSTs (SEP-2243 client side). Server-side rejection of
   header↔body disagreement is out of scope until Kotro terminates Streamable
