@@ -78,8 +78,13 @@
       "properties": {
         "outcome": {
           "type": "string",
-          "enum": ["prevent", "detect", "observe", "none"],
-          "description": "prevent = attack blocked before effect. detect = allowed but flagged with evidence. observe = recorded without a security verdict. none = no coverage today (an honest, tracked gap)."
+          "enum": ["prevent", "transform", "detect", "observe", "none"],
+          "description": "prevent = attack blocked before effect. transform = request allowed but harmful content removed (e.g. redaction). detect = allowed intact, flagged with evidence. observe = recorded without a security verdict. none = no coverage today (an honest, tracked gap)."
+        },
+        "min_redaction_count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "When set, the matched flight event must report redaction_count >= this value (transform evidence)."
         },
         "http_status": {
           "type": "array",

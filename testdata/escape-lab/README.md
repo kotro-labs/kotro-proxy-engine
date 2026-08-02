@@ -71,6 +71,7 @@ the token for a complete run.
 | Outcome | Meaning |
 |---|---|
 | `prevent` | Blocked before the effect occurred |
+| `transform` | Request allowed; harmful content removed (redaction) |
 | `detect` | Allowed through, but flagged with evidence on the tape |
 | `observe` | Surfaced by a reporting endpoint, no security verdict |
 | `none` | No coverage today — a tracked gap with a stated reason |

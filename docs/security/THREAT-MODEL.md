@@ -194,6 +194,14 @@ KOTRO_TRUSTED_PROXY_CIDRS=10.0.0.0/8,172.16.0.0/12
 
 The Rust proxy adds a local governance plane. Its security properties:
 
+**Non-stream coverage (fixed in 0.6.x):** Circuit breaker, session-token budget, and
+flight-tape miss recording previously required a streaming cache key, so
+`stream: false` requests (the common agent path) skipped those controls while still
+forwarding upstream. Governance keys are now minted for non-stream requests; the SSE
+response cache remains stream-only so non-stream replies never replay cached SSE
+frames. Redaction applies on both paths and records `redaction_count` on the tape.
+
+
 ### 9.1 Flight recorder (tamper-evident local tape)
 
 - Events persist in an append-only redb store at `<KOTRO_STATE_DIR>/governance.redb`

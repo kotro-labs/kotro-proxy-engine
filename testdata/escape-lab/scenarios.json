@@ -135,13 +135,15 @@
       ]
     },
     "expect": {
-      "outcome": "detect",
+      "outcome": "transform",
       "http_status": [
         200
       ],
       "headers_present": [
         "x-kotro-redacted"
-      ]
+      ],
+      "flight_kind": "cache_miss",
+      "min_redaction_count": 1
     }
   },
   {
