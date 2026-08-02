@@ -1,0 +1,375 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kotro.dev/schemas/task-envelope-v1alpha1.json",
+  "title": "Kotro TaskEnvelope v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "api_version",
+    "kind",
+    "task_id",
+    "audience",
+    "issuer",
+    "principal",
+    "agent_scope",
+    "issued_at",
+    "not_before",
+    "expires_at",
+    "nonce",
+    "depth",
+    "capabilities",
+    "delegation",
+    "signature"
+  ],
+  "properties": {
+    "api_version": {
+      "const": "kotro.dev/v1alpha1"
+    },
+    "kind": {
+      "const": "TaskEnvelope"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "audience": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issuer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "issuer"
+      ],
+      "properties": {
+        "subject": {
+          "type": "string"
+        },
+        "issuer": {
+          "type": "string"
+        }
+      }
+    },
+    "agent_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names"
+      ],
+      "properties": {
+        "names": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "workload_identities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "not_before": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 16
+    },
+    "depth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 8
+    },
+    "parent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "digest"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "server",
+              "name"
+            ],
+            "properties": {
+              "server": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^*]+$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^*]+$"
+              },
+              "tool_schema_sha256": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "any",
+                      "exact"
+                    ]
+                  },
+                  "hashes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "provider",
+              "name"
+            ],
+            "properties": {
+              "provider": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "destinations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scheme",
+              "host",
+              "port"
+            ],
+            "properties": {
+              "scheme": {
+                "type": "string",
+                "minLength": 1
+              },
+              "host": {
+                "type": "string",
+                "minLength": 1
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "path_prefix": {
+                "type": "string",
+                "pattern": "^/"
+              }
+            }
+          }
+        },
+        "credentials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "filesystem": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "root",
+              "operations"
+            ],
+            "properties": {
+              "root": {
+                "type": "string",
+                "pattern": "^/"
+              },
+              "operations": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "read",
+                    "write",
+                    "list",
+                    "delete"
+                  ]
+                },
+                "minItems": 1
+              }
+            }
+          }
+        },
+        "budgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_tool_calls",
+            "max_model_calls",
+            "max_input_tokens",
+            "max_output_tokens",
+            "max_cost_microusd",
+            "max_duration_seconds"
+          ],
+          "properties": {
+            "max_tool_calls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_model_calls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_input_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_output_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_cost_microusd": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_duration_seconds": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "delegation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_depth",
+        "signers"
+      ],
+      "properties": {
+        "max_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "signers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key_id",
+              "public_key"
+            ],
+            "properties": {
+              "key_id": {
+                "type": "string"
+              },
+              "public_key": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "key_id",
+        "value"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "Ed25519"
+        },
+        "key_id": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
