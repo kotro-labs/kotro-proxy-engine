@@ -6,14 +6,6 @@
 //! digest, optional exact args hashes) and the envelope budget. Absent
 //! configuration is fail-open unless `KOTRO_TASK_REQUIRED=true`.
 
-//! Optional TaskEnvelope gate for mcp-wrap (C6).
-//!
-//! When `KOTRO_TASK_ENVELOPE` points at a signed envelope and
-//! `KOTRO_TRUST_STORE` at an operator trust registry, every `tools/call` is
-//! checked against the verified capability set (tool name, optional schema
-//! digest, optional exact args hashes) and the envelope budget. Absent
-//! configuration is fail-open unless `KOTRO_TASK_REQUIRED=true`.
-
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

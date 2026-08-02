@@ -40,8 +40,9 @@ audit/disabled are mutually exclusive configs). Control-plane checks used
 **Mode precondition:** rows that claim injection `prevent` were measured under
 `KOTRO_MODE=enforce` (also the proxy default). Re-run after C7 stamps
 `x-kotro-mode` / `/api/runtime-posture` into the matrix header. EL-12 and EL-13
-exercise `audit` and `disabled` and must be included before citing the matrix
-as complete for the dial.
+exercise `audit` and `disabled` for injection; EL-14 and EL-15 assert the kill
+switch still halts the LLM plane under those modes (operator action outranks
+the dial).
 
 This matrix is a regression gate, not a brochure: declared `none` rows are
 tracked gaps. The first live run of this harness also exposed a real shipped

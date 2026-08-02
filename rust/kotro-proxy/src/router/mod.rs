@@ -515,13 +515,71 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn observe_mode_records_but_does_not_block() {
+    async fn observe_mode_records_rate_limit_but_does_not_block() {
         use crate::models::unified::{UnifiedMessage, UnifiedRequest};
 
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = Config::default();
         cfg.cache_db_path = dir.path().join("cache.db").display().to_string();
-        cfg.kill_switch_mode = crate::config::KillSwitchMode::Observe;
+        cfg.enforcement_mode = kotro_types::EnforcementMode::Audit;
+        cfg.kill_switch_mode = KillSwitchMode::Observe;
+        cfg.max_requests_per_minute = 1;
+
+        let store = open_store(&cfg).unwrap();
+        let client = build_http_client().unwrap();
+        let state = AppState::new(&cfg, store, client, crate::metrics::MetricsRegistry::new());
+
+        let unified = UnifiedRequest {
+            model: "gpt-4o".into(),
+            system_prompt: "sys".into(),
+            messages: vec![UnifiedMessage {
+                role: "user".into(),
+                content: serde_json::json!("hello"),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            stream: true,
+            max_tokens: None,
+        };
+
+        // First request consumes the single token; second trips rate limit.
+        assert!(governance::check_early_governance(
+            &state,
+            &unified,
+            "openai",
+            "/v1/chat/completions",
+            true,
+            "sess-observe",
+            std::time::Instant::now(),
+        )
+        .is_none());
+        let blocked = governance::check_early_governance(
+            &state,
+            &unified,
+            "openai",
+            "/v1/chat/completions",
+            true,
+            "sess-observe",
+            std::time::Instant::now(),
+        );
+        assert!(blocked.is_none(), "audit mode must not block on rate limit");
+        let events = state.flight_recorder.snapshot(10);
+        assert!(events
+            .iter()
+            .any(|e| matches!(e.kind, crate::flight_recorder::FlightKind::RateLimit)));
+        assert!(events.iter().any(|e| !e.enforced));
+    }
+
+    #[tokio::test]
+    async fn kill_switch_halts_llm_even_when_mode_disabled() {
+        use crate::models::unified::{UnifiedMessage, UnifiedRequest};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.cache_db_path = dir.path().join("cache.db").display().to_string();
+        cfg.enforcement_mode = kotro_types::EnforcementMode::Disabled;
+        cfg.kill_switch_mode = KillSwitchMode::Observe;
 
         let store = open_store(&cfg).unwrap();
         let client = build_http_client().unwrap();
@@ -540,26 +598,77 @@ mod tests {
                 tool_calls: None,
                 tool_call_id: None,
             }],
-            stream: true,
+            stream: false,
             max_tokens: None,
         };
 
-        // Observe mode: kill switch engaged → event recorded, request continues.
         let blocked = governance::check_early_governance(
             &state,
             &unified,
             "openai",
             "/v1/chat/completions",
             true,
-            "sess-observe",
+            "sess-disabled-kill",
             std::time::Instant::now(),
         );
-        assert!(blocked.is_none(), "observe mode must not block");
+        assert!(
+            blocked.is_some(),
+            "engaged kill switch must halt LLM even when KOTRO_MODE=disabled"
+        );
         let events = state.flight_recorder.snapshot(10);
-        assert!(events
+        let kill: Vec<_> = events
             .iter()
-            .any(|e| matches!(e.kind, crate::flight_recorder::FlightKind::KillSwitch)));
-        assert!(!events[0].enforced);
+            .filter(|e| matches!(e.kind, crate::flight_recorder::FlightKind::KillSwitch))
+            .collect();
+        assert_eq!(kill.len(), 1);
+        assert!(kill[0].enforced);
+    }
+
+    #[tokio::test]
+    async fn kill_switch_halts_llm_even_when_mode_audit() {
+        use crate::models::unified::{UnifiedMessage, UnifiedRequest};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.cache_db_path = dir.path().join("cache.db").display().to_string();
+        cfg.enforcement_mode = kotro_types::EnforcementMode::Audit;
+        cfg.kill_switch_mode = KillSwitchMode::Observe;
+
+        let store = open_store(&cfg).unwrap();
+        let client = build_http_client().unwrap();
+        let state = AppState::new(&cfg, store, client, crate::metrics::MetricsRegistry::new());
+        state
+            .flight_recorder
+            .set_kill_scope(crate::flight_recorder::KillScope::All);
+
+        let unified = UnifiedRequest {
+            model: "gpt-4o".into(),
+            system_prompt: "sys".into(),
+            messages: vec![UnifiedMessage {
+                role: "user".into(),
+                content: serde_json::json!("hello"),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            stream: false,
+            max_tokens: None,
+        };
+
+        let blocked = governance::check_early_governance(
+            &state,
+            &unified,
+            "openai",
+            "/v1/chat/completions",
+            true,
+            "sess-audit-kill",
+            std::time::Instant::now(),
+        );
+        assert!(blocked.is_some());
+        let events = state.flight_recorder.snapshot(10);
+        assert!(events.iter().any(|e| {
+            matches!(e.kind, crate::flight_recorder::FlightKind::KillSwitch) && e.enforced
+        }));
     }
 
     #[tokio::test]

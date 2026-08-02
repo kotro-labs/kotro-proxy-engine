@@ -281,11 +281,10 @@ pub fn check_early_governance(
 ) -> Option<Response> {
     let model = unified.model.as_str();
     let stream = unified.stream;
-    if !state.enforcement_mode.evaluates() {
-        return None;
-    }
-    let enforces = state.enforcement_mode.enforces();
 
+    // Kill switch is an authenticated operator action and outranks the mode
+    // dial. Checked before `evaluates()` so `disabled` / `audit` cannot
+    // silently release an engaged halt (MCP-wrap already honors this order).
     if state.flight_recorder.kill_scope().halts_llm() {
         let detail = format!(
             "Kill switch engaged (scope: {}) — upstream LLM forwards halted.",
@@ -304,20 +303,23 @@ pub fn check_early_governance(
             start.elapsed(),
             0,
             &detail,
-            enforces,
+            true,
         );
         state.metrics.record_agent_loop_stopped();
-        if enforces {
-            return Some(governance_block_response_with_mode(
-                stream,
-                openai_style,
-                "KILL SWITCH",
-                &detail,
-                true,
-                state.enforcement_mode,
-            ));
-        }
+        return Some(governance_block_response_with_mode(
+            stream,
+            openai_style,
+            "KILL SWITCH",
+            &detail,
+            true,
+            state.enforcement_mode,
+        ));
     }
+
+    if !state.enforcement_mode.evaluates() {
+        return None;
+    }
+    let enforces = state.enforcement_mode.enforces();
 
     if let Err(limit) = state.request_rate.try_acquire(session) {
         let detail = format!(
