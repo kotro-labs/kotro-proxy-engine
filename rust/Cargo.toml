@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kotro-core", "kotro-types", "kotro-proxy"]
+members = ["kotro-core", "kotro-types", "kotro-schema", "kotro-proxy"]
 
 [workspace.package]
 version = "0.6.2"

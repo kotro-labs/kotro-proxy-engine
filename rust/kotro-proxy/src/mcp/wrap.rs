@@ -49,11 +49,23 @@ struct Governance {
     quarantined: Mutex<HashSet<String>>,
     /// Latest pinned input schemas by tool name (from `tools/list`).
     schemas: Mutex<HashMap<String, Value>>,
+    /// Compiled admitted schemas (absent when admission failed in audit mode).
+    admitted: Mutex<HashMap<String, kotro_schema::AdmittedSchema>>,
+    /// When true, schema quarantine / invalid args are enforced.
+    enforces: bool,
 }
 
 impl Governance {
     fn new(opts: &WrapOptions) -> Result<Self, String> {
         let engine = policy::load_policy(Some(&opts.workspace), Some(&opts.state_dir))?;
+        let enforces = match std::env::var("KOTRO_ENFORCEMENT_MODE")
+            .unwrap_or_else(|_| "enforce".into())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "audit" | "observe" => false,
+            _ => true,
+        };
         Ok(Self {
             server: opts.name.clone(),
             engine,
@@ -62,6 +74,8 @@ impl Governance {
             halted: Arc::new(AtomicBool::new(false)),
             quarantined: Mutex::new(HashSet::new()),
             schemas: Mutex::new(HashMap::new()),
+            admitted: Mutex::new(HashMap::new()),
+            enforces,
         })
     }
 
@@ -141,6 +155,20 @@ impl Governance {
             .unwrap_or("unknown")
             .to_string();
         let args = params.get("arguments").cloned().unwrap_or(Value::Null);
+        // Bound encoded argument size before any schema work (MCP Value path).
+        if serde_json::to_vec(&args).map(|b| b.len()).unwrap_or(usize::MAX)
+            > kotro_schema::ResourceLimits::HARD.encoded_arguments_size
+        {
+            self.event(
+                "tool_denied",
+                &tool,
+                "schema:arguments_oversized".into(),
+                self.enforces,
+            );
+            if self.enforces {
+                return Err((ERR_INVALID_ARGS, "[KOTRO SCHEMA] arguments oversized".into()));
+            }
+        }
 
         // 1. Multi-plane kill switch.
         if self.halted.load(Ordering::Relaxed) {
@@ -169,23 +197,51 @@ impl Governance {
             ));
         }
 
-        // 3. Argument validation against the pinned schema.
-        if let Some(schema) = self.schemas.lock().get(&tool).cloned() {
-            let violations = super::schema::validate(&args, &schema);
-            if !violations.is_empty() {
+        // 3. Argument validation against the admitted/pinned schema.
+        {
+            let admitted = self.admitted.lock().get(&tool).cloned();
+            if let Some(schema) = admitted {
+                let result = schema.validate_value(&args);
+                if !result.ok {
+                    let reason = kotro_schema::apply_mode(self.enforces, result.reason);
+                    let detail = result
+                        .errors
+                        .iter()
+                        .map(|e| e.display())
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    let detail = if detail.is_empty() {
+                        result.detail.clone()
+                    } else {
+                        detail
+                    };
+                    self.event(
+                        "tool_denied",
+                        &tool,
+                        format!("schema:{reason:?}: {detail}"),
+                        self.enforces,
+                    );
+                    if self.enforces {
+                        return Err((
+                            ERR_INVALID_ARGS,
+                            format!("[KOTRO SCHEMA] arguments rejected: {detail}"),
+                        ));
+                    }
+                }
+            } else if self.schemas.lock().contains_key(&tool) {
+                // Schema present but not admitted — enforce blocks; audit continues.
                 self.event(
                     "tool_denied",
                     &tool,
-                    format!("schema violations: {}", violations.join(", ")),
-                    true,
+                    "schema:validation_unavailable (not admitted)".into(),
+                    self.enforces,
                 );
-                return Err((
-                    ERR_INVALID_ARGS,
-                    format!(
-                        "[KOTRO SCHEMA] arguments rejected: {}",
-                        violations.join("; ")
-                    ),
-                ));
+                if self.enforces {
+                    return Err((
+                        ERR_INVALID_ARGS,
+                        "[KOTRO SCHEMA] tool schema not admitted".into(),
+                    ));
+                }
             }
         }
 
@@ -236,7 +292,8 @@ impl Governance {
                 ))
             }
             policy::Action::Ask => {
-                let args_hash = short_sha256(args.to_string().as_bytes());
+                let args_hash = kotro_schema::short_args_hash(&args)
+                    .unwrap_or_else(|_| short_sha256(args.to_string().as_bytes()));
                 if self
                     .reporter
                     .check_approval(&self.server, &tool, &args_hash, &decision.evidence)
@@ -330,20 +387,66 @@ impl Governance {
                 q.insert(name.clone());
             }
         }
+        let limits = kotro_schema::ResourceLimits::initial();
+        let mut kept = Vec::new();
         {
             let mut schemas = self.schemas.lock();
+            let mut admitted = self.admitted.lock();
+            let mut quarantined = self.quarantined.lock();
+            // Drop prior admissions for tools in this list so a failed recompile
+            // cannot leave a stale validator active.
             for tool in &outcome.filtered_tools {
-                if let (Some(name), Some(schema)) = (
-                    tool.get("name").and_then(Value::as_str),
-                    tool.get("inputSchema"),
-                ) {
-                    schemas.insert(name.to_string(), schema.clone());
+                if let Some(name) = tool.get("name").and_then(Value::as_str) {
+                    admitted.remove(name);
+                    schemas.remove(name);
+                }
+            }
+            for tool in &outcome.filtered_tools {
+                let Some(name) = tool.get("name").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some(schema) = tool.get("inputSchema") else {
+                    self.event(
+                        "tool_drift",
+                        name,
+                        "schema would_quarantine: missing inputSchema".into(),
+                        self.enforces,
+                    );
+                    if self.enforces {
+                        quarantined.insert(name.to_string());
+                    } else {
+                        kept.push(tool.clone());
+                    }
+                    continue;
+                };
+                schemas.insert(name.to_string(), schema.clone());
+                match kotro_schema::compile(schema, &limits) {
+                    Ok(compiled) => {
+                        admitted.insert(name.to_string(), compiled);
+                        kept.push(tool.clone());
+                    }
+                    Err(err) => {
+                        let detail = err.to_string();
+                        // Ensure no stale admission remains for this tool.
+                        admitted.remove(name);
+                        self.event(
+                            "tool_drift",
+                            name,
+                            format!("schema would_quarantine: {detail}"),
+                            self.enforces,
+                        );
+                        if self.enforces {
+                            quarantined.insert(name.to_string());
+                        } else {
+                            kept.push(tool.clone());
+                        }
+                    }
                 }
             }
         }
 
         if let Some(result) = response.get_mut("result") {
-            result["tools"] = Value::Array(outcome.filtered_tools);
+            result["tools"] = Value::Array(kept);
         }
     }
 }

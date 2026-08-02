@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 kotro-types = { path = "../kotro-types" }
+kotro-schema = { path = "../kotro-schema" }
 bytes = "1"
 sha2 = "0.10"
 thiserror = "2"

@@ -1,0 +1,24 @@
+[package]
+name = "kotro-schema"
+description = "Bounded JSON Schema 2020-12 admission and argument validation for Kotro MCP tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository = "https://github.com/kotro-labs/kotro-proxy-engine"
+homepage = "https://github.com/kotro-labs/kotro-proxy-engine"
+keywords = ["json-schema", "mcp", "security", "validation"]
+categories = ["parsing", "web-programming"]
+
+[dependencies]
+# No resolve-http / resolve-file: Kotro never fetches schemas from the network or disk.
+jsonschema = { version = "0.49", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_json_canonicalizer = "0.3"
+sha2 = "0.10"
+thiserror = "2"
+regex = "1"
+
+[dev-dependencies]
+serde_json = "1"

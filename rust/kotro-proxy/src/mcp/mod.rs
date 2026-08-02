@@ -41,7 +41,8 @@ pub struct RpcMessage {
 }
 
 pub fn parse_message(line: &str) -> Option<RpcMessage> {
-    let raw: Value = serde_json::from_str(line).ok()?;
+    // Reject duplicate JSON object keys before serde collapses them.
+    let raw = kotro_schema::parse_json_rejecting_duplicates(line.as_bytes()).ok()?;
     let id = raw.get("id").cloned();
     let method = raw.get("method").and_then(Value::as_str).map(str::to_string);
     Some(RpcMessage { raw, id, method })
