@@ -145,7 +145,9 @@ fn attach_guardrail_headers(
     tokens_used: u64,
     budget: &BudgetTracker,
     scope_key: &str,
+    mode: kotro_types::EnforcementMode,
 ) {
+    try_set_header(resp, "x-kotro-mode", mode.as_str());
     try_set_header(resp, "x-kotro-tokens-used", &tokens_used.to_string());
     if budget.limit_tokens > 0 {
         try_set_header(
@@ -277,6 +279,10 @@ pub async fn handle_api_dashboard(State(state): State<Arc<AppState>>) -> impl In
         obj.insert("kill_switch_engaged".into(), serde_json::json!(scope.engaged()));
         obj.insert("kill_switch_scope".into(), serde_json::json!(scope.as_str()));
         obj.insert(
+            "enforcement_mode".into(),
+            serde_json::json!(state.enforcement_mode.as_str()),
+        );
+        obj.insert(
             "kill_switch_mode".into(),
             serde_json::json!(state.kill_switch_mode.as_str()),
         );
@@ -305,7 +311,9 @@ fn kill_switch_json(state: &AppState) -> String {
     serde_json::to_string(&serde_json::json!({
         "engaged": scope.engaged(),
         "scope": scope.as_str(),
-        "mode": state.kill_switch_mode.as_str(),
+        "mode": state.enforcement_mode.as_str(),
+        "enforcement_mode": state.enforcement_mode.as_str(),
+        "kill_switch_mode": state.kill_switch_mode.as_str(),
     }))
     .unwrap_or_else(|_| "{}".into())
 }
@@ -371,6 +379,7 @@ pub async fn handle_api_flight_recorder(State(state): State<Arc<AppState>>) -> i
         serde_json::to_string_pretty(&serde_json::json!({
             "kill_switch_engaged": scope.engaged(),
             "kill_switch_scope": scope.as_str(),
+            "enforcement_mode": state.enforcement_mode.as_str(),
             "kill_switch_mode": state.kill_switch_mode.as_str(),
             "persistent": state.flight_recorder.persistent(),
             "events": events,
@@ -400,6 +409,60 @@ pub async fn handle_api_posture(State(state): State<Arc<AppState>>) -> impl Into
         report
             .map(|r| serde_json::to_string_pretty(&r).unwrap_or_else(|_| "{}".into()))
             .unwrap_or_else(|| "{}".into()),
+    )
+}
+
+/// Runtime control-plane posture (mode, kill switch, chain, hooks, feature flags).
+/// Distinct from `/api/posture` (kotro doctor / ABOM inventory).
+pub async fn handle_api_runtime_posture(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let kill = state.flight_recorder.kill_scope();
+    let chain = match state.flight_recorder.verify() {
+        Ok(count) => serde_json::json!({ "ok": true, "verified_events": count }),
+        Err(err) => serde_json::json!({ "ok": false, "error": err }),
+    };
+    let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    let hooks = crate::hook::claude_code_hook_status(&workspace);
+    let pin_count = {
+        let sd = state.state_dir.as_ref();
+        if sd.trim().is_empty() {
+            0usize
+        } else {
+            crate::posture::pins::load(std::path::Path::new(sd)).servers.len()
+        }
+    };
+    let body = serde_json::json!({
+        "enforcement_mode": state.enforcement_mode.as_str(),
+        "kill_switch": {
+            "engaged": kill.engaged(),
+            "scope": kill.as_str(),
+            "mode": state.kill_switch_mode.as_str(),
+        },
+        "flight_chain": chain,
+        "features": {
+            "injection_scan": state.enable_injection_scan,
+            "injection_block": state.injection_block_on_detection,
+            "budget_limit_tokens": state.budget.limit_tokens,
+            "budget_block": state.budget.block_on_exceeded,
+            "chain_auto_kill": state.chain_auto_kill,
+            "tool_loop_threshold": state.tool_loop_threshold,
+            "flight_recorder": state.flight_recorder.enabled(),
+            "flight_persistent": state.flight_recorder.persistent(),
+        },
+        "mcp": {
+            "pinned_servers": pin_count,
+            "task_required": std::env::var("KOTRO_TASK_REQUIRED")
+                .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(false),
+            "task_envelope_configured": std::env::var("KOTRO_TASK_ENVELOPE")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false),
+        },
+        "hooks": hooks,
+    });
+    (
+        StatusCode::OK,
+        [(CONTENT_TYPE.as_str(), "application/json")],
+        serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
     )
 }
 
@@ -504,7 +567,7 @@ pub async fn handle_api_numbat_findings(
     }
     if result.action != crate::numbat::NumbatResponseAction::None {
         let scope = crate::flight_recorder::KillScope::parse(&result.kill_scope);
-        if state.kill_switch_mode.enforces() {
+        if state.enforcement_mode.enforces() {
             state.flight_recorder.set_kill_scope(scope);
         }
     }
@@ -1069,11 +1132,12 @@ pub async fn handle_chat_completions(
     // ── Injection scan ────────────────────────────────────────────────────────
     // Run before the cache lookup so we never serve a cached response to a
     // poisoned request, and never cache the downstream result of one.
-    let injection_finding: Option<InjectionFinding> = if state.enable_injection_scan {
-        crate::guardrail::scan_messages(&unified_req.messages)
-    } else {
-        None
-    };
+    let injection_finding: Option<InjectionFinding> =
+        if state.enable_injection_scan && state.enforcement_mode.evaluates() {
+            crate::guardrail::scan_messages(&unified_req.messages)
+        } else {
+            None
+        };
     if let Some(ref finding) = injection_finding {
         state.metrics.record_injection_detected();
         tracing::warn!(
@@ -1082,7 +1146,27 @@ pub async fn handle_chat_completions(
             snippet = %finding.matched_snippet,
             "kotro guardrail: MCP prompt injection detected"
         );
-        if state.injection_block_on_detection {
+        let would_block = state.injection_block_on_detection;
+        let enforce = state.enforcement_mode.enforces() && would_block;
+        record_flight(
+            &state,
+            FlightKind::Injection,
+            "openai",
+            &unified_req.model,
+            "/v1/chat/completions",
+            if enforce { "blocked" } else { "observed" },
+            Some(&unified_req),
+            &scope_key,
+            0,
+            start_time.elapsed(),
+            0,
+            &format!(
+                "injection pattern '{}' in {} message",
+                finding.pattern_name, finding.role
+            ),
+            enforce,
+        );
+        if enforce {
             state.metrics.record_injection_blocked();
             // Count blocked requests in traffic totals / recent table (otherwise
             // dashboard shows injections with requests_total=0).
@@ -1094,7 +1178,7 @@ pub async fn handle_chat_completions(
                 "blocked",
                 start_time.elapsed(),
             );
-            return problem_response(
+            let mut resp = problem_response(
                 StatusCode::BAD_REQUEST,
                 "Prompt Injection Detected",
                 &format!(
@@ -1102,6 +1186,8 @@ pub async fn handle_chat_completions(
                     finding.pattern_name, finding.role
                 ),
             );
+            try_set_header(&mut resp, "x-kotro-mode", state.enforcement_mode.as_str());
+            return resp;
         }
     }
 
@@ -1115,6 +1201,7 @@ pub async fn handle_chat_completions(
     // Catches the case where an agent calls the same tool with identical args
     // across multiple turns. The request-level circuit breaker (cache-key based)
     // doesn't catch this because the surrounding context keeps changing.
+    if state.enforcement_mode.evaluates() {
     if let Some(ref lf) = crate::guardrail::detect_tool_call_loops(
         &unified_req.messages, state.tool_loop_threshold,
     ) {
@@ -1128,10 +1215,11 @@ pub async fn handle_chat_completions(
             "Tool '{}' was called {} times with identical arguments.",
             lf.function_name, lf.call_count
         );
-        let enforce = state.kill_switch_mode.enforces();
+        let enforce = state.enforcement_mode.enforces();
         record_flight(
             &state, FlightKind::ToolLoop, "openai", &unified_req.model,
-            "/v1/chat/completions", "blocked", Some(&unified_req), &scope_key, 0,
+            "/v1/chat/completions", if enforce { "blocked" } else { "observed" },
+            Some(&unified_req), &scope_key, 0,
             start_time.elapsed(), 0, &detail, enforce,
         );
         state.metrics.record_agent_loop_stopped();
@@ -1155,6 +1243,8 @@ pub async fn handle_chat_completions(
                 return resp;
             }
         }
+    }
+
     }
 
     // ── Token estimation (used for budget and response headers) ───────────────
@@ -1209,6 +1299,7 @@ pub async fn handle_chat_completions(
             attach_guardrail_headers(
                 &mut resp, injection_finding.as_ref(),
                 state.budget.current(&scope_key), &state.budget, &scope_key,
+                state.enforcement_mode,
             );
             attach_redaction_count(&mut resp, redaction_hits);
             return resp;
@@ -1258,6 +1349,7 @@ pub async fn handle_chat_completions(
                     attach_guardrail_headers(
                         &mut resp, injection_finding.as_ref(),
                         state.budget.current(&scope_key), &state.budget, &scope_key,
+                        state.enforcement_mode,
                     );
                     attach_redaction_count(&mut resp, redaction_hits);
                     return resp;
@@ -1286,31 +1378,34 @@ pub async fn handle_chat_completions(
                 used = state.budget.current(&scope_key),
                 "kotro guardrail: session token budget exceeded"
             );
-            if state.budget.block_on_exceeded {
-                let detail = format!(
-                    "Session token budget of {} tokens exceeded. Resets after idle period.",
-                    state.budget.limit_tokens
-                );
-                record_flight(
-                    &state,
-                    FlightKind::Budget,
-                    "openai",
-                    &processed.model,
-                    "/v1/chat/completions",
-                    "blocked",
-                    Some(&processed),
-                    &scope_key,
-                    estimated_input_tokens,
-                    start_time.elapsed(),
-                    0,
-                    &detail,
-                    true,
-                );
-                return problem_response(
+            let detail = format!(
+                "Session token budget of {} tokens exceeded. Resets after idle period.",
+                state.budget.limit_tokens
+            );
+            let enforce = state.enforcement_mode.enforces() && state.budget.block_on_exceeded;
+            record_flight(
+                &state,
+                FlightKind::Budget,
+                "openai",
+                &processed.model,
+                "/v1/chat/completions",
+                if enforce { "blocked" } else { "observed" },
+                Some(&processed),
+                &scope_key,
+                estimated_input_tokens,
+                start_time.elapsed(),
+                0,
+                &detail,
+                enforce,
+            );
+            if enforce {
+                let mut resp = problem_response(
                     StatusCode::TOO_MANY_REQUESTS,
                     "Session Budget Exceeded",
                     &detail,
                 );
+                try_set_header(&mut resp, "x-kotro-mode", state.enforcement_mode.as_str());
+                return resp;
             }
         }
 
@@ -1367,7 +1462,7 @@ pub async fn handle_chat_completions(
 
     // Record budget usage and attach guardrail headers.
     let tokens_used = state.budget.record(&scope_key, estimated_input_tokens);
-    attach_guardrail_headers(&mut resp, injection_finding.as_ref(), tokens_used, &state.budget, &scope_key);
+    attach_guardrail_headers(&mut resp, injection_finding.as_ref(), tokens_used, &state.budget, &scope_key, state.enforcement_mode);
     attach_redaction_count(&mut resp, redaction_hits);
     resp
 }
@@ -1457,11 +1552,12 @@ pub async fn handle_messages(
     }
 
     // ── Injection scan ────────────────────────────────────────────────────────
-    let injection_finding: Option<InjectionFinding> = if state.enable_injection_scan {
-        crate::guardrail::scan_messages(&unified_req.messages)
-    } else {
-        None
-    };
+    let injection_finding: Option<InjectionFinding> =
+        if state.enable_injection_scan && state.enforcement_mode.evaluates() {
+            crate::guardrail::scan_messages(&unified_req.messages)
+        } else {
+            None
+        };
     if let Some(ref finding) = injection_finding {
         state.metrics.record_injection_detected();
         tracing::warn!(
@@ -1470,7 +1566,27 @@ pub async fn handle_messages(
             snippet = %finding.matched_snippet,
             "kotro guardrail: MCP prompt injection detected"
         );
-        if state.injection_block_on_detection {
+        let would_block = state.injection_block_on_detection;
+        let enforce = state.enforcement_mode.enforces() && would_block;
+        record_flight(
+            &state,
+            FlightKind::Injection,
+            "anthropic",
+            &unified_req.model,
+            "/v1/messages",
+            if enforce { "blocked" } else { "observed" },
+            Some(&unified_req),
+            &scope_key,
+            0,
+            start_time.elapsed(),
+            0,
+            &format!(
+                "injection pattern '{}' in {} message",
+                finding.pattern_name, finding.role
+            ),
+            enforce,
+        );
+        if enforce {
             state.metrics.record_injection_blocked();
             state.metrics.record_request(
                 "anthropic",
@@ -1480,7 +1596,7 @@ pub async fn handle_messages(
                 "blocked",
                 start_time.elapsed(),
             );
-            return problem_response(
+            let mut resp = problem_response(
                 StatusCode::BAD_REQUEST,
                 "Prompt Injection Detected",
                 &format!(
@@ -1488,6 +1604,8 @@ pub async fn handle_messages(
                     finding.pattern_name, finding.role
                 ),
             );
+            try_set_header(&mut resp, "x-kotro-mode", state.enforcement_mode.as_str());
+            return resp;
         }
     }
 
@@ -1498,6 +1616,7 @@ pub async fn handle_messages(
     }
 
     // ── Agent tool-call loop detection ────────────────────────────────────────
+    if state.enforcement_mode.evaluates() {
     if let Some(ref lf) = crate::guardrail::detect_tool_call_loops(
         &unified_req.messages, state.tool_loop_threshold,
     ) {
@@ -1511,10 +1630,11 @@ pub async fn handle_messages(
             "Tool '{}' was called {} times with identical arguments.",
             lf.function_name, lf.call_count
         );
-        let enforce = state.kill_switch_mode.enforces();
+        let enforce = state.enforcement_mode.enforces();
         record_flight(
             &state, FlightKind::ToolLoop, "anthropic", &unified_req.model,
-            "/v1/messages", "blocked", Some(&unified_req), &scope_key, 0,
+            "/v1/messages", if enforce { "blocked" } else { "observed" },
+            Some(&unified_req), &scope_key, 0,
             start_time.elapsed(), 0, &detail, enforce,
         );
         state.metrics.record_agent_loop_stopped();
@@ -1538,6 +1658,8 @@ pub async fn handle_messages(
                 return resp;
             }
         }
+    }
+
     }
 
     // ── Token estimation ──────────────────────────────────────────────────────
@@ -1590,6 +1712,7 @@ pub async fn handle_messages(
             attach_guardrail_headers(
                 &mut resp, injection_finding.as_ref(),
                 state.budget.current(&scope_key), &state.budget, &scope_key,
+                state.enforcement_mode,
             );
             attach_redaction_count(&mut resp, redaction_hits);
             return resp;
@@ -1625,6 +1748,7 @@ pub async fn handle_messages(
                     attach_guardrail_headers(
                         &mut resp, injection_finding.as_ref(),
                         state.budget.current(&scope_key), &state.budget, &scope_key,
+                        state.enforcement_mode,
                     );
                     attach_redaction_count(&mut resp, redaction_hits);
                     return resp;
@@ -1653,31 +1777,34 @@ pub async fn handle_messages(
                 used = state.budget.current(&scope_key),
                 "kotro guardrail: session token budget exceeded"
             );
-            if state.budget.block_on_exceeded {
-                let detail = format!(
-                    "Session token budget of {} tokens exceeded. Resets after idle period.",
-                    state.budget.limit_tokens
-                );
-                record_flight(
-                    &state,
-                    FlightKind::Budget,
-                    "anthropic",
-                    &processed.model,
-                    "/v1/messages",
-                    "blocked",
-                    Some(&processed),
-                    &scope_key,
-                    estimated_input_tokens,
-                    start_time.elapsed(),
-                    0,
-                    &detail,
-                    true,
-                );
-                return problem_response(
+            let detail = format!(
+                "Session token budget of {} tokens exceeded. Resets after idle period.",
+                state.budget.limit_tokens
+            );
+            let enforce = state.enforcement_mode.enforces() && state.budget.block_on_exceeded;
+            record_flight(
+                &state,
+                FlightKind::Budget,
+                "anthropic",
+                &processed.model,
+                "/v1/messages",
+                if enforce { "blocked" } else { "observed" },
+                Some(&processed),
+                &scope_key,
+                estimated_input_tokens,
+                start_time.elapsed(),
+                0,
+                &detail,
+                enforce,
+            );
+            if enforce {
+                let mut resp = problem_response(
                     StatusCode::TOO_MANY_REQUESTS,
                     "Session Budget Exceeded",
                     &detail,
                 );
+                try_set_header(&mut resp, "x-kotro-mode", state.enforcement_mode.as_str());
+                return resp;
             }
         }
 
@@ -1733,7 +1860,7 @@ pub async fn handle_messages(
     .await;
 
     let tokens_used = state.budget.record(&scope_key, estimated_input_tokens);
-    attach_guardrail_headers(&mut resp, injection_finding.as_ref(), tokens_used, &state.budget, &scope_key);
+    attach_guardrail_headers(&mut resp, injection_finding.as_ref(), tokens_used, &state.budget, &scope_key, state.enforcement_mode);
     attach_redaction_count(&mut resp, redaction_hits);
     resp
 }
@@ -2032,6 +2159,7 @@ fn serve_local_verify_miss(
         state.budget.current(scope_key),
         &state.budget,
         scope_key,
+        state.enforcement_mode,
     );
     resp
 }

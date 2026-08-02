@@ -59,6 +59,8 @@ struct Governance {
     admitted: Mutex<HashMap<String, kotro_schema::AdmittedSchema>>,
     /// When true, schema quarantine / invalid args are enforced.
     enforces: bool,
+    /// When false (`KOTRO_MODE=disabled`), skip policy/schema evaluation.
+    evaluates: bool,
     /// SEP-2549 list/resource-read result cache.
     list_cache: super::list_cache::ListResultCache,
     /// Process/env identity (task, principal, agent) for flight + approvals.
@@ -70,14 +72,20 @@ struct Governance {
 impl Governance {
     fn new(opts: &WrapOptions) -> Result<Self, String> {
         let engine = policy::load_policy(Some(&opts.workspace), Some(&opts.state_dir))?;
-        let enforces = match std::env::var("KOTRO_ENFORCEMENT_MODE")
-            .unwrap_or_else(|_| "enforce".into())
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "audit" | "observe" => false,
-            _ => true,
+        let mode = {
+            let raw = std::env::var("KOTRO_MODE")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| {
+                    std::env::var("KOTRO_ENFORCEMENT_MODE")
+                        .ok()
+                        .filter(|s| !s.trim().is_empty())
+                })
+                .unwrap_or_else(|| "enforce".into());
+            kotro_types::EnforcementMode::parse(&raw)
         };
+        let enforces = mode.enforces();
+        let evaluates = mode.evaluates();
         let task_gate = super::task_gate::TaskGate::from_env()?;
         let mut identity = crate::identity_ctx::IdentityContext::from_env();
         let overlay = task_gate.identity_overlay();
@@ -109,6 +117,7 @@ impl Governance {
             schemas: Mutex::new(HashMap::new()),
             admitted: Mutex::new(HashMap::new()),
             enforces,
+            evaluates,
             list_cache: super::list_cache::ListResultCache::new(),
             identity,
             task_gate,
@@ -242,13 +251,18 @@ impl Governance {
             }
         }
 
-        // 1. Multi-plane kill switch.
+        // 1. Multi-plane kill switch (honored even when mode=disabled).
         if self.halted.load(Ordering::Relaxed) {
             self.event("tool_denied", &tool, "kill switch engaged (tools halted)".into(), true);
             return Err((
                 ERR_KILL_SWITCH,
                 "[KOTRO KILL SWITCH] tool execution halted by operator".into(),
             ));
+        }
+
+        // Disabled mode: skip policy / schema / task evaluation.
+        if !self.evaluates {
+            return Ok(());
         }
 
         // 2. Rug-pull quarantine.

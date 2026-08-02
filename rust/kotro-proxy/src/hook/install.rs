@@ -183,6 +183,40 @@ pub fn uninstall_claude_code(
     Ok(InstallOutcome { settings_path: path, backup_path: None, changed })
 }
 
+/// Read-only: whether any candidate settings file currently has Kotro hooks.
+pub fn claude_code_hook_status(workspace: &Path) -> serde_json::Value {
+    let mut paths = Vec::new();
+    let mut installed = false;
+    for path in settings_candidates(workspace) {
+        if !path.is_file() {
+            continue;
+        }
+        let present = load_settings(&path)
+            .ok()
+            .map(|root| {
+                ["PreToolUse", "PostToolUse"].iter().any(|event| {
+                    root.get("hooks")
+                        .and_then(|h| h.get(*event))
+                        .and_then(Value::as_array)
+                        .map(|arr| arr.iter().any(is_kotro_matcher))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+        if present {
+            installed = true;
+        }
+        paths.push(serde_json::json!({
+            "path": path.display().to_string(),
+            "kotro_hooks": present,
+        }));
+    }
+    serde_json::json!({
+        "installed": installed,
+        "settings": paths,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

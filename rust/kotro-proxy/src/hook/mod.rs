@@ -26,7 +26,7 @@ use crate::policy::{self, Action, ToolCallContext, ToolClass};
 use crate::posture::short_sha256;
 
 mod install;
-pub use install::{install_claude_code, uninstall_claude_code};
+pub use install::{claude_code_hook_status, install_claude_code, uninstall_claude_code};
 
 /// Parsed, plane-agnostic view of a Claude Code hook event.
 pub struct HookEvent {

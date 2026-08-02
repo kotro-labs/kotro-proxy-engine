@@ -3,8 +3,12 @@
 use std::env;
 use std::time::Duration;
 
+use kotro_types::EnforcementMode;
+
 /// Whether governance trips (circuit / rate / tool storm / global kill) only log
 /// or actively block upstream forwards.
+///
+/// Derived from [`EnforcementMode`] for back-compat; prefer `enforcement_mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KillSwitchMode {
     Observe,
@@ -14,7 +18,7 @@ pub enum KillSwitchMode {
 impl KillSwitchMode {
     pub fn parse(raw: &str) -> Self {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "observe" | "log" | "warn" => Self::Observe,
+            "observe" | "log" | "warn" | "audit" | "disabled" | "off" | "none" => Self::Observe,
             _ => Self::Enforce,
         }
     }
@@ -28,6 +32,14 @@ impl KillSwitchMode {
 
     pub fn enforces(self) -> bool {
         matches!(self, Self::Enforce)
+    }
+
+    pub fn from_enforcement(mode: EnforcementMode) -> Self {
+        if mode.enforces() {
+            Self::Enforce
+        } else {
+            Self::Observe
+        }
     }
 }
 
@@ -84,8 +96,11 @@ pub struct Config {
     /// Max assistant tool rounds in one conversation. `0` = unlimited.
     /// Env: `KOTRO_MAX_TOOL_ROUNDS`.
     pub max_tool_rounds: u32,
-    /// `observe` = record/log only; `enforce` = block/halt (default).
-    /// Env: `KOTRO_KILL_SWITCH_MODE`.
+    /// Unified dial: `disabled` | `audit` | `enforce` (default).
+    /// Env precedence: `KOTRO_MODE` > `KOTRO_ENFORCEMENT_MODE` > `KOTRO_KILL_SWITCH_MODE`.
+    pub enforcement_mode: EnforcementMode,
+    /// Derived from `enforcement_mode` for back-compat with older call sites.
+    /// Env: `KOTRO_KILL_SWITCH_MODE` (also read via the unified dial above).
     pub kill_switch_mode: KillSwitchMode,
     /// Append-only local flight recorder. Default: true.
     pub enable_flight_recorder: bool,
@@ -164,6 +179,15 @@ pub struct Config {
     pub upstream_api_key: Option<String>,
 }
 
+impl Config {
+    pub fn test_default() -> Self {
+        Self {
+            enforcement_mode: EnforcementMode::Enforce,
+            ..Default::default()
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -199,6 +223,7 @@ impl Default for Config {
             circuit_breaker_window_secs: 60,
             max_requests_per_minute: 0,
             max_tool_rounds: 0,
+            enforcement_mode: EnforcementMode::Enforce,
             kill_switch_mode: KillSwitchMode::Enforce,
             enable_flight_recorder: true,
             flight_recorder_capacity: 200,
@@ -272,6 +297,26 @@ impl Config {
             }
         }
 
+        // C7 / PR 0.7: KOTRO_MODE > KOTRO_ENFORCEMENT_MODE > KOTRO_KILL_SWITCH_MODE.
+        let enforcement_mode = {
+            let raw = env::var("KOTRO_MODE")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| {
+                    env::var("KOTRO_ENFORCEMENT_MODE")
+                        .ok()
+                        .filter(|s| !s.trim().is_empty())
+                })
+                .unwrap_or_else(|| {
+                    env_or(
+                        "KOTRO_KILL_SWITCH_MODE",
+                        defaults.enforcement_mode.as_str().into(),
+                    )
+                });
+            EnforcementMode::parse(&raw)
+        };
+        let kill_switch_mode = KillSwitchMode::from_enforcement(enforcement_mode);
+
         Self {
             listen_addr: env_or("KOTRO_LISTEN_ADDR", defaults.listen_addr),
             upstream_url: env_or("KOTRO_UPSTREAM_URL", defaults.upstream_url),
@@ -326,19 +371,8 @@ impl Config {
                 defaults.max_requests_per_minute as u64,
             ) as u32,
             max_tool_rounds: env_u64("KOTRO_MAX_TOOL_ROUNDS", defaults.max_tool_rounds as u64) as u32,
-            kill_switch_mode: {
-                // Unified dial: KOTRO_ENFORCEMENT_MODE aliases kill-switch observe/enforce.
-                let raw = env::var("KOTRO_ENFORCEMENT_MODE")
-                    .ok()
-                    .filter(|s| !s.trim().is_empty())
-                    .unwrap_or_else(|| {
-                        env_or(
-                            "KOTRO_KILL_SWITCH_MODE",
-                            defaults.kill_switch_mode.as_str().into(),
-                        )
-                    });
-                KillSwitchMode::parse(&raw)
-            },
+            enforcement_mode,
+            kill_switch_mode,
             enable_flight_recorder: env_bool(
                 "KOTRO_ENABLE_FLIGHT_RECORDER",
                 defaults.enable_flight_recorder,

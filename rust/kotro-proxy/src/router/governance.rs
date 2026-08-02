@@ -174,7 +174,7 @@ pub fn correlate(state: &AppState, event: &FlightEvent) {
     for alert in alerts {
         let critical = alert.severity == "critical";
         let auto_kill =
-            critical && state.chain_auto_kill && state.kill_switch_mode.enforces();
+            critical && state.chain_auto_kill && state.enforcement_mode.enforces();
         tracing::warn!(
             rule = %alert.rule,
             session = %alert.session,
@@ -221,6 +221,24 @@ pub fn governance_block_response(
     detail: &str,
     circuit_open: bool,
 ) -> Response {
+    governance_block_response_with_mode(
+        stream,
+        openai_style,
+        title,
+        detail,
+        circuit_open,
+        kotro_types::EnforcementMode::Enforce,
+    )
+}
+
+pub fn governance_block_response_with_mode(
+    stream: bool,
+    openai_style: bool,
+    title: &str,
+    detail: &str,
+    circuit_open: bool,
+    mode: kotro_types::EnforcementMode,
+) -> Response {
     let mut resp = if stream {
         let msg = if openai_style {
             format!(
@@ -246,6 +264,7 @@ pub fn governance_block_response(
         try_set_header(&mut resp, "x-kotro-circuit-open", "true");
     }
     try_set_header(&mut resp, "x-kotro-kill-switch", "tripped");
+    try_set_header(&mut resp, "x-kotro-mode", mode.as_str());
     resp
 }
 
@@ -262,7 +281,10 @@ pub fn check_early_governance(
 ) -> Option<Response> {
     let model = unified.model.as_str();
     let stream = unified.stream;
-    let enforces = state.kill_switch_mode.enforces();
+    if !state.enforcement_mode.evaluates() {
+        return None;
+    }
+    let enforces = state.enforcement_mode.enforces();
 
     if state.flight_recorder.kill_scope().halts_llm() {
         let detail = format!(
@@ -286,12 +308,13 @@ pub fn check_early_governance(
         );
         state.metrics.record_agent_loop_stopped();
         if enforces {
-            return Some(governance_block_response(
+            return Some(governance_block_response_with_mode(
                 stream,
                 openai_style,
                 "KILL SWITCH",
                 &detail,
                 true,
+                state.enforcement_mode,
             ));
         }
     }
@@ -317,12 +340,13 @@ pub fn check_early_governance(
         );
         state.metrics.record_agent_loop_stopped();
         if enforces {
-            return Some(governance_block_response(
+            return Some(governance_block_response_with_mode(
                 stream,
                 openai_style,
                 "RATE LIMIT",
                 &detail,
                 true,
+                state.enforcement_mode,
             ));
         }
     }
@@ -351,12 +375,13 @@ pub fn check_early_governance(
             );
             state.metrics.record_agent_loop_stopped();
             if enforces {
-                return Some(governance_block_response(
+                return Some(governance_block_response_with_mode(
                     stream,
                     openai_style,
                     "TOOL STORM",
                     &detail,
                     true,
+                    state.enforcement_mode,
                 ));
             }
         }
@@ -379,13 +404,16 @@ pub fn trip_circuit_breaker(
     if state.circuit_breaker_threshold == 0 {
         return None;
     }
+    if !state.enforcement_mode.evaluates() {
+        return None;
+    }
     let count = state.circuit_breaker.get(cache_key).unwrap_or(0) + 1;
     state.circuit_breaker.insert(cache_key.to_string(), count);
     if count < state.circuit_breaker_threshold {
         return None;
     }
 
-    let enforces = state.kill_switch_mode.enforces();
+    let enforces = state.enforcement_mode.enforces();
     let detail = format!(
         "Identical prompt-state seen {count} times within {}s. Halting to prevent credit drain.",
         state.circuit_breaker_window_secs
@@ -427,12 +455,13 @@ pub fn trip_circuit_breaker(
         return None;
     }
 
-    Some(governance_block_response(
+    Some(governance_block_response_with_mode(
         unified.stream,
         openai_style,
         "CIRCUIT BREAKER",
         &detail,
         true,
+        state.enforcement_mode,
     ))
 }
 

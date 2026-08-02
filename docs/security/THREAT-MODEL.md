@@ -256,6 +256,12 @@ frames. Redaction applies on both paths and records `redaction_count` on the tap
   tool metadata on first `tools/list` (trust-on-first-use), quarantine drift,
   validate `tools/call` arguments against the pinned schema, and enforce the
   deny-first local policy before forwarding.
+- **Load sensitivity**: Schema validation relies on a bounded worker pool. Under
+  heavy concurrent load or CPU contention, validation requests may hit their 
+  wall-clock deadlines (`recv_timeout`). In this scenario, validation returns 
+  `validation_unavailable`, which correctly **fails closed** (denies the tool call). 
+  This creates an availability/DoS edge case under extreme load, but guarantees no 
+  security bypass.
 - Every inbound method is subject to the multi-plane kill switch. Only an
   allowlist is relayed (`initialize` for back-compat, `server/discover`,
   `ping`, `tools/*`, `resources/*`, `prompts/*`, `completion/complete`,
