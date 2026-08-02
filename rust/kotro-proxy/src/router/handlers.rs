@@ -24,10 +24,7 @@ use crate::cache::{generate_cache_key, Entry};
 use crate::compressor::Scope;
 use crate::guardrail::{InjectionFinding, RedactionMap};
 use crate::router::classifier::{classify_complexity, PromptComplexity};
-// redact_chat_request / redact_messages_request are defined in crate::guardrail but
-// not yet called here — redaction is currently done via apply_unified_middleware's
-// passthrough stub. Import only what is used.
-// TODO: wire per-format redaction once redact_unified_request is implemented.
+// Request-body PII redaction runs in apply_unified_middleware (chat round-trip).
 use crate::models::{anthropic::MessagesRequest, openai::ChatCompletionRequest, unified::UnifiedRequest};
 use crate::proxy::pipeline::{create_processing_pipeline, PipelineOptions, StreamFormat};
 use crate::proxy::replay::create_cached_replay_stream;
@@ -132,6 +129,12 @@ fn try_set_header(resp: &mut Response, name: &str, value: &str) {
         HeaderValue::from_str(value),
     ) {
         resp.headers_mut().insert(n, v);
+    }
+}
+
+fn attach_redaction_count(resp: &mut Response, count: usize) {
+    if count > 0 {
+        try_set_header(resp, "x-kotro-redacted", &count.to_string());
     }
 }
 
@@ -1136,8 +1139,9 @@ pub async fn handle_chat_completions(
 
     let (processed, cache_source, redaction_map) =
         apply_unified_middleware(&state, unified_req, &scope);
+    let redaction_hits = redaction_map.as_ref().map(|m| m.len()).unwrap_or(0);
     let governance_key = unified_cache_key(&state, &scope, &cache_source, "openai");
-    let cache_key = store_cache_key(&state, &governance_key);
+    let cache_key = store_cache_key(&state, &governance_key, processed.stream);
 
     if !governance_key.is_empty() {
         if !cache_key.is_empty() {
@@ -1175,6 +1179,7 @@ pub async fn handle_chat_completions(
                 &mut resp, injection_finding.as_ref(),
                 state.budget.current(&scope_key), &state.budget, &scope_key,
             );
+            attach_redaction_count(&mut resp, redaction_hits);
             return resp;
         }
         info!(key = %cache_key, format = "openai", "cache miss");
@@ -1223,6 +1228,7 @@ pub async fn handle_chat_completions(
                         &mut resp, injection_finding.as_ref(),
                         state.budget.current(&scope_key), &state.budget, &scope_key,
                     );
+                    attach_redaction_count(&mut resp, redaction_hits);
                     return resp;
                 }
             }
@@ -1250,13 +1256,29 @@ pub async fn handle_chat_completions(
                 "kotro guardrail: session token budget exceeded"
             );
             if state.budget.block_on_exceeded {
+                let detail = format!(
+                    "Session token budget of {} tokens exceeded. Resets after idle period.",
+                    state.budget.limit_tokens
+                );
+                record_flight(
+                    &state,
+                    FlightKind::Budget,
+                    "openai",
+                    &processed.model,
+                    "/v1/chat/completions",
+                    "blocked",
+                    Some(&processed),
+                    &scope_key,
+                    estimated_input_tokens,
+                    start_time.elapsed(),
+                    0,
+                    &detail,
+                    true,
+                );
                 return problem_response(
                     StatusCode::TOO_MANY_REQUESTS,
                     "Session Budget Exceeded",
-                    &format!(
-                        "Session token budget of {} tokens exceeded. Resets after idle period.",
-                        state.budget.limit_tokens
-                    ),
+                    &detail,
                 );
             }
         }
@@ -1315,6 +1337,7 @@ pub async fn handle_chat_completions(
     // Record budget usage and attach guardrail headers.
     let tokens_used = state.budget.record(&scope_key, estimated_input_tokens);
     attach_guardrail_headers(&mut resp, injection_finding.as_ref(), tokens_used, &state.budget, &scope_key);
+    attach_redaction_count(&mut resp, redaction_hits);
     resp
 }
 
@@ -1499,8 +1522,9 @@ pub async fn handle_messages(
 
     let (processed, cache_source, redaction_map) =
         apply_unified_middleware(&state, unified_req, &scope);
+    let redaction_hits = redaction_map.as_ref().map(|m| m.len()).unwrap_or(0);
     let governance_key = unified_cache_key(&state, &scope, &cache_source, "anthropic");
-    let cache_key = store_cache_key(&state, &governance_key);
+    let cache_key = store_cache_key(&state, &governance_key, processed.stream);
 
     if !governance_key.is_empty() {
         if !cache_key.is_empty() {
@@ -1536,6 +1560,7 @@ pub async fn handle_messages(
                 &mut resp, injection_finding.as_ref(),
                 state.budget.current(&scope_key), &state.budget, &scope_key,
             );
+            attach_redaction_count(&mut resp, redaction_hits);
             return resp;
         }
         info!(key = %cache_key, format = "anthropic", "cache miss");
@@ -1570,6 +1595,7 @@ pub async fn handle_messages(
                         &mut resp, injection_finding.as_ref(),
                         state.budget.current(&scope_key), &state.budget, &scope_key,
                     );
+                    attach_redaction_count(&mut resp, redaction_hits);
                     return resp;
                 }
             }
@@ -1597,13 +1623,29 @@ pub async fn handle_messages(
                 "kotro guardrail: session token budget exceeded"
             );
             if state.budget.block_on_exceeded {
+                let detail = format!(
+                    "Session token budget of {} tokens exceeded. Resets after idle period.",
+                    state.budget.limit_tokens
+                );
+                record_flight(
+                    &state,
+                    FlightKind::Budget,
+                    "anthropic",
+                    &processed.model,
+                    "/v1/messages",
+                    "blocked",
+                    Some(&processed),
+                    &scope_key,
+                    estimated_input_tokens,
+                    start_time.elapsed(),
+                    0,
+                    &detail,
+                    true,
+                );
                 return problem_response(
                     StatusCode::TOO_MANY_REQUESTS,
                     "Session Budget Exceeded",
-                    &format!(
-                        "Session token budget of {} tokens exceeded. Resets after idle period.",
-                        state.budget.limit_tokens
-                    ),
+                    &detail,
                 );
             }
         }
@@ -1661,6 +1703,7 @@ pub async fn handle_messages(
 
     let tokens_used = state.budget.record(&scope_key, estimated_input_tokens);
     attach_guardrail_headers(&mut resp, injection_finding.as_ref(), tokens_used, &state.budget, &scope_key);
+    attach_redaction_count(&mut resp, redaction_hits);
     resp
 }
 
@@ -1725,9 +1768,19 @@ fn apply_unified_middleware(
     Option<Arc<RedactionMap>>,
 ) {
     let (redacted, map) = if state.enable_redaction {
-        // Redaction for unified format would go here. For now, passthrough.
-        // We could implement redact_unified_request(req)
-        (req, None)
+        let stream = req.stream;
+        let max_tokens = req.max_tokens;
+        let chat: crate::models::openai::ChatCompletionRequest = req.clone().into();
+        let (redacted_chat, map) = crate::guardrail::redact_chat_request(chat);
+        match UnifiedRequest::try_from(redacted_chat) {
+            Ok(mut unified) => {
+                unified.stream = stream;
+                unified.max_tokens = max_tokens;
+                let map = if map.len() > 0 { Some(map) } else { None };
+                (unified, map)
+            }
+            Err(_) => (req, None),
+        }
     } else {
         (req, None)
     };
@@ -1748,20 +1801,27 @@ fn unified_cache_key(
     req: &UnifiedRequest,
     format_prefix: &str,
 ) -> String {
-    if !req.stream {
-        return String::new();
-    }
-    // Mint a prompt-state key whenever cache or the circuit breaker needs it.
-    if !state.enable_cache && state.circuit_breaker_threshold == 0 {
+    // Mint a prompt-state key whenever cache, the circuit breaker, or the
+    // session budget needs it. Non-stream responses are not stored in the SSE
+    // cache, but the same key still drives miss-path governance (CB + budget).
+    // Returning empty for `!stream` previously disabled both on the common path.
+    if !state.enable_cache
+        && state.circuit_breaker_threshold == 0
+        && state.budget.limit_tokens == 0
+    {
         return String::new();
     }
     let material = req.extract_cache_key_material(state.cache_key_strategy, state.cache_window_size);
     generate_cache_key(&scope.key(), &req.model, format_prefix, &material)
 }
 
-/// Key used for exact-store get/put. Empty when caching is disabled.
-fn store_cache_key(state: &AppState, governance_key: &str) -> String {
-    if state.enable_cache {
+/// Key used for exact-store get/put.
+///
+/// Non-stream responses must never share the SSE cache keyspace. Governance
+/// still uses `governance_key` for CB/budget; only streaming requests may
+/// read or write `raw_sse` entries.
+fn store_cache_key(state: &AppState, governance_key: &str, streaming: bool) -> String {
+    if state.enable_cache && streaming && !governance_key.is_empty() {
         governance_key.to_string()
     } else {
         String::new()
@@ -2009,4 +2069,26 @@ fn get_upstream_url<'a>(state: &'a AppState, model: &str) -> &'a str {
         }
     }
     &state.upstream_url
+}
+
+
+#[cfg(test)]
+mod cache_key_tests {
+    #[test]
+    fn non_stream_never_uses_sse_store_key() {
+        // Governance keys may be minted for CB/budget, but the SSE store key
+        // must stay empty for non-stream requests.
+        assert!(super::store_cache_key_for_test(true, false).is_empty());
+        assert!(!super::store_cache_key_for_test(true, true).is_empty());
+        assert!(super::store_cache_key_for_test(false, true).is_empty());
+    }
+}
+
+#[cfg(test)]
+fn store_cache_key_for_test(enable_cache: bool, streaming: bool) -> String {
+    if enable_cache && streaming {
+        "gov-key".into()
+    } else {
+        String::new()
+    }
 }

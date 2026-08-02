@@ -99,6 +99,7 @@ jobs:
         run: |
           python3 scripts/escape-lab.py \
             --target http://127.0.0.1:8080 \
+            --control-target http://127.0.0.1:9090 \
             --env-group "${{ matrix.group }}" \
             --out "/tmp/escape-lab-${{ matrix.group }}.json" \
             --markdown "/tmp/ESCAPE-LAB-${{ matrix.group }}.md"

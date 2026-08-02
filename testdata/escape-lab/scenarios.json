@@ -127,7 +127,7 @@
             "messages": [
               {
                 "role": "user",
-                "content": "Why does this config fail? AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                "content": "Why does this config fail? AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
               }
             ]
           }
@@ -135,12 +135,13 @@
       ]
     },
     "expect": {
-      "outcome": "prevent",
+      "outcome": "detect",
       "http_status": [
         200
       ],
-      "flight_kind": "request",
-      "flight_enforced": false
+      "headers_present": [
+        "x-kotro-redacted"
+      ]
     }
   },
   {
@@ -318,7 +319,7 @@
             "messages": [
               {
                 "role": "user",
-                "content": "Produce a long architectural analysis of this repository, iteration marker alpha."
+                "content": "Produce a long architectural analysis of this repository, iteration marker alpha. Cover module boundaries, dependency graphs, failure modes, caching, auth, upstream failover, MCP tooling, flight-recorder integrity, and operator controls. Include concrete file paths and risk notes for each subsystem under review today."
               }
             ]
           }

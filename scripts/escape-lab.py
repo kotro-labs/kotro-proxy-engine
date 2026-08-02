@@ -181,12 +181,12 @@ def http_call(
         return 0, {}, f"transport error: {exc}"
 
 
-def fetch_tape(base: str, token: str | None, timeout: float) -> list[dict[str, Any]]:
-    """Read the flight recorder tape. Returns [] when unreachable or unauthorized."""
+def fetch_tape(control_base: str, token: str | None, timeout: float) -> list[dict[str, Any]]:
+    """Read the flight recorder tape from the control/metrics listener (:9090)."""
     step = {"method": "GET", "path": "/api/flight-recorder", "headers": {}}
     if token:
         step["headers"]["x-kotro-control-token"] = token
-    status, _, body = http_call(base, step, timeout)
+    status, _, body = http_call(control_base, step, timeout)
     if status != 200:
         return []
     try:
@@ -227,7 +227,11 @@ def classify(
 
     flagged = any(
         h in headers
-        for h in ("x-kotro-injection-warning", "x-kotro-circuit-open")
+        for h in (
+            "x-kotro-injection-warning",
+            "x-kotro-circuit-open",
+            "x-kotro-redacted",
+        )
     )
     if flagged:
         return "detect"
@@ -268,49 +272,66 @@ def match_tape_event(
 # ── run ──────────────────────────────────────────────────────────────────────
 
 
+def step_base(path: str, proxy_base: str, control_base: str) -> str:
+    """Control/telemetry APIs live on the metrics listener, not the LLM proxy."""
+    if path.startswith("/api/") or path.startswith("/dashboard") or path == "/metrics":
+        return control_base
+    return proxy_base
+
+
 def run_steps(
-    steps: list[dict[str, Any]], base: str, token: str | None, timeout: float
+    steps: list[dict[str, Any]],
+    proxy_base: str,
+    control_base: str,
+    token: str | None,
+    timeout: float,
 ) -> tuple[int, dict[str, str], str]:
     """Execute steps sequentially, returning the final response.
 
-    The control token is attached to every step that omits it. Setup and
-    teardown steps target authenticated control endpoints; attack steps are
-    unaffected because they carry their own headers.
+    `/api/*` (and dashboard/metrics) go to `control_base` (:9090). LLM routes
+    go to `proxy_base` (:8080). The control token is attached when provided.
     """
     status, headers, body = 0, {}, ""
     for step in steps:
         if token:
             step = dict(step)
             step["headers"] = {"x-kotro-control-token": token, **(step.get("headers") or {})}
+        base = step_base(step["path"], proxy_base, control_base)
         for _ in range(step.get("repeat", 1)):
             status, headers, body = http_call(base, step, timeout)
     return status, headers, body
 
 
 def run_scenario(
-    scenario: dict[str, Any], base: str, token: str | None, timeout: float
+    scenario: dict[str, Any],
+    proxy_base: str,
+    control_base: str,
+    token: str | None,
+    timeout: float,
 ) -> dict[str, Any]:
     setup_failed = ""
     if scenario.get("setup"):
-        st, _, sb = run_steps(scenario["setup"], base, token, timeout)
+        st, _, sb = run_steps(scenario["setup"], proxy_base, control_base, token, timeout)
         if st not in (200, 202, 204):
             setup_failed = f"setup returned {st}: {sb[:100]}"
 
-    before = fetch_tape(base, token, timeout)
+    before = fetch_tape(control_base, token, timeout)
     since_seq = max((int(e.get("seq", 0)) for e in before), default=0)
 
     started = time.perf_counter()
     try:
-        status, headers, body = run_steps(scenario["attack"]["steps"], base, token, timeout)
+        status, headers, body = run_steps(
+            scenario["attack"]["steps"], proxy_base, control_base, token, timeout
+        )
     finally:
         latency_ms = round((time.perf_counter() - started) * 1000, 1)
         # Teardown always runs. Setup mutates persistent proxy state (the kill
         # switch survives the request that engaged it), so skipping teardown on
         # failure would silently poison every scenario that follows.
         if scenario.get("teardown"):
-            run_steps(scenario["teardown"], base, token, timeout)
+            run_steps(scenario["teardown"], proxy_base, control_base, token, timeout)
 
-    after = fetch_tape(base, token, timeout)
+    after = fetch_tape(control_base, token, timeout)
     tape_reachable = bool(after) or bool(before)
     event = match_tape_event(after, scenario, since_seq)
 
@@ -428,7 +449,13 @@ def render_markdown(results: list[dict[str, Any]], target: str) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Kotro Escape Lab runner")
     ap.add_argument("--validate", action="store_true", help="offline corpus checks only")
-    ap.add_argument("--target", default="http://127.0.0.1:8080")
+    ap.add_argument("--target", default="http://127.0.0.1:8080",
+                    help="LLM proxy base (chat/completions, healthz)")
+    ap.add_argument(
+        "--control-target",
+        default="http://127.0.0.1:9090",
+        help="control/metrics base for /api/*, flight tape, posture, kill-switch",
+    )
     ap.add_argument("--control-token", default=os.environ.get("KOTRO_CONTROL_TOKEN"))
     ap.add_argument("--timeout", type=float, default=15.0)
     ap.add_argument("--out", help="write results JSON here")
@@ -491,7 +518,23 @@ def main() -> int:
             f"{YELLOW}!{RESET} no control token — evidence checks will be reported as unverified"
         )
 
-    print(f"{DIM}env group {args.env_group} — {len(selected)} scenario(s){RESET}")
+    ctrl_probe, _, _ = http_call(
+        args.control_target,
+        {"method": "GET", "path": "/api/flight-recorder",
+         "headers": {"x-kotro-control-token": args.control_token or ""}},
+        args.timeout,
+    )
+    if ctrl_probe not in (200, 401, 403):
+        print(
+            f"{YELLOW}!{RESET} control plane at {args.control_target} looks unreachable "
+            f"(/api/flight-recorder returned {ctrl_probe})",
+            file=sys.stderr,
+        )
+
+    print(
+        f"{DIM}env group {args.env_group} — {len(selected)} scenario(s) · "
+        f"proxy {args.target} · control {args.control_target}{RESET}"
+    )
 
     results = []
     for scenario in selected:
@@ -520,7 +563,9 @@ def main() -> int:
             print(f"  {YELLOW}–{RESET} {scenario['id']}  {DIM}skipped (cli harness){RESET}")
             continue
 
-        res = run_scenario(scenario, args.target, args.control_token, args.timeout)
+        res = run_scenario(
+            scenario, args.target, args.control_target, args.control_token, args.timeout
+        )
         res["skipped"] = False
         results.append(res)
         mark = f"{GREEN}✓{RESET}" if res["pass"] else f"{RED}✗{RESET}"
@@ -549,6 +594,7 @@ def main() -> int:
     if args.out:
         payload = {
             "target": args.target,
+            "control_target": args.control_target,
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "summary": {
                 "total": len(results),
