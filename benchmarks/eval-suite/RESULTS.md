@@ -1,6 +1,7 @@
 # Kotro Proxy — Eval Suite Results
 
-> **Last run:** 2025 (DeepSeek API). Re-run with `make eval-suite` (requires `DEEPSEEK_API_KEY`).
+> **Last updated:** 2026-08-02 (Rust `v0.6.2` launch hygiene).  
+> DeepSeek API scenarios below are a **historical baseline** from the Go reference era. Re-run live provider numbers with `make eval-suite` (requires `DEEPSEEK_API_KEY`). Correctness today is gated by `cargo test` + Escape Lab, not by replaying this DeepSeek table on every commit.
 
 ---
 
@@ -8,23 +9,88 @@
 
 | Metric | Value |
 |--------|-------|
-| Upstream token reduction (DeepSeek, 3-turn benchmark) | **99.3%** |
-| Local proxy cache hits (this benchmark) | 0/3 turns — each turn had new content |
-| Redaction correctness | 17/17 test cases, 10 PII pattern types |
-| MCP injection detection | 17/17 test cases, 14 regex rules |
-| Rust test suite | 157 tests, 0 failures |
+| Upstream token reduction (DeepSeek, 3-turn historical) | **99.3%** (provider prefix cache; see caveat below) |
+| Local proxy cache hits (that historical benchmark) | 0/3 turns — each turn had new content |
+| Redaction unit tests | 17/17 (`guardrail/redactor.rs`) |
+| Injection unit tests | 16/16 (`guardrail/injection.rs`) |
+| Budget unit tests | 11/11 (`budget/mod.rs`) |
+| Rust `kotro-proxy` lib suite | **336 passed, 1 ignored, 0 failed** (2026-08-02) |
+| Companion crates | `kotro-types` 19 · `kotro-schema` 18 · `kotro-core` 24 |
+| Escape Lab corpus | **15** scenarios valid; **14/14** HTTP-measured match declared behaviour |
 
-**Read the 99.3% number carefully.** In this specific benchmark every turn had new content, so Kotro's own local cache missed every turn — each request was forwarded upstream. The 99.3% reduction is DeepSeek's server-side prefix cache doing the work on Turns 2 and 3; Kotro's contribution is keeping the request shape stable across turns so that upstream prefix caching fires cleanly. Kotro's local cache adds a second, independent savings layer on genuinely repeated prompts (retries, shared agent fixtures, parallel runs hitting the same turn) with zero upstream round-trip. That scenario is not represented in this benchmark; a repeated-prompt fixture is planned.
+**Read the 99.3% number carefully.** In that historical DeepSeek run every turn had new content, so Kotro's own local cache missed every turn — each request was forwarded upstream. The 99.3% reduction is DeepSeek's server-side prefix cache on Turns 2 and 3; Kotro's contribution is keeping the request shape stable so upstream prefix caching can fire. Kotro's local cache is a second, independent savings layer on genuinely repeated prompts (retries, shared fixtures). That scenario is demonstrated by `make demo-savings` (~68%), not by the DeepSeek table below.
+
+**Active implementation:** Rust (`kotro-proxy` **0.6.2**). Go under `internal/` is frozen at tag `v0.1.0-go` (CI compiles it; new feature work is Rust-only).
 
 ---
 
-## Methodology
+## Correctness gates (current)
 
-**Setup:** Kotro Go reference implementation (frozen at `v0.1.0-go`) in front of DeepSeek API (`deepseek-chat`) and Alibaba DashScope (`qwen-plus`). 3-turn coding agent conversation with a ~2000-token system context (200-line Go file). Cache strategies tested: `FullDigest` (hash of all messages) and `WindowN` (last 4 messages). Each turn appends a new user query plus the full code dump to the history, mimicking an IDE that resends the full file on every turn.
+These are what a reader should re-run before trusting launch claims. They do not require a provider API key.
 
-**Server cache hits:** DeepSeek implements KV-cache prefix caching server-side. When a request prefix matches a cached computation, the response includes `prompt_cache_hit_tokens` (billed at 0.1× normal input token price) and `prompt_cache_miss_tokens` (billed at full price). Kotro preserves the request prefix across turns — system message first, code context in a fixed position — so the upstream KV cache can match it. A proxy that reorders messages or injects variable content breaks prefix caching.
+### Rust unit suite
 
-**Local proxy cache hits:** A local HIT means Kotro replayed the full SSE response from its own redb store with zero upstream round-trip. Requires the exact same prompt state (by hash) in the same session. In this benchmark each turn has novel content, so no local hits occur.
+```bash
+cd rust && cargo test -p kotro-proxy --lib
+# expected: 336 passed; 0 failed; 1 ignored
+```
+
+The single ignored test is a timing gate (`corpus::in_process_admitted_schema_policy_under_5ms_p95`); stable numbers live in the Criterion bench `mcp_hot_path`.
+
+| Area | Tests (lib) | What they cover |
+|------|-------------|-----------------|
+| `guardrail/` (injection, redaction, loop detector, …) | 42 | Prompt-injection patterns, PII/secret redaction map, agent-loop circuit breaker |
+| `mcp/` | 39 | Wrap plane, schema/pin/protect, TaskEnvelope / task gate, list cache, routing |
+| `cache/` | 45 | Exact-match store, tool cache, vector/semantic encoder paths |
+| `router/` | 63 | Scope isolation, governance / kill switch / mode dial, handlers, approvals |
+| `budget/` | 11 | Per-scope token budget, warn + hard block |
+| `optimizer/` | 15 | Reasoning-token caps (Anthropic / OpenAI families) |
+| `posture/` / `flight_recorder/` / `policy/` | 16 / 16 / 15 | Runtime posture, append-only tape, policy surface |
+| **`kotro-proxy` total** | **337 listed · 336 run** | 1 ignored timing gate |
+
+Companion crates (not counted above): `kotro-types` (mode dial types), `kotro-schema` (telemetry / admitted schema), `kotro-core` (embeddable core).
+
+### Escape Lab (adversarial regression matrix)
+
+```bash
+python3 scripts/escape-lab.py --validate          # 15 scenarios, schema-valid
+bash scripts/run-escape-lab-matrix.sh             # all env groups → merged matrix
+```
+
+Published matrix: [`docs/security/ESCAPE-LAB-MATRIX.md`](../../docs/security/ESCAPE-LAB-MATRIX.md).
+
+| Signal | Result |
+|--------|--------|
+| Corpus size | 15 scenarios (EL-01…EL-15) |
+| HTTP-measured | 14/14 match declared behaviour (EL-05 is CLI-only / MCP rug-pull) |
+| Covered (prevent / transform / detect) | 9/14 |
+| Mode dial | EL-12 `audit`→detect · EL-13 `disabled`→none |
+| Kill switch vs mode | EL-14 / EL-15 kill switch still **prevent** under `disabled` / `audit` |
+
+Honest gaps called out in the matrix (not hidden): encoded secret exfil (EL-08), unauthorized egress (EL-09), cross-session memory writes (EL-11). Detail in [`docs/security/THREAT-MODEL.md`](../../docs/security/THREAT-MODEL.md).
+
+### Product surface added after the Go baseline
+
+| Capability | How it's proven |
+|------------|-----------------|
+| `KOTRO_MODE=enforce\|audit\|disabled` | Unit + Escape Lab EL-12…EL-15; `x-kotro-mode` stamped on responses |
+| Kill switch outranks mode (LLM + MCP) | EL-06 / EL-14 / EL-15; governance runs halt before `evaluates()` |
+| MCP wrap (stdio / Streamable HTTP) + TaskEnvelope | `mcp/` unit suite; `kotro-proxy mcp-wrap` CLI |
+| Injection warn vs block | EL-01 detect · EL-02 prevent; HTTP **400** when blocked |
+| Session token budget | EL-07 prevent; HTTP **429** when blocked |
+| Runtime posture | `/api/runtime-posture` + posture unit tests |
+
+---
+
+## Methodology (historical DeepSeek / Qwen baseline)
+
+**Setup (original run):** Kotro **Go** reference implementation (now frozen at `v0.1.0-go`) in front of DeepSeek API (`deepseek-chat`) and Alibaba DashScope (`qwen-plus`). 3-turn coding agent conversation with a ~2000-token system context (200-line Go file). Cache strategies tested: `FullDigest` and `WindowN` (last 4 messages).
+
+**Server cache hits:** DeepSeek implements KV-cache prefix caching server-side (`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`). Kotro preserves request prefix shape so that cache can match.
+
+**Local proxy cache hits:** A local HIT means Kotro replayed the full SSE response from its own store with zero upstream round-trip. This historical benchmark had novel content each turn → no local hits.
+
+A one-time Go-vs-Rust `make eval-suite` diff against a live provider is still desirable (see `docs/roadmap/next-steps.md` P1) but is **not** required to trust the security gates above.
 
 ---
 
@@ -58,27 +124,13 @@ Qwen's OpenAI-compatible endpoint does not expose `prompt_cache_hit_tokens` / `p
 
 ---
 
-## Rust Test Coverage
-
-These tests run in CI on every push (`cargo test -p kotro-proxy`). They are the primary correctness signal for the security and efficiency features.
-
-| Module | Tests | Coverage |
-|--------|-------|----------|
-| `guardrail/redactor.rs` | 17 | 10 PII pattern types: API keys, DB URLs, passwords, emails, AWS keys, JWT tokens, private keys, phone numbers, credit cards, IPs |
-| `guardrail/injection.rs` | 17 | 14 prompt injection regex rules: jailbreak phrases, role overrides, system prompt leaks, tool result hijacks |
-| `budget/mod.rs` | 11 | Token budget enforcement, soft warn + hard block modes, per-scope session tracking |
-| `optimizer/reasoning.rs` | 14 | Anthropic `thinking.budget_tokens` cap, OpenAI `max_completion_tokens` cap, model detection for claude-opus-4/o1/o3 families |
-| `cache/tool.rs` | 13 | Per-scope TTLs, arg canonicalization (BTreeMap sort), write-op path invalidation |
-| `router/scope.rs` | 6 | Tenant isolation, `unified_cache_key → scope.key()` chain |
-| **Total** | **157** | All passing, 0 failures |
-
----
-
 ## What's Not Yet Measured
 
 | Item | Notes |
 |------|-------|
-| Local cache hit rate on repeated-prompt workload | Each turn in this benchmark has novel content. A repeated-prompt fixture (retries, shared fixtures) is planned to isolate Kotro's local cache contribution. |
-| Context compression ratio on real sessions | Compressor integration tests verify correctness (identical blocks stripped); ratio on real coding session data not yet measured. |
-| Semantic cache (MiniLM) hit rate | Vector cache runs separately from the exact-match cache. Hit rate on paraphrased prompts not yet in the eval suite. |
-| Rust binary end-to-end benchmark | Rust is the active implementation; Go is frozen. The eval suite currently runs against the Go reference binary. A Rust equivalent is planned. |
+| Live `make eval-suite` re-run on the Rust binary | Historical table is Go-era. One-time Go-vs-Rust provider diff is deferred (P1 in `next-steps.md`), not a launch blocker. |
+| Local cache hit rate on repeated-prompt workload | Use `make demo-savings` for the honest local-cache story (~68%). |
+| Context compression ratio on real sessions | Compressor tests verify correctness; ratio on long coding sessions not published. |
+| Semantic cache (MiniLM) hit rate in the eval harness | Encoder latency published via `bench_embedding`; paraphrase hit-rate fixture not yet in `eval-suite/`. |
+| Line coverage (`cargo-llvm-cov`) | Deferred systematic coverage pass (P1). |
+| Auto-refresh of this file on every release | Deferred release-process work (P3) — wire `make eval-suite` / Escape Lab into `release.yml` later. |

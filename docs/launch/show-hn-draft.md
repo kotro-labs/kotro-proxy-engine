@@ -85,7 +85,7 @@ path, or would you rather start enforce-by-default with a loud kill switch?
 - [x] Honest boundary: LLM HTTP path **and** MCP wrap (stdio / Streamable HTTP)
 - [x] Mode dial + kill-switch precedence mentioned
 - [x] Load-degradation: one sentence in post; detail in THREAT-MODEL
-- [ ] Sync Homebrew tap to v0.6.2 and fresh-install reverify brew + curl
+- [x] Sync Homebrew tap to v0.6.2 and fresh-install reverify brew + curl
 - [ ] Post Tue/Wed **8–10am US Eastern**
 - [ ] Submission URL = repo
 

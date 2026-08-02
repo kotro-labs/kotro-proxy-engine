@@ -68,9 +68,9 @@
 - [x] GitHub storefront set
 - [x] Reasoning model budget controller shipped
 - [x] Go declared frozen (tag `v0.1.0-go`, README updated, CI = compile-only)
-- [x] `make eval-suite` results committed (RESULTS.md enriched with summary, methodology, Rust test coverage table)
-- [x] `brew install kotro-labs/tap/kotro-proxy` — formula name corrected; bump tap to v0.5.2 before Show HN
-- [x] `curl` installer verified — `curl | bash` installs to `~/.local/bin/kotro-proxy`, no sudo needed
+- [x] `make eval-suite` results committed (RESULTS.md refreshed 2026-08-02: 336/1 Rust lib suite, Escape Lab 15/14, mode dial + MCP wrap; historical DeepSeek table retained)
+- [x] `brew install kotro-labs/tap/kotro-proxy` — tap synced to **v0.6.2** (`kotro-labs/homebrew-tap` @ `bc97361`); fresh-install verified
+- [x] `curl` installer verified — `scripts/install.sh` / `curl | bash` installs `v0.6.2` to `~/.local/bin/kotro-proxy`, no sudo needed
 
 ---
 

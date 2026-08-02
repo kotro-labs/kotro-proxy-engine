@@ -107,11 +107,11 @@ Streamable HTTP servers; keep the two planes distinct in launch copy.
 - [x] Status codes in copy: injection **400**, budget **429**
 - [x] Install path truth: curl/npm release **v0.6.2**; in-repo Homebrew formula stamped for **v0.6.2**
 - [x] Show HN draft rewritten security-first — [`show-hn-draft.md`](./show-hn-draft.md)
-- [ ] Sync the stamped **v0.6.2** formula to `kotro-labs/homebrew-tap`, then fresh-install reverify brew + curl
+- [x] Sync the stamped **v0.6.2** formula to `kotro-labs/homebrew-tap`, then fresh-install reverify brew + curl (`bc97361`; brew + curl-path both report `kotro-proxy 0.6.2`)
 - [ ] Post Tue/Wed **8–10am US Eastern**
 - [ ] Repo URL as submission link
 
-Draft live file: [`show-hn-draft.md`](./show-hn-draft.md) — ready to post after fresh-install re-verify.
+Draft live file: [`show-hn-draft.md`](./show-hn-draft.md) — ready to post.
 
 **Dev.to mass-market article (cost → security reveal):** [`devto-article-3-savings-then-security.md`](./devto-article-3-savings-then-security.md) — do not confuse with article 1 (security-first) or article 2 (cost diagnosis).
 

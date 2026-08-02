@@ -19,7 +19,7 @@ Revised framing (see conversation log): "match Go's test count" is a proxy metri
 - [x] Distribution parity: spot-checked npm (`binary-target.js`), Homebrew (`kotro-proxy.rb`), and the curl installer (`install.sh`) — all reference Rust cross-compilation target triples (`aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`), none silently shipping Go. Confirmed, no channel needs fixing.
 - [ ] Run `cargo-llvm-cov` (or similar) for a systematic coverage pass beyond the four targeted areas above — not done this round, the targeted audit found enough real gaps to fix first.
 - [ ] Run `make eval-suite` against both binaries and diff results once, as a sanity check that Rust matches Go's behavior on cache hit rate, redaction correctness, and compression ratio.
-- [ ] Declare Go frozen once the items above are confirmed via real `cargo test` / CI runs (not yet — still pending your verification pass): tag a final Go release, mark `internal/` as reference-only in the README, shrink Go's CI job to compile + smoke test, and route all new feature work through Rust exclusively from that point.
+- [x] Declare Go frozen: tag `v0.1.0-go`, mark `internal/` as reference-only in the README, shrink Go's CI job to `go build ./...` (`go-compile-check` in `ci.yml`), and route all new feature work through Rust.
 
 ## P2 — Make the semantic cache real
 
