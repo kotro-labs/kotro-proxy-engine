@@ -536,9 +536,9 @@ mod tests {
     }
 
     #[test]
-    fn private_scope_isolates_across_sessions() {
-        // Shared-deployment claim: Private entries keyed by distinct auth
-        // scopes (e.g. two bearer tenants) must never cross-hit.
+    fn private_scope_key_isolates_entries() {
+        // Unit-level: distinct scope *keys* never cross-hit for Private entries.
+        // Bearer-token → ScopeResolver isolation is covered separately.
         let c = cache();
         let hints = CacheHints {
             ttl_ms: Some(60_000),

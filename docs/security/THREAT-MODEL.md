@@ -256,12 +256,17 @@ frames. Redaction applies on both paths and records `redaction_count` on the tap
   tool metadata on first `tools/list` (trust-on-first-use), quarantine drift,
   validate `tools/call` arguments against the pinned schema, and enforce the
   deny-first local policy before forwarding.
-- **Load sensitivity**: Schema validation relies on a bounded worker pool. Under
-  heavy concurrent load or CPU contention, validation requests may hit their 
-  wall-clock deadlines (`recv_timeout`). In this scenario, validation returns 
-  `validation_unavailable`, which correctly **fails closed** (denies the tool call). 
-  This creates an availability/DoS edge case under extreme load, but guarantees no 
-  security bypass.
+- **Load sensitivity**: Schema validation uses a bounded worker pool (fixed
+  workers, bounded queue, per-job wall-clock deadline). When the queue is full
+  or a deadline expires, validation returns `validation_unavailable`. Under
+  `KOTRO_MODE=enforce` that outcome **fails closed** (the tool call is denied).
+  Under `audit`, the failure is recorded and the call continues by design.
+  Under `disabled`, schema/policy evaluation is skipped entirely. Extreme load
+  can therefore become an availability/DoS edge in enforce mode; it is not a
+  silent security bypass of the dial. Operators can watch
+  `kotro_schema_unavailable_total{cause=…}`, queue saturation, and
+  validation/compile latency on `/metrics` (and `schema_validation` on
+  `/api/runtime-posture`).
 - Every inbound method is subject to the multi-plane kill switch. Only an
   allowlist is relayed (`initialize` for back-compat, `server/discover`,
   `ping`, `tools/*`, `resources/*`, `prompts/*`, `completion/complete`,

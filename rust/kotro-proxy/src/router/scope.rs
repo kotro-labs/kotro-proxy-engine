@@ -258,4 +258,69 @@ mod tests {
         let key_b = crate::cache::generate_cache_key(&scope_b.key(), "gpt-4", "openai", material);
         assert_ne!(key_a, key_b, "gateway-assigned tenants must not share a cache entry");
     }
+
+    #[test]
+    fn bearer_tokens_isolate_private_tool_cache_entries() {
+        // End-to-end shared-deployment claim: Authorization bearer → ScopeResolver
+        // → Scope::key() → ToolCache Private entry must not cross-hit.
+        use crate::cache::tool::{CacheHints, CacheScope, ToolCache, ToolCacheTtls};
+
+        let resolver = ScopeResolver::default();
+        let peer = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+        let mut headers_a = HeaderMap::new();
+        headers_a.insert(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer tenant-alpha-token"),
+        );
+        let mut headers_b = HeaderMap::new();
+        headers_b.insert(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer tenant-beta-token"),
+        );
+
+        let scope_a = resolver.from_request(&headers_a, peer);
+        let scope_b = resolver.from_request(&headers_b, peer);
+        assert_ne!(scope_a.key(), scope_b.key());
+        assert!(scope_a.key().starts_with("cred:"));
+
+        let cache = ToolCache::new(true, ToolCacheTtls::default());
+        let hints = CacheHints {
+            ttl_ms: Some(60_000),
+            cache_scope: CacheScope::Private,
+        };
+        let args = r#"{"path":"/secrets/prod.env"}"#;
+
+        assert!(cache.put_with_hints(
+            &scope_a.key(),
+            "read_file",
+            args,
+            "ALPHA_SECRET",
+            Some(hints),
+        ));
+        assert!(cache.put_with_hints(
+            &scope_b.key(),
+            "read_file",
+            args,
+            "BETA_SECRET",
+            Some(hints),
+        ));
+
+        assert_eq!(
+            cache
+                .get(&scope_a.key(), "read_file", args)
+                .unwrap()
+                .content,
+            "ALPHA_SECRET"
+        );
+        assert_eq!(
+            cache
+                .get(&scope_b.key(), "read_file", args)
+                .unwrap()
+                .content,
+            "BETA_SECRET"
+        );
+        // Empty / default scope must not see either private entry.
+        assert!(cache.get("default:default", "read_file", args).is_none());
+    }
 }

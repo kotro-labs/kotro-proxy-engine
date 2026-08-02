@@ -430,6 +430,7 @@ pub async fn handle_api_runtime_posture(State(state): State<Arc<AppState>>) -> i
             crate::posture::pins::load(std::path::Path::new(sd)).servers.len()
         }
     };
+    let schema_tel = kotro_schema::telemetry::snapshot();
     let body = serde_json::json!({
         "enforcement_mode": state.enforcement_mode.as_str(),
         "kill_switch": {
@@ -458,6 +459,17 @@ pub async fn handle_api_runtime_posture(State(state): State<Arc<AppState>>) -> i
                 .unwrap_or(false),
         },
         "hooks": hooks,
+        "schema_validation": {
+            "unavailable": {
+                "queue_full": schema_tel.unavailable_queue_full,
+                "deadline": schema_tel.unavailable_deadline,
+                "worker_panic": schema_tel.unavailable_worker_panic,
+                "pool_init": schema_tel.unavailable_pool_init,
+            },
+            "queue_saturated": schema_tel.queue_saturated,
+            "validation_samples": schema_tel.validation_samples,
+            "compile_samples": schema_tel.compile_samples,
+        },
     });
     (
         StatusCode::OK,

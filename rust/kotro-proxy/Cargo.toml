@@ -60,3 +60,8 @@ tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 hyper = "1"
 http-body-util = "0.1"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "mcp_hot_path"
+harness = false

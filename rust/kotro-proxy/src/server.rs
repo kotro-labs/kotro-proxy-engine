@@ -25,6 +25,7 @@ impl Server {
         
         let metrics = crate::metrics::MetricsRegistry::new()
             .with_dashboard_usd_per_token(cfg.dashboard_usd_per_token);
+        metrics.attach_schema_telemetry();
         metrics.set_cache_key_strategy(&format!("{:?}", cfg.cache_key_strategy), cfg.cache_window_size);
         if let Ok(count) = store.count() {
             metrics.set_cache_entries(count);

@@ -74,18 +74,19 @@ impl SchemaPool {
         Ok(Self { sender })
     }
 
-    fn submit(&self, job: SchemaJob) -> Result<(), ()> {
+    fn submit(&self, job: SchemaJob) -> Result<(), crate::telemetry::UnavailableCause> {
         self.sender.try_send(job).map_err(|error| match error {
-            TrySendError::Full(_) | TrySendError::Disconnected(_) => (),
+            TrySendError::Full(_) => crate::telemetry::UnavailableCause::QueueFull,
+            TrySendError::Disconnected(_) => crate::telemetry::UnavailableCause::PoolInit,
         })
     }
 }
 
-fn schema_pool() -> Result<&'static SchemaPool, ()> {
-    SCHEMA_POOL
-        .get_or_init(SchemaPool::new)
-        .as_ref()
-        .map_err(|_| ())
+fn schema_pool() -> Result<&'static SchemaPool, crate::telemetry::UnavailableCause> {
+    match SCHEMA_POOL.get_or_init(SchemaPool::new) {
+        Ok(pool) => Ok(pool),
+        Err(()) => Err(crate::telemetry::UnavailableCause::PoolInit),
+    }
 }
 
 fn schema_worker(receiver: Arc<Mutex<mpsc::Receiver<SchemaJob>>>) {
@@ -193,6 +194,7 @@ pub fn compile(schema: &Value, limits: &ResourceLimits) -> Result<AdmittedSchema
     }
     let digest = admission.schema_digest.unwrap();
 
+    let started = Instant::now();
     let timeout = Duration::from_millis(limits.schema_compile_ms);
     let deadline = Instant::now() + timeout;
     let (response, result) = mpsc::channel();
@@ -201,19 +203,30 @@ pub fn compile(schema: &Value, limits: &ResourceLimits) -> Result<AdmittedSchema
         deadline,
         response,
     });
-    schema_pool()
-        .and_then(|pool| pool.submit(job))
-        .map_err(|()| SchemaError::CompileTimeout)?;
+    if let Err(cause) = schema_pool().and_then(|pool| pool.submit(job)) {
+        crate::telemetry::record_unavailable(cause);
+        return Err(SchemaError::CompileTimeout);
+    }
     let remaining = deadline.saturating_duration_since(Instant::now());
     let validator = match result.recv_timeout(remaining) {
         Ok(CompileWorkerResult::Complete(Ok(validator))) => validator,
         Ok(CompileWorkerResult::Complete(Err(error))) => {
             return Err(SchemaError::CompileFailed(error));
         }
-        Ok(CompileWorkerResult::DeadlineExceeded | CompileWorkerResult::Unavailable) | Err(_) => {
+        Ok(CompileWorkerResult::DeadlineExceeded) => {
+            crate::telemetry::record_unavailable(crate::telemetry::UnavailableCause::Deadline);
+            return Err(SchemaError::CompileTimeout);
+        }
+        Ok(CompileWorkerResult::Unavailable) => {
+            crate::telemetry::record_unavailable(crate::telemetry::UnavailableCause::WorkerPanic);
+            return Err(SchemaError::CompileTimeout);
+        }
+        Err(_) => {
+            crate::telemetry::record_unavailable(crate::telemetry::UnavailableCause::Deadline);
             return Err(SchemaError::CompileTimeout);
         }
     };
+    crate::telemetry::record_compile_latency(started.elapsed());
 
     Ok(AdmittedSchema {
         schema: schema.clone(),
@@ -252,6 +265,7 @@ impl AdmittedSchema {
             };
         }
 
+        let started = Instant::now();
         let timeout = Duration::from_millis(self.limits.validation_deadline_ms);
         let deadline = Instant::now() + timeout;
         let (response, result) = mpsc::channel();
@@ -262,16 +276,24 @@ impl AdmittedSchema {
             deadline,
             response,
         });
-        let worker_result = schema_pool()
-            .and_then(|pool| pool.submit(job))
-            .and_then(|()| {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                result.recv_timeout(remaining).map_err(|_| ())
-            });
-        let errors = match worker_result {
-            Ok(WorkerResult::Complete(errors)) => errors,
-            Ok(WorkerResult::DeadlineExceeded | WorkerResult::Unavailable) | Err(()) => {
-                return validation_unavailable();
+        let submit = schema_pool().and_then(|pool| pool.submit(job));
+        if let Err(cause) = submit {
+            return validation_unavailable(cause);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let errors = match result.recv_timeout(remaining) {
+            Ok(WorkerResult::Complete(errors)) => {
+                crate::telemetry::record_validation_latency(started.elapsed());
+                errors
+            }
+            Ok(WorkerResult::DeadlineExceeded) => {
+                return validation_unavailable(crate::telemetry::UnavailableCause::Deadline);
+            }
+            Ok(WorkerResult::Unavailable) => {
+                return validation_unavailable(crate::telemetry::UnavailableCause::WorkerPanic);
+            }
+            Err(_) => {
+                return validation_unavailable(crate::telemetry::UnavailableCause::Deadline);
             }
         };
 
@@ -333,14 +355,15 @@ pub fn parse_arguments(raw: &[u8], limits: &ResourceLimits) -> Result<Value, Sch
     Ok(value)
 }
 
-fn validation_unavailable() -> ValidationResult {
+fn validation_unavailable(cause: crate::telemetry::UnavailableCause) -> ValidationResult {
+    crate::telemetry::record_unavailable(cause);
     ValidationResult {
         ok: false,
         reason: DecisionReason::ValidationUnavailable,
         errors: vec![],
         args_hash: None,
         short_args_hash: None,
-        detail: "validation_unavailable".into(),
+        detail: format!("validation_unavailable:{}", cause.as_str()),
     }
 }
 

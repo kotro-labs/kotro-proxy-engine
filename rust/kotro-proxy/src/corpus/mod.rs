@@ -403,13 +403,14 @@ mod tests {
     }
 
     // Not a correctness gate: wall-clock p95 flaps under parallel CI load.
-    // Run with `cargo test -- --ignored` or move to a bench target when needed.
+    // Stable latency assertions live in `benches/mcp_hot_path.rs` (Criterion).
+    // Run with: cargo test -p kotro-proxy --lib -- --ignored
+    //        or: cargo bench -p kotro-proxy --bench mcp_hot_path
     #[test]
-    #[ignore = "timing gate; noisy under parallel cargo test"]
-    fn in_process_policy_schema_under_5ms_p95() {
-        // Plan success criterion: clean MCP proxy overhead < 5 ms p95
-        // excluding user approval. Measure the in-process path that mcp-wrap
-        // takes on every tools/call (schema validate + policy evaluate).
+    #[ignore = "timing gate; use Criterion bench mcp_hot_path for stable numbers"]
+    fn in_process_admitted_schema_policy_under_5ms_p95() {
+        // Production mcp-wrap path: compile once on tools/list, then
+        // AdmittedSchema::validate_value + policy evaluate on tools/call.
         use crate::policy::{self, ToolCallContext, ToolClass};
         use std::time::Instant;
 
@@ -419,12 +420,13 @@ mod tests {
             "required": ["path"],
             "properties": {"path": {"type": "string"}}
         });
+        let admitted =
+            kotro_schema::compile(&schema, &kotro_schema::ResourceLimits::initial()).unwrap();
         let args = serde_json::json!({"path": "/tmp/notes.txt"});
         let mut samples = Vec::with_capacity(200);
 
-        // Warm-up.
         for _ in 0..20 {
-            let _ = schema::validate(&args, &schema);
+            let _ = admitted.validate_value(&args);
             let mut ctx = ToolCallContext {
                 server: "files".into(),
                 tool: "read_file".into(),
@@ -436,7 +438,7 @@ mod tests {
         }
         for _ in 0..200 {
             let t0 = Instant::now();
-            let _ = schema::validate(&args, &schema);
+            let _ = admitted.validate_value(&args);
             let mut ctx = ToolCallContext {
                 server: "files".into(),
                 tool: "read_file".into(),
@@ -451,7 +453,7 @@ mod tests {
         let p95 = samples[((samples.len() as f64) * 0.95) as usize];
         assert!(
             p95 < 5.0,
-            "in-process policy+schema p95 was {p95:.3} ms (budget 5 ms)"
+            "admitted-schema+policy p95 was {p95:.3} ms (budget 5 ms)"
         );
     }
 

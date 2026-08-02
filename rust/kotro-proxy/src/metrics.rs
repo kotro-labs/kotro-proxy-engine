@@ -91,6 +91,10 @@ pub struct MetricsRegistry {
     injections_blocked: Counter,
     agent_loops_stopped: Counter,
     budget_hits: Counter,
+    schema_unavailable_total: CounterVec,
+    schema_queue_saturated_total: Counter,
+    schema_validation_duration: HistogramVec,
+    schema_compile_duration: HistogramVec,
     /// USD estimate per saved token for the dashboard hero card.
     dashboard_usd_per_token: f64,
     dashboard: Arc<Mutex<DashboardState>>,
@@ -310,6 +314,37 @@ impl MetricsRegistry {
         )
         .unwrap();
 
+        let schema_unavailable_total = register_counter_vec_with_registry!(
+            "kotro_schema_unavailable_total",
+            "Schema validation unavailable by cause (queue_full|deadline|worker_panic|pool_init).",
+            &["cause"],
+            registry
+        )
+        .unwrap();
+
+        let schema_queue_saturated_total = register_counter_with_registry!(
+            "kotro_schema_queue_saturated_total",
+            "Schema validation worker queue rejected a job (bounded capacity full).",
+            registry
+        )
+        .unwrap();
+
+        let schema_validation_duration = register_histogram_vec_with_registry!(
+            "kotro_schema_validation_duration_seconds",
+            "AdmittedSchema::validate_value wall time (successful pool round-trips).",
+            &["result"],
+            registry
+        )
+        .unwrap();
+
+        let schema_compile_duration = register_histogram_vec_with_registry!(
+            "kotro_schema_compile_duration_seconds",
+            "Schema compile wall time (successful pool round-trips).",
+            &["result"],
+            registry
+        )
+        .unwrap();
+
         Self {
             registry: Arc::new(registry),
             requests_total,
@@ -338,6 +373,10 @@ impl MetricsRegistry {
             injections_blocked,
             agent_loops_stopped,
             budget_hits,
+            schema_unavailable_total,
+            schema_queue_saturated_total,
+            schema_validation_duration,
+            schema_compile_duration,
             dashboard_usd_per_token: DEFAULT_DASHBOARD_USD_PER_TOKEN,
             dashboard: Arc::new(Mutex::new(DashboardState {
                 recent_requests: VecDeque::with_capacity(RECENT_REQUEST_CAPACITY),
@@ -500,6 +539,49 @@ impl MetricsRegistry {
 
     pub fn record_budget_hit(&self) {
         self.budget_hits.inc();
+    }
+
+    pub fn record_schema_unavailable(&self, cause: &str) {
+        self.schema_unavailable_total.with_label_values(&[cause]).inc();
+    }
+
+    pub fn record_schema_queue_saturated(&self) {
+        self.schema_queue_saturated_total.inc();
+    }
+
+    pub fn record_schema_validation_duration(&self, seconds: f64) {
+        self.schema_validation_duration
+            .with_label_values(&["ok"])
+            .observe(seconds);
+    }
+
+    pub fn record_schema_compile_duration(&self, seconds: f64) {
+        self.schema_compile_duration
+            .with_label_values(&["ok"])
+            .observe(seconds);
+    }
+
+    /// Mirror kotro-schema pool events into Prometheus (call once at process start).
+    pub fn attach_schema_telemetry(&self) {
+        let unavailable = self.schema_unavailable_total.clone();
+        let saturated = self.schema_queue_saturated_total.clone();
+        let validation = self.schema_validation_duration.clone();
+        let compile = self.schema_compile_duration.clone();
+        kotro_schema::telemetry::install_hook(move |event| {
+            use kotro_schema::telemetry::SchemaEvent;
+            match event {
+                SchemaEvent::Unavailable(cause) => {
+                    unavailable.with_label_values(&[cause.as_str()]).inc();
+                }
+                SchemaEvent::QueueSaturated => saturated.inc(),
+                SchemaEvent::ValidationLatency(d) => {
+                    validation.with_label_values(&["ok"]).observe(d.as_secs_f64());
+                }
+                SchemaEvent::CompileLatency(d) => {
+                    compile.with_label_values(&["ok"]).observe(d.as_secs_f64());
+                }
+            }
+        });
     }
 
     fn note_dashboard_request(&self, provider: &str, model: &str, route: &str, cache_status: &str) {

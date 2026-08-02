@@ -1,5 +1,8 @@
 # Show HN: Kotro Proxy Engine v0.1.0
 
+> **Historical.** For the live Show HN draft use
+> [`docs/launch/show-hn-draft.md`](../launch/show-hn-draft.md).
+
 **Title (paste into HN):**
 
 > Show HN: Local LLM proxy with semantic SSE cache, PII redaction, and cancel-storm leak audit
