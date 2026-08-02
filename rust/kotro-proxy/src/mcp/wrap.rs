@@ -63,6 +63,8 @@ struct Governance {
     list_cache: super::list_cache::ListResultCache,
     /// Process/env identity (task, principal, agent) for flight + approvals.
     identity: crate::identity_ctx::IdentityContext,
+    /// Optional verified TaskEnvelope gate (C6).
+    task_gate: super::task_gate::TaskGate,
 }
 
 impl Governance {
@@ -76,6 +78,27 @@ impl Governance {
             "audit" | "observe" => false,
             _ => true,
         };
+        let task_gate = super::task_gate::TaskGate::from_env()?;
+        let mut identity = crate::identity_ctx::IdentityContext::from_env();
+        let overlay = task_gate.identity_overlay();
+        // Envelope identity wins over bare env when present.
+        if task_gate.is_active() {
+            if !overlay.task_id.is_empty() {
+                identity.task_id = overlay.task_id;
+            }
+            if !overlay.parent_task_id.is_empty() {
+                identity.parent_task_id = overlay.parent_task_id;
+            }
+            if !overlay.principal_subject.is_empty() {
+                identity.principal_subject = overlay.principal_subject;
+            }
+            if !overlay.principal_issuer.is_empty() {
+                identity.principal_issuer = overlay.principal_issuer;
+            }
+            if !overlay.agent_name.is_empty() {
+                identity.agent_name = overlay.agent_name;
+            }
+        }
         Ok(Self {
             server: opts.name.clone(),
             engine,
@@ -87,7 +110,8 @@ impl Governance {
             admitted: Mutex::new(HashMap::new()),
             enforces,
             list_cache: super::list_cache::ListResultCache::new(),
-            identity: crate::identity_ctx::IdentityContext::from_env(),
+            identity,
+            task_gate,
         })
     }
 
@@ -293,7 +317,41 @@ impl Governance {
             }
         }
 
-        // 4. Policy evaluation with session provenance labels.
+        // 4. TaskEnvelope capability + budget gate (C6).
+        {
+            let args_hash = kotro_schema::args_hash(&args).unwrap_or_default();
+            let schema_digest = self
+                .admitted
+                .lock()
+                .get(&tool)
+                .map(|s| s.digest.clone())
+                .unwrap_or_default();
+            if let Err(reason) =
+                self.task_gate
+                    .check_tool_call(&self.server, &tool, &args_hash, &schema_digest)
+            {
+                let detail = format!("task_envelope:{reason}");
+                self.event_decision_traced(
+                    "tool_denied",
+                    &tool,
+                    detail.clone(),
+                    self.enforces,
+                    "",
+                    "task-envelope",
+                    reason.as_str(),
+                    &trace,
+                    &call_identity,
+                );
+                if self.enforces {
+                    return Err((
+                        ERR_POLICY_DENIED,
+                        format!("[KOTRO TASK] {reason}"),
+                    ));
+                }
+            }
+        }
+
+        // 5. Policy evaluation with session provenance labels.
         let mut ctx = ToolCallContext {
             server: self.server.clone(),
             tool: tool.clone(),
@@ -608,24 +666,6 @@ impl Governance {
 }
 
 
-/// Protocol version advertised on Streamable HTTP upstream requests.
-const MCP_PROTOCOL_VERSION: &str = "2026-07-28";
-
-/// Primitive name for the `Mcp-Name` routing header (SEP-2243), when applicable.
-fn mcp_routing_name(method: &str, params: &Value) -> Option<String> {
-    match method {
-        "tools/call" | "prompts/get" => params
-            .get("name")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        "resources/read" | "resources/subscribe" | "resources/unsubscribe" => params
-            .get("uri")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        _ => None,
-    }
-}
-
 /// Background task: poll the proxy kill switch; halt tools and (stdio mode)
 /// terminate the managed child when engaged.
 fn spawn_kill_switch_poller(
@@ -920,16 +960,37 @@ async fn run_http(gov: Arc<Governance>, url: String) -> Result<(), String> {
             }
         }
 
+        let routing = super::routing::RoutingHeaders::from_rpc(method, &params);
+        // Defense in depth: never emit headers that disagree with the body.
+        if let Err(disagree) = super::routing::validate_agreement(
+            Some(routing.method.as_str()),
+            routing.name.as_deref(),
+            method,
+            &params,
+        ) {
+            if let Some(id) = &msg.id {
+                write_line(
+                    &stdout,
+                    &rpc_error(
+                        id,
+                        ERR_POLICY_DENIED,
+                        &format!("[KOTRO] routing header agreement: {disagree}"),
+                    ),
+                )
+                .await;
+            }
+            continue;
+        }
         let mut req = client
             .post(&url)
             .header("content-type", "application/json")
             .header("accept", "application/json, text/event-stream")
             // SEP-2243 routing headers — wrap acts as Streamable HTTP *client*.
-            .header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION)
-            .header("Mcp-Method", method)
+            .header("MCP-Protocol-Version", routing.protocol_version)
+            .header("Mcp-Method", routing.method.as_str())
             .body(line.clone());
-        if let Some(name) = mcp_routing_name(method, &params) {
-            req = req.header("Mcp-Name", name);
+        if let Some(name) = &routing.name {
+            req = req.header("Mcp-Name", name.as_str());
         }
         if let Some(sid) = &mcp_session {
             // Legacy servers may still expect a session id; modern 2026-07-28

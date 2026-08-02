@@ -277,9 +277,17 @@ frames. Redaction applies on both paths and records `redaction_count` on the tap
   hash + task id + optional admitted schema digest + session. Truncated hashes
   and session-only keys are no longer accepted as exact-action grants.
 - Streamable HTTP mode emits `MCP-Protocol-Version`, `Mcp-Method`, and
-  `Mcp-Name` on upstream POSTs (SEP-2243 client side). Server-side rejection of
-  header↔body disagreement is out of scope until Kotro terminates Streamable
-  HTTP as a server rather than wrapping as a client.
+  `Mcp-Name` on upstream POSTs (SEP-2243). Emission goes through
+  `mcp::routing`, which also implements header↔body agreement checks used in
+  tests and ready for gateway termination. Wrap-as-client validates agreement
+  before emit (defense in depth).
+- Optional TaskEnvelope gate (`KOTRO_TASK_ENVELOPE` + `KOTRO_TRUST_STORE`):
+  verified capability intersection and tool-call budget on every `tools/call`.
+  Fail-open when unset; fail-closed when `KOTRO_TASK_REQUIRED=true`. Envelope
+  principal/task overlay the process identity used in flight events and
+  approvals. Full expiry/budget/capability enforcement still depends on
+  operators provisioning trust material — the library path is now live in
+  mcp-wrap.
 - First-seen tool metadata is trusted (TOFU). Review and `mcp repin` after
   installing or updating an MCP server.
 - `kotro protect` / `unprotect` rewrite supported client MCP configs (with a

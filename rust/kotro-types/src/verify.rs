@@ -31,6 +31,61 @@ pub struct VerifiedAuthority {
     pub effective: Capabilities,
 }
 
+impl VerifiedAuthority {
+    /// Whether `server`/`tool` (with optional schema digest and args hash) is
+    /// within the effective capability set. Fail-closed: an empty tools list
+    /// denies every tool call.
+    pub fn allows_tool(
+        &self,
+        server: &str,
+        tool: &str,
+        args_hash: Option<&str>,
+        schema_digest: Option<&str>,
+    ) -> Result<(), TaskReason> {
+        let caps: Vec<_> = self
+            .effective
+            .tools
+            .iter()
+            .filter(|t| t.server == server && t.name == tool)
+            .collect();
+        if caps.is_empty() {
+            return Err(TaskReason::TaskActionOutOfScope);
+        }
+        // Any matching capability that accepts this call shape is enough.
+        let mut last = TaskReason::TaskActionOutOfScope;
+        for cap in caps {
+            if let Some(want) = cap.tool_schema_sha256.as_deref() {
+                match schema_digest {
+                    Some(got) if digests_equal(want, got) => {}
+                    _ => {
+                        last = TaskReason::TaskActionOutOfScope;
+                        continue;
+                    }
+                }
+            }
+            match &cap.arguments {
+                None | Some(crate::envelope::ArgumentConstraint::Any) => return Ok(()),
+                Some(crate::envelope::ArgumentConstraint::Exact { hashes }) => {
+                    let Some(hash) = args_hash else {
+                        last = TaskReason::TaskActionOutOfScope;
+                        continue;
+                    };
+                    if hashes.iter().any(|h| digests_equal(h, hash)) {
+                        return Ok(());
+                    }
+                    last = TaskReason::TaskActionOutOfScope;
+                }
+            }
+        }
+        Err(last)
+    }
+
+    /// Remaining tool-call budget when budgets are declared.
+    pub fn max_tool_calls(&self) -> Option<u64> {
+        self.effective.budgets.as_ref().map(|b| b.max_tool_calls)
+    }
+}
+
 pub fn parse_envelope_bytes(raw: &[u8]) -> Result<TaskEnvelope, TaskReason> {
     if raw.len() > MAX_ENVELOPE_BYTES {
         return Err(TaskReason::TaskMalformed);
@@ -265,6 +320,12 @@ pub fn verify(
         digest,
         effective,
     })
+}
+
+fn digests_equal(a: &str, b: &str) -> bool {
+    let na = a.strip_prefix("sha256:").unwrap_or(a);
+    let nb = b.strip_prefix("sha256:").unwrap_or(b);
+    na == nb
 }
 
 fn verify_chain(
@@ -610,7 +671,7 @@ fn normalize_url_path(path: &str) -> Option<String> {
 
 fn normalize_fs_path(path: &str) -> Option<String> {
     // Absolute paths only; reject null bytes and empty.
-    if path.is_empty() || !path.starts_with('/') || path.contains(' ') {
+    if path.is_empty() || !path.starts_with('/') || path.contains('\0') {
         return None;
     }
     normalize_url_path(path)
@@ -960,6 +1021,44 @@ mod tests {
         assert_eq!(
             signing_input(&parsed_json).unwrap(),
             signing_input(&parsed_yaml).unwrap()
+        );
+    }
+
+    #[test]
+    fn allows_tool_respects_exact_args_and_schema() {
+        let sk = SigningKey::generate(&mut OsRng);
+        let mut env = sample_envelope(&sk);
+        env.capabilities.tools = vec![ToolCapability {
+            server: "files".into(),
+            name: "read_file".into(),
+            tool_schema_sha256: Some("sha256:schema1".into()),
+            arguments: Some(ArgumentConstraint::Exact {
+                hashes: vec!["sha256:args1".into()],
+            }),
+        }];
+        sign_envelope(&mut env, &sk).unwrap();
+        let trust = trust_for(&sk);
+        let parents = MemoryParentStore::default();
+        let ctx = VerificationContext {
+            trust: &trust,
+            parents: &parents,
+            now_rfc3339: "2026-08-01T18:30:00Z",
+            expected_audience: Some("kotro://deployment/acme"),
+            kill_engaged: false,
+        };
+        let auth = verify(&env, &ctx).unwrap();
+        assert!(auth
+            .allows_tool("files", "read_file", Some("sha256:args1"), Some("sha256:schema1"))
+            .is_ok());
+        assert_eq!(
+            auth.allows_tool("files", "read_file", Some("sha256:other"), Some("sha256:schema1"))
+                .unwrap_err(),
+            TaskReason::TaskActionOutOfScope
+        );
+        assert_eq!(
+            auth.allows_tool("files", "write_file", Some("sha256:args1"), Some("sha256:schema1"))
+                .unwrap_err(),
+            TaskReason::TaskActionOutOfScope
         );
     }
 }

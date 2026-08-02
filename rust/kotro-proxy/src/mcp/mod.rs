@@ -14,7 +14,9 @@ pub mod list_cache;
 pub mod pin;
 pub mod protect;
 pub mod report;
+pub mod routing;
 pub mod schema;
+pub mod task_gate;
 pub mod trace;
 pub mod wrap;
 
