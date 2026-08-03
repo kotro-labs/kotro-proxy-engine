@@ -1,0 +1,50 @@
+version: 2
+updates:
+  # Rust workspace (kotro-core, kotro-types, kotro-schema, kotro-proxy) —
+  # primary, actively-developed engine.
+  - package-ecosystem: "cargo"
+    directory: "/rust"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+
+  # Go reference implementation — frozen at v0.1.0-go, compile-only in CI,
+  # but still worth patching for known-vulnerable transitive deps.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # npm CLI distribution wrapper.
+  - package-ecosystem: "npm"
+    directory: "/distributions/npm-cli"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # VS Code / Cursor marketplace extension.
+  - package-ecosystem: "npm"
+    directory: "/distributions/vscode-extension"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # GitHub Actions used across ci.yml, escape-lab.yml, cancel-audit.yml,
+  # release.yml, marketplace-publish.yml.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # Dockerfile base images.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

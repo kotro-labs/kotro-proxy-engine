@@ -1,0 +1,57 @@
+name: Scorecard supply-chain analysis
+
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: "30 1 * * 3" # Weekly, Wednesday 01:30 UTC
+  push:
+    branches: [main]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed to upload the results to code-scanning dashboard.
+      security-events: write
+      # Needed to publish results and get a badge (PR opened against the
+      # OpenSSF badge repo if opted in later).
+      id-token: write
+      # Uncomment if using `publish_results: true` below and this is a
+      # private repo — kept implicit here since kotro-proxy-engine is public.
+      # contents: read
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@v2
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publish results to the public OpenSSF Scorecard API and badge —
+          # safe for a public repo, gives an embeddable README badge.
+          publish_results: true
+
+      # Upload the raw SARIF as a build artifact so results are inspectable
+      # even before/without GitHub code scanning being enabled.
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      # Upload to code-scanning so findings show up under Security > Code
+      # scanning alerts, not just in this workflow's logs.
+      - name: Upload to code-scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif

@@ -91,7 +91,7 @@ make demo-savings      # ~68% savings story + secret redaction
 make demo-injection    # warn → HTTP 400 block + security tiles
 ```
 
-> **Why HTTP path (not MCP stdio):** Stdio MCP firewalls wrap one client↔server hop at a time. Kotro sits on the **provider HTTP layer**, so the same scan covers Cursor, Claude Code, Aider, and any OpenAI/Anthropic-compatible agent — without patching each MCP server or client. When an agent folds poisoned tool/file content into the next `/v1/chat/completions` or `/v1/messages` body, the scanner sees it.
+> **Two planes, one policy:** Kotro scans the **provider HTTP layer** (`/v1/chat/completions`, `/v1/messages`), so one scan covers Cursor, Claude Code, Aider, and any OpenAI/Anthropic-compatible agent without patching each client — when an agent folds poisoned tool/file content into the next request body, the scanner sees it there. `kotro-proxy mcp-wrap` adds a second plane on MCP itself (stdio or Streamable HTTP): schema pinning, drift quarantine, and `tools/call` argument validation before a call ever reaches the server. Run either plane alone, or both under the same `KOTRO_MODE` dial — see `kotro-proxy mcp-wrap --help` and `docs/security/THREAT-MODEL.md`.
 
 ---
 
@@ -236,7 +236,7 @@ aider --model anthropic/claude-3-5-sonnet-20241022 --openai-api-base http://loca
 | `KOTRO_LISTEN_ADDR` | `:8080` | Proxy bind address |
 | `KOTRO_UPSTREAM_URL` | `http://127.0.0.1:9000` | Provider base URL |
 | `KOTRO_ENABLE_CACHE` | `true` | Prompt-state SSE cache |
-| `KOTRO_ENABLE_VECTOR_CACHE` | `true` | On-device MiniLM layer |
+| `KOTRO_ENABLE_VECTOR_CACHE` | `false` | On-device MiniLM layer (opt-in) |
 | `KOTRO_ENABLE_REDACTION` | `true` | PII / secret guardrail |
 | `KOTRO_ENABLE_COMPRESSION` | `true` | Context dedup |
 | `KOTRO_ENABLE_INJECTION_SCAN` | `true` | MCP injection patterns |
