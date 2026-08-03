@@ -12,35 +12,55 @@
 
 ## Title (use this)
 
-> Show HN: Kotro – local agent firewall for Claude Code / Cursor (LLM proxy + MCP wrap)
+> Show HN: Kotro – local control plane for coding agents (MCP action governance + LLM protection + cost, one binary)
 
-Backup if you want a softer security lead:
+Backup if you want a shorter/security-only lead:
 
-> Show HN: Kotro – localhost proxy that scans tool results and wraps MCP before they hit the model
+> Show HN: Kotro – localhost control plane that governs MCP tool calls and LLM traffic for Claude Code / Cursor
+
+*(Dropped the "agent firewall" framing — Pipelock already owns that exact phrase and is a real, more egress/OS-sandbox-deep competitor. Kotro isn't trying to out-firewall Pipelock; it's the one binary that governs the whole coding-agent transaction — MCP admission through LLM request — with cost control and replayable evidence on the same path. See "Why not just Pipelock / pxpipe / LiteLLM?" below.)*
 
 ---
 
 ## Body
 
 ```
-I built a local-first agent firewall that sits between coding agents
-(Claude Code, Continue, Cline, Cursor via an HTTPS bridge) and the model /
-MCP tools they call. One ~15MB Rust binary on localhost — no SaaS required
-for the sidecar itself.
+I built a local control plane that sits between coding agents (Claude Code,
+Continue, Cline, Cursor via an HTTPS bridge) and both the model they call
+and the MCP tools they use. One ~15MB Rust binary on localhost — no SaaS
+required for the sidecar itself.
 
-Two enforcement planes, one control dial (KOTRO_MODE=disabled|audit|enforce):
+Two governed planes, one control dial (KOTRO_MODE=disabled|audit|enforce):
 
-1) LLM proxy — scans /v1/chat/completions and /v1/messages bodies for MCP-style
-   prompt injection in tool results before they leave the machine. Default is
-   warn (x-kotro-injection-warning); KOTRO_INJECTION_BLOCK=true returns HTTP 400.
-   Also: secret redaction, circuit breaker, optional session token budget (429),
-   exact-match cache, kill switch that outranks the mode dial.
-
-2) MCP wrap — `kotro-proxy mcp-wrap` on stdio or Streamable HTTP: pin tool
-   metadata on first tools/list, quarantine rug-pulls, validate tools/call
+1) MCP action plane — `kotro-proxy mcp-wrap` on stdio or Streamable HTTP: pin
+   tool metadata on first tools/list, quarantine rug-pulls, validate tools/call
    args against an admitted schema (bounded worker pool), deny-first local
-   policy, optional signed TaskEnvelope. This *does* intercept MCP, not just
-   the HTTP body the model sees afterward.
+   policy, optional signed TaskEnvelope for exact-action approvals. This
+   intercepts MCP itself, not just the HTTP body the model sees afterward.
+
+2) LLM plane — scans /v1/chat/completions and /v1/messages bodies for
+   MCP-style prompt injection in tool results before they leave the machine.
+   Default is warn (x-kotro-injection-warning); KOTRO_INJECTION_BLOCK=true
+   returns HTTP 400. Also on this path: secret redaction, circuit breaker,
+   optional session token budget (429), exact-match + semantic cache, kill
+   switch that outranks the mode dial on both planes.
+
+A flight recorder correlates both planes into one session tape, and a
+CI-gated adversarial corpus (Escape Lab) is the regression gate for all of
+it — 14/14 rows currently match declared behavior, but that's "declared
+behavior matched," not "14/14 attacks prevented": 9/14 are prevent/
+transform/detect, and three (encoded exfiltration, unauthorized egress,
+cross-session filesystem persistence) are known, documented `none` rows —
+see docs/security/ESCAPE-LAB-MATRIX.md. I'd rather ship an honest gap than
+a green checkmark that doesn't mean what it looks like it means.
+
+Why not just Pipelock (agent egress firewall, OS-level sandboxing) or
+pxpipe (Claude Code token compression via image context)? Different jobs.
+Pipelock goes deeper on egress containment than Kotro does today — if you
+need Landlock/seccomp-grade isolation right now, use it. pxpipe only does
+cost. Kotro is the one binary doing MCP governance + LLM protection + cost
+control on the same request path, with one dial and one evidence trail
+across both planes.
 
 Honest constraints (also in docs/security/THREAT-MODEL.md):
 - Cursor Chat/Agent Override Base URL is called from Cursor's cloud, which
@@ -49,7 +69,7 @@ Honest constraints (also in docs/security/THREAT-MODEL.md):
 - Under extreme schema-validation load, enforce mode fails closed on
   validation_unavailable; audit records and continues; disabled skips evaluation.
 - An agent that shells out or opens a raw socket never transits the proxy —
-  egress firewall is a later phase.
+  egress firewall is a later phase (tracked, not hidden — see Escape Lab EL-09).
 
 Repro (no API key — mock upstream):
   git clone https://github.com/kotro-labs/kotro-proxy-engine
@@ -74,17 +94,28 @@ path, or would you rather start enforce-by-default with a loud kill switch?
 
 1. Dashboard screenshot: `docs/launch/assets/dashboard-injection-demo.png`
 2. Optional: narrated MP4 from the README hero
-3. Optional: Escape Lab matrix link (`docs/security/ESCAPE-LAB-MATRIX.md`)
+3. Escape Lab matrix link (`docs/security/ESCAPE-LAB-MATRIX.md`) — link directly if asked "does this actually work"
+4. If a comment asks for a deeper Pipelock/pxpipe/LiteLLM/Portkey comparison than fits in a reply: `docs/launch/competitive-honesty.md`
 
 ---
 
 ## Pre-post checklist
 
-- [x] Title is security-first (firewall / injection / MCP), savings second
+**Storefront (owned by Cursor, Stream A — verify, don't redo):**
+- [ ] README hero reads as coding-agent control plane, not generic "agent firewall" (Stream A)
+- [ ] README comparison table has honest Pipelock / pxpipe rows (Stream A)
+- [ ] No remaining "HTTP not MCP stdio" contradiction now that mcp-wrap ships (Stream A)
+
+**This draft (Stream C, this file):**
+- [x] Title/body repositioned to control-plane thesis, not "agent firewall" (Pipelock already owns that phrase)
 - [x] Status codes: injection **400**, budget **429**
 - [x] Honest boundary: LLM HTTP path **and** MCP wrap (stdio / Streamable HTTP)
 - [x] Mode dial + kill-switch precedence mentioned
 - [x] Load-degradation: one sentence in post; detail in THREAT-MODEL
+- [x] Escape Lab framed as "declared behavior matched" (9/14 covered, 3 known `none`), not "attacks prevented"
+- [x] Direct "why not Pipelock/pxpipe" paragraph included so the obvious HN comment is pre-answered
+
+**Distribution (already verified 2026-08-02):**
 - [x] Sync Homebrew tap to v0.6.2 and fresh-install reverify brew + curl
 - [ ] Post Tue/Wed **8–10am US Eastern**
 - [ ] Submission URL = repo
