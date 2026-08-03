@@ -1,0 +1,63 @@
+name: MCP compatibility scaffold
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "rust/kotro-proxy/src/mcp/**"
+      - "docs/security/MCP-COMPATIBILITY.md"
+      - ".github/workflows/mcp-compatibility.yml"
+  pull_request:
+    paths:
+      - "rust/kotro-proxy/src/mcp/**"
+      - "docs/security/MCP-COMPATIBILITY.md"
+      - ".github/workflows/mcp-compatibility.yml"
+  schedule:
+    - cron: "23 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kotro-proxy-tests:
+    name: Kotro MCP protocol tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: rust -> target
+
+      - name: Routing headers and header/body agreement
+        working-directory: rust
+        run: cargo test -p kotro-proxy mcp::routing
+
+      - name: MCP cache and wrapper behavior
+        working-directory: rust
+        run: |
+          cargo test -p kotro-proxy mcp::list_cache
+          cargo test -p kotro-proxy mcp::wrap
+
+  upstream-harness:
+    name: Official conformance harness availability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          # The pinned alpha harness imports node:fs globSync, available in
+          # supported Node 22 releases but not the older local Node 16/20 path.
+          node-version: "22"
+      # The 2026-07-28 suite remains alpha. Pin it so new upstream scenarios do
+      # not silently redefine Kotro's claim. This validates the harness only;
+      # Kotro is an inline wrapper, not a standalone MCP client/server fixture.
+      - name: List pinned official scenarios
+        run: npx --yes @modelcontextprotocol/conformance@0.2.0-alpha.10 list

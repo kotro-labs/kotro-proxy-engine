@@ -92,6 +92,8 @@ jobs:
     name: Package and release
     needs: build-sys-sidecars
     runs-on: ubuntu-latest
+    outputs:
+      slsa-subjects: ${{ steps.slsa-subjects.outputs.hashes }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -166,25 +168,6 @@ jobs:
           format: spdx-json
           output-file: release-assets/kotro-proxy-engine-${{ steps.version.outputs.version }}.sbom.spdx.json
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-
-      - name: Sign release artifacts (keyless, Sigstore)
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Keyless signing: cosign proves provenance via this workflow's own
-          # GitHub Actions OIDC token against Sigstore's public Fulcio/Rekor
-          # infrastructure. No private key to generate, store as a secret, or
-          # leak -- the tradeoff most solo-maintained projects want here.
-          # Verification instructions: README.md "Verifying releases".
-          for f in release-assets/*; do
-            echo "Signing $f"
-            cosign sign-blob --yes "$f" \
-              --output-signature "${f}.sig" \
-              --output-certificate "${f}.pem"
-          done
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -204,6 +187,39 @@ jobs:
           npm ci
           npm run compile
           npx @vscode/vsce@latest package --no-dependencies -o ../../release-assets/kotro-proxy-engine.vsix
+
+      - name: Record SLSA subjects
+        id: slsa-subjects
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Attest every release payload, including the VSIX and SBOM. Cosign's
+          # .sig and .pem files are signatures over these subjects, not subjects.
+          HASHES="$(cd release-assets \
+            && find . -maxdepth 1 -type f -printf '%f\0' \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | base64 -w0)"
+          echo "hashes=$HASHES" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign release artifacts (keyless, Sigstore)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keyless signing: cosign proves provenance via this workflow's own
+          # GitHub Actions OIDC token against Sigstore's public Fulcio/Rekor
+          # infrastructure. No private key to generate, store as a secret, or
+          # leak -- the tradeoff most solo-maintained projects want here.
+          # Verification instructions: README.md "Verifying releases".
+          for f in release-assets/*; do
+            echo "Signing $f"
+            cosign sign-blob --yes "$f" \
+              --output-signature "${f}.sig" \
+              --output-certificate "${f}.pem"
+          done
 
       - name: Upload VSIX artifact (manual dispatch)
         if: github.ref_type != 'tag'
@@ -238,3 +254,16 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  provenance:
+    name: SLSA provenance
+    needs: publish-channels
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.publish-channels.outputs.slsa-subjects }}
+      provenance-name: kotro-proxy-engine.intoto.jsonl
+      upload-assets: ${{ github.ref_type == 'tag' }}

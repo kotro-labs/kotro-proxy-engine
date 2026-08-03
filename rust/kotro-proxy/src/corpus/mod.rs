@@ -388,9 +388,24 @@ pub fn schema_rejects_invalid_call() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    // These tests share kotro-schema's intentionally bounded process-wide
+    // worker pool. Running the bulk corpus and the probe concurrently can fill
+    // its queue, turning validation_unavailable into a false correctness
+    // failure. Production must retain that fail-closed behavior; the tests only
+    // need deterministic ownership of the shared pool.
+    static CORPUS_SCHEMA_TESTS: Mutex<()> = Mutex::new(());
+
+    fn schema_test_guard() -> MutexGuard<'static, ()> {
+        CORPUS_SCHEMA_TESTS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn every_corpus_scenario_passes() {
+        let _guard = schema_test_guard();
         for s in corpus() {
             run_scenario(&s).unwrap_or_else(|e| panic!("scenario {} failed: {e}", s.id));
         }
@@ -398,6 +413,7 @@ mod tests {
 
     #[test]
     fn schema_probes_behave() {
+        let _guard = schema_test_guard();
         assert!(schema_allows_valid_call());
         assert!(schema_rejects_invalid_call());
     }
@@ -409,6 +425,7 @@ mod tests {
     #[test]
     #[ignore = "timing gate; use Criterion bench mcp_hot_path for stable numbers"]
     fn in_process_admitted_schema_policy_under_5ms_p95() {
+        let _guard = schema_test_guard();
         // Production mcp-wrap path: compile once on tools/list, then
         // AdmittedSchema::validate_value + policy evaluate on tools/call.
         use crate::policy::{self, ToolCallContext, ToolClass};

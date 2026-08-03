@@ -66,9 +66,9 @@ Commit when green.
 6. Do **not** rewrite README comparison/hero.
 
 ### Done when
-- [ ] PR or commits for CI trust files only
-- [ ] BRANCH-PROTECTION.md + MCP-COMPATIBILITY.md skeleton landed
-- [ ] CI still green on `cargo test` path
+- [x] Stream B commit adds CI trust gates and release provenance
+- [x] BRANCH-PROTECTION.md + MCP-COMPATIBILITY.md skeleton landed
+- [x] Full `cargo test --workspace` path green (336 passed, 1 ignored in kotro-proxy)
 
 ### Prompt to paste for Codex
 ```text
@@ -126,7 +126,7 @@ Commit when ready.
 | Stream | Owner | Status |
 |--------|-------|--------|
 | A Storefront | Cursor | **complete** on `main` (`ffc8886` README; GitHub description/topics updated) |
-| B Trust CI | Codex | **ready** — paste Stream B prompt |
+| B Trust CI | Codex | **complete** — audit/deny, Scorecard, coverage, MCP scaffold, SLSA provenance, branch-protection runbook; full workspace tests green |
 | C Launch & corpus | Claude | **complete** — `docs(stream-c):` commit. `show-hn-draft.md` repositioned to control-plane thesis + explicit "why not Pipelock/pxpipe" + Escape Lab declared≠prevented framing; `docs/launch/competitive-honesty.md` (Pipelock/pxpipe/LiteLLM/Portkey, dated stats); `docs/security/ESCAPE-LAB-SCOREBOARD.md` (v2 column schema, current 15 scenarios remapped, 15 proposed next scenarios, FP-gap note — design only, renderer tracked as good-first-issue #8); `docs/roadmap/GOOD-FIRST-ISSUES.md` (9 issues, P1-weighted to avoid duplicating Stream B's P0-B work, difficulty labeled honestly). Did not touch `README.md` or `.github/workflows/*`. |
 
 Update this table when you finish your stream.

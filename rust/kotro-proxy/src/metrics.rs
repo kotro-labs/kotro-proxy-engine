@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use prometheus::{
+    proto::MetricType,
     register_counter_with_registry, register_counter_vec_with_registry,
     register_gauge_vec_with_registry, register_gauge_with_registry,
     register_histogram_vec_with_registry, Counter, CounterVec, Encoder, Gauge, GaugeVec,
@@ -663,14 +664,18 @@ impl MetricsRegistry {
 
         let mfs = self.registry.gather();
         for mf in mfs {
-            let name = mf.get_name();
+            let name = mf.name();
             if out.contains_key(name) {
                 let mut sum = 0.0;
                 for m in mf.get_metric() {
-                    if m.has_counter() {
-                        sum += m.get_counter().get_value();
-                    } else if m.has_gauge() {
-                        sum += m.get_gauge().get_value();
+                    match mf.get_field_type() {
+                        MetricType::COUNTER => {
+                            sum += m.get_counter().as_ref().map_or(0.0, |v| v.value())
+                        }
+                        MetricType::GAUGE => {
+                            sum += m.get_gauge().as_ref().map_or(0.0, |v| v.value())
+                        }
+                        _ => {}
                     }
                 }
                 out.insert(name.to_string(), sum);

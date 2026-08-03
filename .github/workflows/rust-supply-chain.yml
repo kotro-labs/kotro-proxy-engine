@@ -1,0 +1,50 @@
+name: Rust supply-chain policy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "rust/Cargo.toml"
+      - "rust/Cargo.lock"
+      - "rust/**/Cargo.toml"
+      - "rust/deny.toml"
+      - ".github/workflows/rust-supply-chain.yml"
+  pull_request:
+    paths:
+      - "rust/Cargo.toml"
+      - "rust/Cargo.lock"
+      - "rust/**/Cargo.toml"
+      - "rust/deny.toml"
+      - ".github/workflows/rust-supply-chain.yml"
+  schedule:
+    - cron: "17 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-policy:
+    name: cargo audit + deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Install pinned audit tools
+        uses: taiki-e/install-action@67729d5c413db75907f0ad1e39bb04b9c868ff60 # v2
+        with:
+          tool: cargo-audit,cargo-deny
+
+      - name: RustSec advisory audit
+        working-directory: rust
+        # Same time-bounded exception documented in rust/deny.toml. Keep it on
+        # the command line because cargo-audit does not consume deny.toml.
+        run: cargo audit --ignore RUSTSEC-2026-0222
+
+      - name: License, source, duplicate, and advisory policy
+        working-directory: rust
+        run: cargo deny check advisories bans licenses sources

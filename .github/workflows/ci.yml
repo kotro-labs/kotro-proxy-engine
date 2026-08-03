@@ -26,7 +26,7 @@ jobs:
 
       # Whole-workspace rustfmt is currently blocked by kotro-core's declared
       # but not-yet-landed optional semantic module. Keep the security-contract
-      # crates clean now and expand this gate when that module lands.
+      # crates clean now; the advisory job below measures the remaining debt.
       - name: Contract crate formatting
         working-directory: rust
         run: cargo fmt -p kotro-schema -p kotro-types -- --check
@@ -42,6 +42,37 @@ jobs:
       - name: Phase 0 contract tests (kotro-types + event schema)
         working-directory: rust
         run: cargo test -p kotro-types
+
+  workspace-quality-advisory:
+    name: Workspace fmt + clippy debt (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+
+      # kotro-core cannot be passed to rustfmt until
+      # rust/kotro-core/src/cache/semantic.rs lands or the stale module
+      # declaration is removed. The shipping proxy is still checked here.
+      - name: Shipping proxy formatting debt
+        continue-on-error: true
+        working-directory: rust
+        run: cargo fmt -p kotro-proxy -- --check
+
+      - name: Whole-workspace clippy debt
+        continue-on-error: true
+        working-directory: rust
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   go-compile-check:
     name: Go compile check (reference implementation — frozen at v0.1.0-go)
