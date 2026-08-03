@@ -1,6 +1,10 @@
 # Kotro Next Steps — Prioritized Task List
 
+> **Aug 2026 sequencing:** see [`CONSOLIDATED-NEXT-STEPS.md`](./CONSOLIDATED-NEXT-STEPS.md)  
+> (Cursor + Opus + Sol synthesis). This file remains the historical P0–P4 archive.
+
 *Companion to `docs/review/2026-07-strategic-review.md`. Context: Go was the Phase 1 reference implementation (chosen for strong SSE handling); Rust is the intended end state. This list sequences the remaining Go→Rust convergence alongside the trust/legal fixes and the real-semantic-cache work.*
+
 
 ## P0 — This week (blocking, near-zero effort)
 

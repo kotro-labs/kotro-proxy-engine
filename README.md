@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <strong>Local Rust LLM proxy for Cursor &amp; Claude Code — stop MCP prompt injection, cut agent token waste.</strong>
+  <strong>Local coding-agent control plane — MCP action governance + LLM-path protection + cost control, one binary.</strong>
 </p>
 
 <p align="center">
-  One binary on your machine. No SaaS. Sees every tool result <em>before</em> it reaches the model.
+  Open source · no SaaS · replayable evidence. For Claude Code, Cursor, Continue, and Cline — not a general org gateway.
 </p>
 
 <p align="center">
@@ -38,9 +38,32 @@
 
 ### Who this is for
 
+- You want **one local control plane** for coding agents: govern **MCP tool actions** and **LLM provider traffic** under the same `KOTRO_MODE` dial
 - You run **Claude Code**, **Continue.dev**, **Cline**, or any agent that can set a **localhost** base URL
-- You use **Cursor** and want a local sidecar for Verify Cache / dashboard now — and Cursor Chat via a temporary HTTPS bridge (Cursor’s cloud cannot call `localhost`)
-- You want **injection scan + secret redaction** on the provider HTTP path, plus **cache / budget / circuit breaker**
+- You use **Cursor** for Verify Cache / dashboard locally — Cursor Chat needs an HTTPS bridge (Cursor’s cloud cannot call `localhost`)
+- You care about **evidence** (flight recorder + [Escape Lab](docs/security/ESCAPE-LAB-MATRIX.md)), not just a features checklist
+
+### Two planes, one dial
+
+```text
+  Coding agent
+       │
+       ├── MCP action plane ── mcp-wrap ──► MCP servers
+       │     schema pin · TaskEnvelope · argument admission · approvals
+       │
+       └── LLM plane ────────── proxy ────► OpenAI / Anthropic / …
+             injection scan · redaction · cache · budget · circuit breaker
+
+  Shared: KOTRO_MODE (disabled|audit|enforce) · kill switch (outranks mode) · flight recorder
+```
+
+| Control | What it does |
+|---------|----------------|
+| **`mcp-wrap`** | Pins tool schemas, quarantines drift, validates `tools/call` args, optional TaskEnvelope authority |
+| **LLM proxy** | Scans/redacts provider HTTP (`/v1/chat/completions`, `/v1/messages`); OpenAI ⇄ Anthropic translation |
+| **`KOTRO_MODE`** | `disabled` / `audit` / `enforce` on both planes; kill switch still halts when engaged |
+| **Flight recorder** | Local tape of decisions — export from `:9090` |
+| **Escape Lab** | CI-gated adversarial corpus — see honesty note below |
 
 ### 30-second install
 
@@ -76,23 +99,26 @@ Cursor **Chat / Agent** does **not** dial your laptop. Override Base URL is invo
 
 | Without | With |
 |---------|------|
-| Poisoned MCP / tool text rides into the next LLM call | Scan → **warn** header or **HTTP 400** hard-block; dashboard **Detected / Blocked** |
-| Retries & identical turns pay full price | Exact-match cache replay (`x-kotro-cache: HIT`) — **~68%** in the savings demo |
-| Agent loops burn credits unnoticed | Circuit breaker + optional session token budget (**HTTP 429**) |
+| Poisoned tool text rides into the next LLM call | LLM-plane scan → **warn** or **HTTP 400**; dashboard **Detected / Blocked** |
+| Tool schema changes after you approved it | MCP-plane pin + drift quarantine (`mcp-wrap`) |
+| Destructive call outside a signed task | TaskEnvelope / exact-action admission |
+| Retries & identical turns pay full price | Exact-match cache (`x-kotro-cache: HIT`) — **~68%** in `make demo-savings` |
+| Agent loops burn credits | Circuit breaker + optional session budget (**HTTP 429**) |
 | Secrets leave with the prompt | Redacted outbound, restored on the stream |
+| “Trust our marketing” | Escape Lab + flight recorder — reproducible evidence |
 
 ### See it yourself (no API key)
 
 ```bash
 git clone https://github.com/kotro-labs/kotro-proxy-engine.git && cd kotro-proxy-engine
-make demo-cache-hit    # hero: identical prompt → MISS then X-Kotro-Cache: HIT
-make agent-guard-demo  # death loop → circuit breaker + flight recorder tape
-make demo-savings      # ~68% savings story + secret redaction
+make demo-cache-hit    # identical prompt → MISS then X-Kotro-Cache: HIT
+make agent-guard-demo  # death loop → circuit breaker + flight recorder
+make demo-savings      # ~68% local-cache story + secret redaction
 make demo-injection    # warn → HTTP 400 block + security tiles
+python3 scripts/escape-lab.py --validate   # 15 adversarial scenarios, schema-valid
 ```
 
-> **Two planes, one policy:** Kotro scans the **provider HTTP layer** (`/v1/chat/completions`, `/v1/messages`), so one scan covers Cursor, Claude Code, Aider, and any OpenAI/Anthropic-compatible agent without patching each client — when an agent folds poisoned tool/file content into the next request body, the scanner sees it there. `kotro-proxy mcp-wrap` adds a second plane on MCP itself (stdio or Streamable HTTP): schema pinning, drift quarantine, and `tools/call` argument validation before a call ever reaches the server. Run either plane alone, or both under the same `KOTRO_MODE` dial — see `kotro-proxy mcp-wrap --help` and `docs/security/THREAT-MODEL.md`.
-
+**Escape Lab honesty:** a green run means outcomes **matched what we declared** (including intentional `none` gaps). It does **not** mean “15/15 attacks prevented.” Today **9/14** HTTP-measured rows are prevent/transform/detect; encoded exfil (EL-08), unauthorized egress (EL-09), and cross-session filesystem persistence (EL-11) are known uncovered — see [`ESCAPE-LAB-MATRIX.md`](docs/security/ESCAPE-LAB-MATRIX.md) and [`THREAT-MODEL.md`](docs/security/THREAT-MODEL.md). Run either plane alone or both: `kotro-proxy mcp-wrap --help`.
 ---
 
 ## Point your agent at it
@@ -124,36 +150,54 @@ OPENAI_BASE_URL=http://localhost:8080/v1 your-tool
 
 ## What it does
 
+### MCP action plane (`mcp-wrap`)
+
 | Feature | Description |
 |--------|-------------|
-| **MCP prompt injection scanner** | 14 regex patterns on tool / user text. Warn-by-default; `KOTRO_INJECTION_BLOCK=true` → HTTP **400**. |
+| **Schema pinning / rug-pull signal** | TOFU pin of tool descriptors; drift quarantines until re-approved |
+| **TaskEnvelope + admitted schema** | Bounded JSON Schema / authority checks before `tools/call` reaches the server |
+| **Exact-action approvals** | Operator-gated destructive or high-risk calls |
+| **Stdio + Streamable HTTP wrap** | Same dial as the LLM plane |
+
+### LLM plane (provider proxy)
+
+| Feature | Description |
+|--------|-------------|
+| **Prompt-injection scan** | Regex first stage on tool / user text. Warn-by-default; `KOTRO_INJECTION_BLOCK=true` → HTTP **400**. |
 | **Secret redaction** | API keys, DB URLs, passwords, PII stripped before the cloud; restored in the stream. |
-| **Agent loop circuit breaker** | Identical prompt-state or tool args → trip (`X-Kotro-Circuit-Open`). Modes: `enforce` / `observe`. |
-| **Agent Flight Recorder** | Local black-box tape (prompt hashes, HITs, CB, kill-switch) on `:9090` — export JSON. |
-| **Kill switch** | Global halt via `POST /api/kill-switch` or rate / tool-round caps. |
-| **Reasoning budget controller** | Caps Anthropic `thinking.budget_tokens` / OpenAI `max_completion_tokens`. |
-| **Streaming prompt-state cache** | Exact-match SSE replay on repeated prompts (redb) — primary path. |
+| **OpenAI ⇄ Anthropic translation** | One binary speaks both wire formats |
+| **Agent loop circuit breaker** | Identical prompt-state or tool args → trip (`X-Kotro-Circuit-Open`). |
+| **Prompt-state cache** | Exact-match SSE replay (redb) — primary savings path. |
 | **Local semantic cache** | Optional MiniLM (`KOTRO_ENABLE_VECTOR_CACHE=true`, default **off**). |
-| **MCP tool result cache** | TTL by category; writes invalidate reads. |
-| **Context compressor** | Strips unchanged MCP schemas / trees across turns. |
 | **Per-session token budget** | Hard cap → HTTP **429** + `X-Kotro-Budget-Remaining`. |
-| **WASM plugins** | Bring-your-own guardrails (Go / TS / Python → WASM). |
-| **OpenTelemetry** | OTLP traces per request. |
+| **Reasoning budget controller** | Caps Anthropic `thinking.budget_tokens` / OpenAI `max_completion_tokens`. |
+| **Context compressor** | Strips unchanged MCP schemas / trees across turns. |
+
+### Shared controls
+
+| Feature | Description |
+|--------|-------------|
+| **`KOTRO_MODE`** | `disabled` \| `audit` \| `enforce` — Escape Lab EL-12…EL-15 cover dial + kill-switch precedence |
+| **Kill switch** | Global halt via `POST /api/kill-switch` — **outranks** mode on LLM and MCP planes |
+| **Flight recorder** | Local black-box tape on `:9090` — export JSON |
+| **WASM plugins / OTel** | Optional bring-your-own guardrails; OTLP traces |
 
 ---
 
 ## Is Kotro the right tool for you?
 
-Kotro is deliberately narrow: a single-binary proxy for **one developer’s** coding-agent traffic. It is not a team-wide multi-provider gateway.
+Kotro is deliberately narrow: a **local coding-agent control plane** (MCP + LLM + cost + evidence). It is not an org-wide multi-provider gateway, and it is not a full OS sandbox for every agent process.
 
-| Tool | Best fit |
-|---|---|
-| **Kotro** | Local security + efficiency for MCP-native agents; **no third party** in the request path |
-| **[LiteLLM](https://github.com/BerriAI/litellm)** | Team/org routing to 100+ providers behind one API |
-| **[Portkey](https://github.com/Portkey-AI/gateway)** | Heavier production guardrails / managed options |
-| **Hosted gateways** | Zero infra — but a third party sees 100% of traffic |
+| Tool | Best fit | Where Kotro loses on purpose |
+|---|---|---|
+| **Kotro** | Local MCP + LLM governance for Claude Code / Cursor / Continue / Cline; cache + budget on the same path; Escape Lab evidence | No Landlock/seccomp containment; no 100+ provider mesh |
+| **[Pipelock](https://github.com/luckyPipewrench/pipelock)** | Agent **egress firewall** + OS-level sandboxing (Landlock, seccomp, macOS sandbox-exec), canaries, SLSA-heavy security depth | Not specialized as a coding-agent cost+protocol control plane |
+| **[pxpipe](https://github.com/teamchong/pxpipe)** | Compress Claude Code context via image pages to cut tokens | Not an MCP/LLM security runtime |
+| **[LiteLLM](https://github.com/BerriAI/litellm)** | Team/org routing to 100+ providers | Not local-first single-binary coding-agent UX |
+| **[Portkey](https://github.com/Portkey-AI/gateway)** | Heavier production guardrails / managed options | Third party or heavier ops footprint |
+| **Hosted gateways** | Zero infra | A third party sees traffic |
 
-That “nothing else in the path” property is structural, not a checkbox — a hosted gateway can’t offer it without changing its business model.
+**Compose, don’t pretend:** for process/network isolation, pair Kotro’s policy + evidence with Docker MCP Gateway / OS sandbox profiles (`kotro isolate` direction) — Kotro owns the transaction and the tape; the runtime owns the jail. See [`docs/roadmap/CONSOLIDATED-NEXT-STEPS.md`](docs/roadmap/CONSOLIDATED-NEXT-STEPS.md).
 
 ### About the 99.3% upstream-token figure
 
