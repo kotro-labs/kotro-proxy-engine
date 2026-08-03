@@ -52,6 +52,6 @@ jobs:
       # Upload to code-scanning so findings show up under Security > Code
       # scanning alerts, not just in this workflow's logs.
       - name: Upload to code-scanning
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
