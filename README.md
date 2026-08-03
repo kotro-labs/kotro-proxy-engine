@@ -118,7 +118,7 @@ make demo-injection    # warn → HTTP 400 block + security tiles
 python3 scripts/escape-lab.py --validate   # 15 adversarial scenarios, schema-valid
 ```
 
-**Escape Lab honesty:** a green run means outcomes **matched what we declared** (including intentional `none` gaps). It does **not** mean “15/15 attacks prevented.” Today **9/14** HTTP-measured rows are prevent/transform/detect; encoded exfil (EL-08), unauthorized egress (EL-09), and cross-session filesystem persistence (EL-11) are known uncovered — see [`ESCAPE-LAB-MATRIX.md`](docs/security/ESCAPE-LAB-MATRIX.md) and [`THREAT-MODEL.md`](docs/security/THREAT-MODEL.md). Run either plane alone or both: `kotro-proxy mcp-wrap --help`.
+**Escape Lab honesty:** a green run means outcomes **matched what we declared** (including intentional `none` gaps). It does **not** mean “15/15 attacks prevented.” Today **9/14** HTTP-measured rows are prevent/transform/detect; encoded exfil (EL-08), unauthorized egress (EL-09), and cross-session filesystem persistence (EL-11) are known uncovered — live matrix [`ESCAPE-LAB-MATRIX.md`](docs/security/ESCAPE-LAB-MATRIX.md), proposed public scoreboard (prevent / detect / bypass / FP) in [`ESCAPE-LAB-SCOREBOARD.md`](docs/security/ESCAPE-LAB-SCOREBOARD.md), threat model [`THREAT-MODEL.md`](docs/security/THREAT-MODEL.md). Run either plane alone or both: `kotro-proxy mcp-wrap --help`.
 ---
 
 ## Point your agent at it
@@ -197,7 +197,9 @@ Kotro is deliberately narrow: a **local coding-agent control plane** (MCP + LLM 
 | **[Portkey](https://github.com/Portkey-AI/gateway)** | Heavier production guardrails / managed options | Third party or heavier ops footprint |
 | **Hosted gateways** | Zero infra | A third party sees traffic |
 
-**Compose, don’t pretend:** for process/network isolation, pair Kotro’s policy + evidence with Docker MCP Gateway / OS sandbox profiles (`kotro isolate` direction) — Kotro owns the transaction and the tape; the runtime owns the jail. See [`docs/roadmap/CONSOLIDATED-NEXT-STEPS.md`](docs/roadmap/CONSOLIDATED-NEXT-STEPS.md).
+**Compose, don’t pretend:** for process/network isolation, pair Kotro’s policy + evidence with Docker MCP Gateway / OS sandbox profiles (`kotro isolate` direction) — Kotro owns the transaction and the tape; the runtime owns the jail.
+
+Long-form comparison (dated stats, who should use which): [`docs/launch/competitive-honesty.md`](docs/launch/competitive-honesty.md). Sequencing: [`docs/roadmap/CONSOLIDATED-NEXT-STEPS.md`](docs/roadmap/CONSOLIDATED-NEXT-STEPS.md). MCP method matrix: [`docs/security/MCP-COMPATIBILITY.md`](docs/security/MCP-COMPATIBILITY.md).
 
 ### About the 99.3% upstream-token figure
 
@@ -355,7 +357,7 @@ make load-test
 make eval-suite
 ```
 
-Results: [benchmarks/eval-suite/RESULTS.md](benchmarks/eval-suite/RESULTS.md). Threat model: [docs/security/THREAT-MODEL.md](docs/security/THREAT-MODEL.md).
+Results: [benchmarks/eval-suite/RESULTS.md](benchmarks/eval-suite/RESULTS.md). Threat model: [docs/security/THREAT-MODEL.md](docs/security/THREAT-MODEL.md). Escape Lab matrix / scoreboard: [ESCAPE-LAB-MATRIX.md](docs/security/ESCAPE-LAB-MATRIX.md) · [ESCAPE-LAB-SCOREBOARD.md](docs/security/ESCAPE-LAB-SCOREBOARD.md). MCP compatibility: [MCP-COMPATIBILITY.md](docs/security/MCP-COMPATIBILITY.md).
 
 ## Project layout
 

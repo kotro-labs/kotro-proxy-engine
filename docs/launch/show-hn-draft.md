@@ -51,8 +51,12 @@ it — 14/14 rows currently match declared behavior, but that's "declared
 behavior matched," not "14/14 attacks prevented": 9/14 are prevent/
 transform/detect, and three (encoded exfiltration, unauthorized egress,
 cross-session filesystem persistence) are known, documented `none` rows —
-see docs/security/ESCAPE-LAB-MATRIX.md. I'd rather ship an honest gap than
-a green checkmark that doesn't mean what it looks like it means.
+see docs/security/ESCAPE-LAB-MATRIX.md (and the scoreboard design in
+docs/security/ESCAPE-LAB-SCOREBOARD.md). Architecture diagram lives in the
+README ("Two planes, one dial"):
+https://github.com/kotro-labs/kotro-proxy-engine#two-planes-one-dial
+I'd rather ship an honest gap than a green checkmark that doesn't mean what
+it looks like it means.
 
 Why not just Pipelock (agent egress firewall, OS-level sandboxing) or
 pxpipe (Claude Code token compression via image context)? Different jobs.
@@ -94,17 +98,20 @@ path, or would you rather start enforce-by-default with a loud kill switch?
 
 1. Dashboard screenshot: `docs/launch/assets/dashboard-injection-demo.png`
 2. Optional: narrated MP4 from the README hero
-3. Escape Lab matrix link (`docs/security/ESCAPE-LAB-MATRIX.md`) — link directly if asked "does this actually work"
-4. If a comment asks for a deeper Pipelock/pxpipe/LiteLLM/Portkey comparison than fits in a reply: `docs/launch/competitive-honesty.md`
+3. Repo README **Two planes, one dial** section (first-screen architecture) — https://github.com/kotro-labs/kotro-proxy-engine#two-planes-one-dial
+4. Escape Lab matrix (`docs/security/ESCAPE-LAB-MATRIX.md`) — if asked "does this actually work"
+5. Escape Lab scoreboard design (`docs/security/ESCAPE-LAB-SCOREBOARD.md`) — if asked about prevention rate vs green CI
+6. Deeper Pipelock/pxpipe/LiteLLM/Portkey comparison: `docs/launch/competitive-honesty.md`
 
 ---
 
 ## Pre-post checklist
 
-**Storefront (owned by Cursor, Stream A — verify, don't redo):**
-- [ ] README hero reads as coding-agent control plane, not generic "agent firewall" (Stream A)
-- [ ] README comparison table has honest Pipelock / pxpipe rows (Stream A)
-- [ ] No remaining "HTTP not MCP stdio" contradiction now that mcp-wrap ships (Stream A)
+**Storefront (Stream A — verified in integration pass 2026-08-02):**
+- [x] README hero reads as coding-agent control plane, not generic "agent firewall"
+- [x] README comparison table has honest Pipelock / pxpipe rows
+- [x] No remaining "HTTP not MCP stdio" contradiction now that mcp-wrap ships
+- [x] README links to competitive-honesty + Escape Lab scoreboard + MCP compatibility
 
 **This draft (Stream C, this file):**
 - [x] Title/body repositioned to control-plane thesis, not "agent firewall" (Pipelock already owns that phrase)
@@ -114,6 +121,7 @@ path, or would you rather start enforce-by-default with a loud kill switch?
 - [x] Load-degradation: one sentence in post; detail in THREAT-MODEL
 - [x] Escape Lab framed as "declared behavior matched" (9/14 covered, 3 known `none`), not "attacks prevented"
 - [x] Direct "why not Pipelock/pxpipe" paragraph included so the obvious HN comment is pre-answered
+- [x] Body aligned with README dual-plane section (integration pass)
 
 **Distribution (already verified 2026-08-02):**
 - [x] Sync Homebrew tap to v0.6.2 and fresh-install reverify brew + curl
