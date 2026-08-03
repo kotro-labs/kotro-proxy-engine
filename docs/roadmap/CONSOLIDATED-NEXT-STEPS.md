@@ -90,12 +90,12 @@ Split so we do not block HN forever, but also do not ship on a storefront that h
 
 | # | Task | Status |
 |---|------|--------|
-| A1 | Rewrite README hero around **dual-plane control plane** (MCP admission → LLM path → evidence) | **Todo** |
-| A2 | Honest comparison rows: **Pipelock** (egress/containment wins) · **pxpipe** (cost-via-images) · LiteLLM/Portkey | **Todo** |
-| A3 | Surface TaskEnvelope / schema pin / exact-action approvals / Escape Lab in first-screen capability matrix | **Todo** |
-| A4 | Clarify Escape Lab semantics in README (“declared behaviour”, not “attacks prevented”) | **Todo** |
-| A5 | Spot-check live GitHub in incognito (sanity only) | **Todo** |
-| A6 | Post Show HN (`docs/launch/show-hn-draft.md`); stay in-thread | **Todo** |
+| A1 | Rewrite README hero around **dual-plane control plane** (MCP admission → LLM path → evidence) | **Done** (`ffc8886`) |
+| A2 | Honest comparison rows: **Pipelock** (egress/containment wins) · **pxpipe** (cost-via-images) · LiteLLM/Portkey | **Done** |
+| A3 | Surface TaskEnvelope / schema pin / exact-action approvals / Escape Lab in first-screen capability matrix | **Done** |
+| A4 | Clarify Escape Lab semantics in README (“declared behaviour”, not “attacks prevented”) | **Done** |
+| A5 | Spot-check live GitHub in incognito (sanity only) | **Done** (raw `main` README + `gh repo edit` description) |
+| A6 | Post Show HN (`docs/launch/show-hn-draft.md`); stay in-thread | **Todo** (human / after Stream C) |
 
 Already green for launch: Homebrew v0.6.2, curl install, RESULTS.md, SECURITY.md, PR template, MIT, extension lockfile 0.6.2.
 

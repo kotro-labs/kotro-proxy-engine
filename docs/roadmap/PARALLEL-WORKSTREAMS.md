@@ -34,11 +34,13 @@
 4. Explicit Escape Lab wording: *declared behaviour match ≠ attacks prevented*; cite EL-08/09/11 `none`.
 5. Kill any remaining “HTTP instead of MCP” framing that contradicts mcp-wrap (keep dual-plane explanation).
 6. Incognito sanity note in PR/commit message (ports, MIT, v0.6.2).
+7. Align GitHub repo description / topics with dual-plane positioning.
 
 ### Done when
-- [ ] First screen answers: planes, dial, evidence, who should use Pipelock instead
-- [ ] No contradiction with `mcp-wrap` / vector-cache defaults
-- [ ] Commit on `main` (or PR) titled for Stream A only
+- [x] First screen answers: planes, dial, evidence, who should use Pipelock instead
+- [x] No contradiction with `mcp-wrap` / vector-cache defaults
+- [x] Commit on `main` titled for Stream A only (`ffc8886` + follow-ups)
+- [x] Live GitHub description matches control-plane pitch
 
 ### Prompt to paste for Cursor
 ```text
@@ -48,6 +50,7 @@ Do not edit .github/workflows or show-hn-draft.md body.
 Commit when green.
 ```
 
+**Cursor implementation note (2026-08-02):** Stream A complete on `main`. Integration pass (README → competitive-honesty / scoreboard links) waits until Streams B+C land.
 ---
 
 ## Stream B — Codex (trust CI / P0-B)
@@ -122,8 +125,8 @@ Commit when ready.
 
 | Stream | Owner | Status |
 |--------|-------|--------|
-| A Storefront | Cursor | **done locally** — README dual-plane + Pipelock/pxpipe table + Escape Lab honesty (commit pending if not pushed) |
-| B Trust CI | Codex | **ready** — paste prompt below |
-| C Launch & corpus | Claude | **ready** — paste prompt below |
+| A Storefront | Cursor | **complete** on `main` (`ffc8886` README; GitHub description/topics updated) |
+| B Trust CI | Codex | **ready** — paste Stream B prompt |
+| C Launch & corpus | Claude | **ready** — paste Stream C prompt |
 
 Update this table when you finish your stream.
