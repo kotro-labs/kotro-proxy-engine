@@ -386,32 +386,40 @@ mod tests {
 
     #[test]
     fn ttl_short_lived_entry() {
+        // Deterministic expiry: do not use wall-clock sleep against a 100ms TTL.
+        // Under CI load, put()+commit can exceed 100ms so "fresh immediately after
+        // write" races the encoded expires_at. Use explicit past/future prefixes.
+        use crate::cache::encoding::{encode_stored_value, expires_at_nano};
+
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open_with_options(
             dir.path().join("short.db"),
             StoreOptions {
-                ttl: Duration::from_millis(100),
+                ttl: Duration::from_secs(3600),
                 enable_compression: false,
                 max_capacity: None,
             },
         )
         .unwrap();
 
-        store
-            .put(Entry {
-                key: "short".into(),
-                raw_sse: b"data: [DONE]\n\n".to_vec(),
-                model: "gpt-4".into(),
-                created_at: 0,
-            })
-            .unwrap();
+        let entry = Entry {
+            key: "short".into(),
+            raw_sse: b"data: [DONE]\n\n".to_vec(),
+            model: "gpt-4".into(),
+            created_at: 0,
+        };
+        let payload = serde_json::to_vec(&entry).unwrap();
 
+        let future = expires_at_nano(Duration::from_secs(3600));
+        store
+            .put_raw("short", &encode_stored_value(future, &payload, false))
+            .unwrap();
         assert!(store.get("short").unwrap().is_some());
 
-        thread::sleep(Duration::from_millis(120));
-        assert!(store.get("short").unwrap().is_none());
-
-        thread::sleep(Duration::from_millis(50));
+        let past = 1_i64; // expired relative to any realistic now_unix_nano
+        store
+            .put_raw("short", &encode_stored_value(past, &payload, false))
+            .unwrap();
         assert!(store.get("short").unwrap().is_none());
     }
 

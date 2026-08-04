@@ -120,7 +120,11 @@ where
                     .as_secs() as i64,
             };
 
-            tokio::task::spawn_blocking(move || {
+            // Await the write before ending the stream so an immediate follow-up
+            // request cannot race a detached spawn_blocking put (CI flakes and
+            // production read-after-stream misses). Frames are already yielded;
+            // this only delays stream completion by the DB commit latency.
+            match tokio::task::spawn_blocking(move || {
                 if let Err(err) = store_clone.put(entry) {
                     error!(error = %err, "cache put failed");
                 } else {
@@ -130,7 +134,12 @@ where
                         metrics.set_cache_entries(count);
                     }
                 }
-            });
+            })
+            .await
+            {
+                Ok(()) => {}
+                Err(err) => error!(error = %err, "cache put task join failed"),
+            }
         }
 
     })
@@ -141,7 +150,6 @@ mod tests {
     use super::*;
     use crate::cache::Store;
     use futures_util::stream;
-    use std::time::Duration;
 
     async fn collect_pipeline(
         upstream: impl Stream<Item = Result<Bytes, &'static str>> + Send + Unpin + 'static,
@@ -195,7 +203,6 @@ mod tests {
         };
 
         collect_pipeline(upstream, store.clone(), opts).await;
-        std::thread::sleep(Duration::from_millis(50));
 
         let hit = store.get("cache-me").unwrap().expect("cached entry");
         assert!(hit.raw_sse.windows(6).any(|w| w == b"[DONE]"));
@@ -215,7 +222,6 @@ mod tests {
         };
 
         collect_pipeline(upstream, store.clone(), opts).await;
-        std::thread::sleep(Duration::from_millis(50));
         assert!(store.get("skip-me").unwrap().is_none());
     }
 
@@ -237,7 +243,6 @@ mod tests {
         let out = collect_pipeline(upstream, store.clone(), opts).await;
         let body: Vec<u8> = out.into_iter().flat_map(|b| b.to_vec()).collect();
         assert!(body.windows(11).any(|w| w == b"data: hello"));
-        std::thread::sleep(Duration::from_millis(50));
         assert!(store.get("frag").unwrap().is_some());
     }
 
@@ -265,7 +270,6 @@ mod tests {
         let client_body: Vec<u8> = out.into_iter().flat_map(|b| b.to_vec()).collect();
         assert!(client_body.windows(12).any(|w| w == b"secret-value"));
 
-        std::thread::sleep(Duration::from_millis(50));
         let cached = store.get("restore").unwrap().expect("cached");
         // Cache retains upstream wire bytes (still redacted).
         assert!(cached
@@ -293,7 +297,7 @@ mod tests {
         let _ = pipeline.next().await; // bootstrap only
         drop(pipeline);
 
-        std::thread::sleep(Duration::from_millis(50));
+        // Put only runs after the stream is fully consumed; early drop must not cache.
         assert!(store.get("dropped").unwrap().is_none());
     }
 }

@@ -119,6 +119,7 @@ python3 scripts/escape-lab.py --validate   # 15 adversarial scenarios, schema-va
 ```
 
 **Escape Lab honesty:** a green run means outcomes **matched what we declared** (including intentional `none` gaps). It does **not** mean “15/15 attacks prevented.” Today **9/14** HTTP-measured rows are prevent/transform/detect; encoded exfil (EL-08), unauthorized egress (EL-09), and cross-session filesystem persistence (EL-11) are known uncovered — live matrix [`ESCAPE-LAB-MATRIX.md`](docs/security/ESCAPE-LAB-MATRIX.md), proposed public scoreboard (prevent / detect / bypass / FP) in [`ESCAPE-LAB-SCOREBOARD.md`](docs/security/ESCAPE-LAB-SCOREBOARD.md), threat model [`THREAT-MODEL.md`](docs/security/THREAT-MODEL.md). Run either plane alone or both: `kotro-proxy mcp-wrap --help`.
+
 ---
 
 ## Point your agent at it

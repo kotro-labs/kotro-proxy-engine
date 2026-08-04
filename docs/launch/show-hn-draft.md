@@ -123,9 +123,13 @@ path, or would you rather start enforce-by-default with a loud kill switch?
 - [x] Direct "why not Pipelock/pxpipe" paragraph included so the obvious HN comment is pre-answered
 - [x] Body aligned with README dual-plane section (integration pass)
 
+**Launch gate (must be green before posting):**
+- [ ] `main` CI green (no flaky cache/TTL failures)
+- [ ] Branch protection enabled on `main` (see `docs/operations/BRANCH-PROTECTION.md`)
+
 **Distribution (already verified 2026-08-02):**
 - [x] Sync Homebrew tap to v0.6.2 and fresh-install reverify brew + curl
-- [ ] Post Tue/Wed **8–10am US Eastern**
+- [ ] Post Tue/Wed **8–10am US Eastern** — **only after launch gate**
 - [ ] Submission URL = repo
 
 ---

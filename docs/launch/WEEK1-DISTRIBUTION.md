@@ -112,7 +112,7 @@ Streamable HTTP servers; keep the two planes distinct in launch copy.
 - [ ] Post Tue/Wed **8–10am US Eastern**
 - [ ] Repo URL as submission link
 
-Draft live file: [`show-hn-draft.md`](./show-hn-draft.md) — **ready to post** (Streams A/B/C + integration complete 2026-08-02).
+Draft live file: [`show-hn-draft.md`](./show-hn-draft.md) — **blocked** until `main` CI is green and branch protection is applied.
 
 **Dev.to mass-market article (cost → security reveal):** [`devto-article-3-savings-then-security.md`](./devto-article-3-savings-then-security.md) — do not confuse with article 1 (security-first) or article 2 (cost diagnosis).
 

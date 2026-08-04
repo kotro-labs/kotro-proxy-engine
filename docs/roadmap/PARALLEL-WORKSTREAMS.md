@@ -130,6 +130,7 @@ Commit when ready.
 | A Storefront | Cursor | **complete** (`ffc8886` / `2d9241e`) |
 | B Trust CI | Codex | **complete** (`5a5e248`) |
 | C Launch & corpus | Claude | **complete** (`4fbc053`) |
-| Integration | Cursor | **complete** — cross-links landed; ready to post Show HN |
+| Integration | Cursor | **complete** (`68426c1`) — cross-links landed |
+| Launch gate | — | **blocked** until cache/TTL flake fix is green on `main` and branch protection is applied |
 
 Update this table when you finish your stream.
