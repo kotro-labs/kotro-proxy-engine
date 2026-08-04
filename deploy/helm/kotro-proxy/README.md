@@ -1,8 +1,7 @@
 # Kotro Proxy Helm Chart (preview)
 
-This chart is a **deployment scaffold**. A container image is not published yet —
-build your own image from the Go proxy (`cmd/proxy`) or wire an internal registry
-before installing in production.
+Published image: `ghcr.io/kotro-labs/kotro-proxy` (see GitHub Packages / release workflow
+`Publish container image (GHCR)`). Override `image.tag` to pin a release.
 
 ```bash
 helm install kotro ./deploy/helm/kotro-proxy \

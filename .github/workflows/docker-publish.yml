@@ -1,0 +1,112 @@
+name: Publish container image (GHCR)
+
+# Publishes ghcr.io/kotro-labs/kotro-proxy from the Linux release binary.
+# Docker Hub (kotrolabs/kotro-proxy) is not used — no Hub credentials required.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to package (e.g. v0.6.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: kotro-proxy
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    name: Build and push GHCR image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve tag / version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+            echo "Expected tag like v0.6.3, got: $TAG" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # OWNER from repo (kotro-labs/kotro-proxy-engine → kotro-labs)
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "image=${{ env.REGISTRY }}/${OWNER}/${{ env.IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      - name: Download Linux release binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          mkdir -p dist
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern 'kotro-proxy-x86_64-unknown-linux-gnu.tar.gz' \
+            --dir dist
+          tar -xzf dist/kotro-proxy-x86_64-unknown-linux-gnu.tar.gz -C dist
+          # tarball may contain kotro-proxy or kotro-proxy-<target>
+          BIN="$(find dist -maxdepth 1 -type f -name 'kotro-proxy*' ! -name '*.tar.gz' | head -1)"
+          test -n "$BIN"
+          mv "$BIN" dist/kotro-proxy
+          chmod +x dist/kotro-proxy
+          cp deploy/docker/Dockerfile dist/Dockerfile
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: dist
+          file: dist/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.title=kotro-proxy
+
+      - name: Make package public (best-effort)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          # First push may create a private package; public so `docker pull` works unauthenticated.
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          PKG="${{ env.IMAGE_NAME }}"
+          gh api --method PUT \
+            "/orgs/${OWNER}/packages/container/${PKG}/visibility" \
+            -f visibility=public \
+            || gh api --method PUT \
+            "/user/packages/container/${PKG}/visibility" \
+            -f visibility=public \
+            || echo "Could not flip visibility via API — set Public in GitHub Packages UI if pulls fail."

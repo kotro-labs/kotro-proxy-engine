@@ -58,7 +58,13 @@ COPY --from=rust-builder /app/rust/target/release/kotro-proxy .
 
 RUN mkdir -p /root/data
 
-EXPOSE 8080 9000
+# Bind all interfaces so `docker run -p …` and Compose port maps work.
+# Host/native defaults remain loopback-only via Config::default().
+ENV KOTRO_LISTEN_ADDR=:8080 \
+    KOTRO_METRICS_ADDR=0.0.0.0:9090 \
+    KOTRO_CACHE_DB=/root/data/kotro-cache.db
+
+EXPOSE 8080 9000 9090
 
 # Default: Rust high-performance proxy (override in Compose for mock-upstream).
 CMD ["./kotro-proxy"]

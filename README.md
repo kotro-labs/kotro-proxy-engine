@@ -215,7 +215,7 @@ In a published 3-turn codebase eval ([`benchmarks/eval-suite/RESULTS.md`](benchm
 | **1-Click (macOS/Linux)** | `curl -sL https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/scripts/install.sh \| bash` |
 | **Homebrew** | `brew install kotro-labs/tap/kotro-proxy` |
 | **npm** | `npm install -g @kotro-labs/proxy-engine` |
-| **Docker** | `docker run -p 8080:8080 kotrolabs/kotro-proxy` |
+| **Docker** | `docker run --rm -p 8080:8080 -p 9090:9090 -e KOTRO_UPSTREAM_URL=https://api.openai.com -e KOTRO_UPSTREAM_API_KEY=$OPENAI_API_KEY ghcr.io/kotro-labs/kotro-proxy:0.6.3` |
 | **Marketplace** | [kotrolabs.kotro-proxy-engine](https://marketplace.visualstudio.com/items?itemName=kotrolabs.kotro-proxy-engine) |
 | **Release binary** | [GitHub Releases](https://github.com/kotro-labs/kotro-proxy-engine/releases) |
 | **From source** | `cargo install --path rust/kotro-proxy` |

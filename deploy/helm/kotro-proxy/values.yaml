@@ -1,6 +1,6 @@
 image:
-  repository: kotro-labs/proxy-engine
-  tag: "0.3.0"
+  repository: ghcr.io/kotro-labs/kotro-proxy
+  tag: "0.6.3"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
