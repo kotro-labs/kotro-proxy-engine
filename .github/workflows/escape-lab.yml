@@ -105,7 +105,7 @@ jobs:
 
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: escape-lab-${{ matrix.group }}
           path: |
@@ -155,7 +155,7 @@ jobs:
           print(f"merged ok: {payload['summary']}")
           PY
       - name: Upload merged matrix
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: escape-lab-merged
           path: |

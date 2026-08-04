@@ -82,7 +82,7 @@ jobs:
           chmod +x "staging/${{ matrix.artifact_name }}/${{ matrix.artifact_name }}" || true
 
       - name: Upload platform artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: staging/${{ matrix.artifact_name }}/${{ matrix.artifact_name }}
@@ -223,7 +223,7 @@ jobs:
 
       - name: Upload VSIX artifact (manual dispatch)
         if: github.ref_type != 'tag'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kotro-proxy-engine-vsix
           path: release-assets/kotro-proxy-engine.vsix
