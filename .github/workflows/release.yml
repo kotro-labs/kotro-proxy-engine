@@ -42,7 +42,7 @@ jobs:
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Linux build dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -96,7 +96,7 @@ jobs:
       slsa-subjects: ${{ steps.slsa-subjects.outputs.hashes }}
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Resolve release version
         id: version
