@@ -131,6 +131,6 @@ Commit when ready.
 | B Trust CI | Codex | **complete** (`5a5e248`) |
 | C Launch & corpus | Claude | **complete** (`4fbc053`) |
 | Integration | Cursor | **complete** (`68426c1`) — cross-links landed |
-| Launch gate | — | **in progress** — flake fix `4e075a9` CI green; branch protection on; awaiting always-on audit/MCP workflows |
+| Launch gate | — | **cleared 2026-08-04** — flake fix + branch protection + always-on required checks; do not merge Dependabot PR #16 as-is |
 
 Update this table when you finish your stream.

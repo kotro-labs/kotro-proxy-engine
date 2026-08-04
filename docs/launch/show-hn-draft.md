@@ -124,12 +124,13 @@ path, or would you rather start enforce-by-default with a loud kill switch?
 - [x] Body aligned with README dual-plane section (integration pass)
 
 **Launch gate (must be green before posting):**
-- [ ] `main` CI green (no flaky cache/TTL failures)
-- [ ] Branch protection enabled on `main` (see `docs/operations/BRANCH-PROTECTION.md`)
+- [x] `main` CI green after cache/TTL determinism fix (`4e075a9` / tip includes always-on required checks)
+- [x] Branch protection enabled on `main` (see `docs/operations/BRANCH-PROTECTION.md`)
+- [ ] Do **not** merge Dependabot PR #16 as-is (rand / ed25519-dalek break)
 
 **Distribution (already verified 2026-08-02):**
 - [x] Sync Homebrew tap to v0.6.2 and fresh-install reverify brew + curl
-- [ ] Post Tue/Wed **8–10am US Eastern** — **only after launch gate**
+- [ ] Post Tue/Wed **8–10am US Eastern** — gate clear except Dependabot #16 caution
 - [ ] Submission URL = repo
 
 ---
