@@ -47,7 +47,7 @@ RUN touch kotro-proxy/src/main.rs kotro-proxy/src/lib.rs \
 # ==========================================
 # STAGE 3: Minimal production runtime
 # ==========================================
-FROM alpine:3.21 AS production
+FROM alpine:3.24 AS production
 
 RUN apk add --no-cache ca-certificates curl
 
