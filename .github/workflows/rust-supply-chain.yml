@@ -3,19 +3,8 @@ name: Rust supply-chain policy
 on:
   push:
     branches: [main]
-    paths:
-      - "rust/Cargo.toml"
-      - "rust/Cargo.lock"
-      - "rust/**/Cargo.toml"
-      - "rust/deny.toml"
-      - ".github/workflows/rust-supply-chain.yml"
   pull_request:
-    paths:
-      - "rust/Cargo.toml"
-      - "rust/Cargo.lock"
-      - "rust/**/Cargo.toml"
-      - "rust/deny.toml"
-      - ".github/workflows/rust-supply-chain.yml"
+    branches: [main]
   schedule:
     - cron: "17 8 * * 1"
   workflow_dispatch:

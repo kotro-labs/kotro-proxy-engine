@@ -4,6 +4,22 @@ GitHub branch protection is repository state, not source code. Apply these
 settings after the new workflows have completed successfully on `main`; do not
 require a check name before GitHub has observed it at least once.
 
+## Applied (2026-08-04)
+
+Classic branch protection is **enabled** on `main`:
+
+- Required status checks (strict / up-to-date): `Rust tests`, Go compile check,
+  Escape Lab corpus + six matrix jobs + merge, `cargo audit + deny`,
+  `Kotro MCP protocol tests`
+- Pull requests required (`required_approving_review_count: 0` for solo merge)
+- Conversation resolution required
+- Force pushes and deletions blocked
+- `enforce_admins: false` until release automation is proven under the ruleset
+  (admins can still emergency-push; turn this on after one clean release cycle)
+
+`cargo audit + deny` and `Kotro MCP protocol tests` must run on every
+`main` push/PR (no path filters) so required checks are never left pending.
+
 ## Recommended ruleset
 
 Target branch: `main`.

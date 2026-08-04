@@ -3,15 +3,8 @@ name: MCP compatibility scaffold
 on:
   push:
     branches: [main]
-    paths:
-      - "rust/kotro-proxy/src/mcp/**"
-      - "docs/security/MCP-COMPATIBILITY.md"
-      - ".github/workflows/mcp-compatibility.yml"
   pull_request:
-    paths:
-      - "rust/kotro-proxy/src/mcp/**"
-      - "docs/security/MCP-COMPATIBILITY.md"
-      - ".github/workflows/mcp-compatibility.yml"
+    branches: [main]
   schedule:
     - cron: "23 9 * * 1"
   workflow_dispatch:
