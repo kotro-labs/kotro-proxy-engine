@@ -24,7 +24,7 @@ body:
     attributes:
       label: Version
       description: Output of `kotro-proxy --version` (or the release tag / commit SHA if built from source).
-      placeholder: v0.3.0
+      placeholder: v0.6.3
     validations:
       required: true
 

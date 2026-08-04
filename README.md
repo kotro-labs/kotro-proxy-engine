@@ -25,9 +25,12 @@
   ·
   <a href="docs/launch/assets/exploit-demo-recording-silent.mp4">silent</a>
   ·
-  <a href="http://127.0.0.1:9090/dashboard">dashboard</a>
+  <a href="docs/launch/assets/dashboard-injection-demo.png">dashboard screenshot</a>
   ·
   <a href="docs/launch/exploit-demo.md">exploit guide</a>
+</p>
+<p align="center">
+  <sub>Local dashboard (after start): <code>http://127.0.0.1:9090/dashboard</code></sub>
 </p>
 
 <p align="center">
@@ -69,15 +72,18 @@
 
 ```bash
 curl -sL https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/scripts/install.sh | bash
-kotro-proxy
+KOTRO_UPSTREAM_URL=https://api.openai.com KOTRO_UPSTREAM_API_KEY=$OPENAI_API_KEY kotro-proxy
 # Point agents that call from YOUR machine at http://127.0.0.1:8080/v1
 # Dashboard: http://127.0.0.1:9090/dashboard
 ```
+
+For real provider traffic set `KOTRO_UPSTREAM_URL` + your API key (as above). **No API key?** Skip to [See it yourself](#see-it-yourself-no-api-key) (`make demo-injection`).
 
 | Also | |
 |------|--|
 | **Homebrew** | `brew install kotro-labs/tap/kotro-proxy` |
 | **npm** | `npm i -g @kotro-labs/proxy-engine` |
+| **Docker** | `docker run --rm -p 8080:8080 -p 9090:9090 -e KOTRO_UPSTREAM_URL=https://api.openai.com -e KOTRO_UPSTREAM_API_KEY=$OPENAI_API_KEY ghcr.io/kotro-labs/kotro-proxy:0.6.3` *(linux/amd64)* |
 | **Cursor / VS Code** | [Marketplace extension](https://marketplace.visualstudio.com/items?itemName=kotrolabs.kotro-proxy-engine) (SHA-256–verified download; Setup Wizard is opt-in) |
 
 ### Which client works how
@@ -99,7 +105,7 @@ Cursor **Chat / Agent** does **not** dial your laptop. Override Base URL is invo
 
 | Without | With |
 |---------|------|
-| Poisoned tool text rides into the next LLM call | LLM-plane scan → **warn** or **HTTP 400**; dashboard **Detected / Blocked** |
+| Poisoned tool text rides into the next LLM call | LLM-plane scan → default **warn** (`x-kotro-injection-warning`); hard block with `KOTRO_INJECTION_BLOCK=true` → **HTTP 400**; dashboard **Detected / Blocked** |
 | Tool schema changes after you approved it | MCP-plane pin + drift quarantine (`mcp-wrap`) |
 | Destructive call outside a signed task | TaskEnvelope / exact-action admission |
 | Retries & identical turns pay full price | Exact-match cache (`x-kotro-cache: HIT`) — **~68%** in `make demo-savings` |
@@ -109,16 +115,20 @@ Cursor **Chat / Agent** does **not** dial your laptop. Override Base URL is invo
 
 ### See it yourself (no API key)
 
+**Prerequisites:** Rust (`cargo`), Go 1.21+, `make`, `python3`. First run compiles ~1–2+ minutes; re-runs: `KOTRO_SKIP_REBUILD=1 make demo-injection`.
+
 ```bash
 git clone https://github.com/kotro-labs/kotro-proxy-engine.git && cd kotro-proxy-engine
+make demo-injection    # warn → HTTP 400 block + security tiles (best first demo)
 make demo-cache-hit    # identical prompt → MISS then X-Kotro-Cache: HIT
 make agent-guard-demo  # death loop → circuit breaker + flight recorder
 make demo-savings      # ~68% local-cache story + secret redaction
-make demo-injection    # warn → HTTP 400 block + security tiles
-python3 scripts/escape-lab.py --validate   # 15 adversarial scenarios, schema-valid
+python3 scripts/escape-lab.py --validate   # 15 corpus scenarios (schema-valid)
+# Optional MCP plane (separate process):
+# kotro-proxy mcp-wrap --name files -- npx -y @modelcontextprotocol/server-filesystem /tmp
 ```
 
-**Escape Lab honesty:** a green run means outcomes **matched what we declared** (including intentional `none` gaps). It does **not** mean “15/15 attacks prevented.” Today **9/14** HTTP-measured rows are prevent/transform/detect; encoded exfil (EL-08), unauthorized egress (EL-09), and cross-session filesystem persistence (EL-11) are known uncovered — live matrix [`ESCAPE-LAB-MATRIX.md`](docs/security/ESCAPE-LAB-MATRIX.md), proposed public scoreboard (prevent / detect / bypass / FP) in [`ESCAPE-LAB-SCOREBOARD.md`](docs/security/ESCAPE-LAB-SCOREBOARD.md), threat model [`THREAT-MODEL.md`](docs/security/THREAT-MODEL.md). Run either plane alone or both: `kotro-proxy mcp-wrap --help`.
+**Escape Lab honesty:** a green run means outcomes **matched what we declared** (including intentional `none` gaps). It does **not** mean “attacks prevented.” The corpus has **15** scenarios; the live HTTP matrix measures **14** (EL-05 MCP rug-pull is `mcp-wrap` / CLI). Today **9/14** HTTP-measured rows are prevent/transform/detect; encoded exfil (EL-08), unauthorized egress (EL-09), and cross-session filesystem persistence (EL-11) are known uncovered — live matrix [`ESCAPE-LAB-MATRIX.md`](docs/security/ESCAPE-LAB-MATRIX.md), proposed public scoreboard in [`ESCAPE-LAB-SCOREBOARD.md`](docs/security/ESCAPE-LAB-SCOREBOARD.md), threat model [`THREAT-MODEL.md`](docs/security/THREAT-MODEL.md).
 
 ---
 
@@ -215,7 +225,7 @@ In a published 3-turn codebase eval ([`benchmarks/eval-suite/RESULTS.md`](benchm
 | **1-Click (macOS/Linux)** | `curl -sL https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/scripts/install.sh \| bash` |
 | **Homebrew** | `brew install kotro-labs/tap/kotro-proxy` |
 | **npm** | `npm install -g @kotro-labs/proxy-engine` |
-| **Docker** | `docker run --rm -p 8080:8080 -p 9090:9090 -e KOTRO_UPSTREAM_URL=https://api.openai.com -e KOTRO_UPSTREAM_API_KEY=$OPENAI_API_KEY ghcr.io/kotro-labs/kotro-proxy:0.6.3` |
+| **Docker** | `docker run --rm -p 8080:8080 -p 9090:9090 -e KOTRO_UPSTREAM_URL=https://api.openai.com -e KOTRO_UPSTREAM_API_KEY=$OPENAI_API_KEY ghcr.io/kotro-labs/kotro-proxy:0.6.3` *(linux/amd64)* |
 | **Marketplace** | [kotrolabs.kotro-proxy-engine](https://marketplace.visualstudio.com/items?itemName=kotrolabs.kotro-proxy-engine) |
 | **Release binary** | [GitHub Releases](https://github.com/kotro-labs/kotro-proxy-engine/releases) |
 | **From source** | `cargo install --path rust/kotro-proxy` |
@@ -372,4 +382,4 @@ scripts/             install, demos, benches
 
 ## License
 
-[MIT](LICENSE) — contributions welcome.
+[MIT](LICENSE) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Changelog](CHANGELOG.md) · [Threat model](docs/security/THREAT-MODEL.md)

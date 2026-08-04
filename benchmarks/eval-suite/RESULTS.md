@@ -1,6 +1,6 @@
 # Kotro Proxy — Eval Suite Results
 
-> **Last updated:** 2026-08-02 (Rust `v0.6.2` launch hygiene).  
+> **Last updated:** 2026-08-04 (Rust `v0.6.3` launch hygiene).  
 > DeepSeek API scenarios below are a **historical baseline** from the Go reference era. Re-run live provider numbers with `make eval-suite` (requires `DEEPSEEK_API_KEY`). Correctness today is gated by `cargo test` + Escape Lab, not by replaying this DeepSeek table on every commit.
 
 ---
@@ -20,7 +20,7 @@
 
 **Read the 99.3% number carefully.** In that historical DeepSeek run every turn had new content, so Kotro's own local cache missed every turn — each request was forwarded upstream. The 99.3% reduction is DeepSeek's server-side prefix cache on Turns 2 and 3; Kotro's contribution is keeping the request shape stable so upstream prefix caching can fire. Kotro's local cache is a second, independent savings layer on genuinely repeated prompts (retries, shared fixtures). That scenario is demonstrated by `make demo-savings` (~68%), not by the DeepSeek table below.
 
-**Active implementation:** Rust (`kotro-proxy` **0.6.2**). Go under `internal/` is frozen at tag `v0.1.0-go` (CI compiles it; new feature work is Rust-only).
+**Active implementation:** Rust (`kotro-proxy` **0.6.3**). Go under `internal/` is frozen at tag `v0.1.0-go` (CI compiles it; new feature work is Rust-only).
 
 ---
 
