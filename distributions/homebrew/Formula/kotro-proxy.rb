@@ -1,16 +1,16 @@
 class KotroProxy < Formula
   desc "Local security and efficiency layer for MCP-native agentic AI — injection scanning, secret redaction, semantic cache, agent loop protection"
   homepage "https://github.com/kotro-labs/kotro-proxy-engine"
-  version "0.6.2"
+  version "0.6.3"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.6.2/kotro-proxy-aarch64-apple-darwin.tar.gz"
-      sha256 "987b69f89c07bdcf76e1c37b160c82f43548d1d83321a429f560a8cf90519793"
+      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.6.3/kotro-proxy-aarch64-apple-darwin.tar.gz"
+      sha256 "9f75d44f21e38cf9965321c2d7cdd12e31c4850a94de007b98e7d63a68b9ca05"
     else
-      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.6.2/kotro-proxy-x86_64-apple-darwin.tar.gz"
-      sha256 "754eb8c69d4253ae2233be078923ceff05b2522165eafeb219a649138bf92e4b"
+      url "https://github.com/kotro-labs/kotro-proxy-engine/releases/download/v0.6.3/kotro-proxy-x86_64-apple-darwin.tar.gz"
+      sha256 "1b864a6fa502dcb165da0760ffdd48e6e0e37cd5925bf59d3a2bf473455957fe"
     end
   end
 
