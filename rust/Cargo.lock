@@ -2600,7 +2600,7 @@ dependencies = [
 
 [[package]]
 name = "kotro-core"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "candle-core 0.9.2",
  "candle-nn 0.9.2",
@@ -2616,7 +2616,7 @@ dependencies = [
 
 [[package]]
 name = "kotro-proxy"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2670,7 +2670,7 @@ dependencies = [
 
 [[package]]
 name = "kotro-schema"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "jsonschema",
  "regex",
@@ -2683,7 +2683,7 @@ dependencies = [
 
 [[package]]
 name = "kotro-types"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",

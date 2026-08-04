@@ -83,7 +83,7 @@ Repro (no API key — mock upstream):
 
 Install:
   curl -sL https://raw.githubusercontent.com/kotro-labs/kotro-proxy-engine/main/scripts/install.sh | bash
-  # Homebrew after the v0.6.2 tap sync: brew install kotro-labs/tap/kotro-proxy
+  # Homebrew after the v0.6.3 tap sync: brew install kotro-labs/tap/kotro-proxy
   kotro-proxy
   # Point local agents at http://127.0.0.1:8080/v1
   # Wrap an MCP server: kotro-proxy mcp-wrap --name files -- npx -y @modelcontextprotocol/server-filesystem /tmp
@@ -129,7 +129,7 @@ path, or would you rather start enforce-by-default with a loud kill switch?
 - [ ] Do **not** merge Dependabot PR #16 as-is (rand / ed25519-dalek break)
 
 **Distribution (already verified 2026-08-02):**
-- [x] Sync Homebrew tap to v0.6.2 and fresh-install reverify brew + curl
+- [x] Sync Homebrew tap to v0.6.3 and fresh-install reverify brew + curl
 - [ ] Post Tue/Wed **8–10am US Eastern** — gate clear except Dependabot #16 caution
 - [ ] Submission URL = repo
 

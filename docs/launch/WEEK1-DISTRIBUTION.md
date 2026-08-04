@@ -99,15 +99,15 @@ Streamable HTTP servers; keep the two planes distinct in launch copy.
 1. Exploit story (honest path)
 2. Dashboard screenshot (Detected / Loops / Budget Hits + $)
 3. Savings as habit / secondary (68% demo ok if reproducible)
-4. Install: curl / npm; Homebrew after the v0.6.2 tap sync
+4. Install: curl / npm; Homebrew after the v0.6.3 tap sync
 5. Real question: audit→enforce onboarding vs enforce-by-default
 
 ### Pre-post checklist
 - [x] Tile labels match warn vs block behavior (draft + README aligned)
 - [x] Status codes in copy: injection **400**, budget **429**
-- [x] Install path truth: curl/npm release **v0.6.2**; in-repo Homebrew formula stamped for **v0.6.2**
+- [x] Install path truth: curl/npm release **v0.6.3**; in-repo Homebrew formula stamped for **v0.6.3**
 - [x] Show HN draft rewritten security-first — [`show-hn-draft.md`](./show-hn-draft.md)
-- [x] Sync the stamped **v0.6.2** formula to `kotro-labs/homebrew-tap`, then fresh-install reverify brew + curl (`bc97361`; brew + curl-path both report `kotro-proxy 0.6.2`)
+- [x] Sync the stamped **v0.6.3** formula to `kotro-labs/homebrew-tap`, then fresh-install reverify brew + curl (`bc97361`; brew + curl-path both report `kotro-proxy 0.6.3`)
 - [x] Parallel P0 streams A/B/C + README↔docs integration pass
 - [ ] Post Tue/Wed **8–10am US Eastern**
 - [ ] Repo URL as submission link

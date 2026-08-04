@@ -2,7 +2,7 @@
   "name": "kotro-proxy-engine",
   "displayName": "Kotro Proxy Engine",
   "description": "Local Kotro LLM proxy sidecar — downloads a SHA-256–verified binary and starts it on localhost. Agent routing is opt-in via Setup Wizard.",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "publisher": "kotrolabs",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -42,7 +42,12 @@
         "kotrolabs.profile": {
           "type": "string",
           "default": "custom",
-          "enum": ["custom", "cursor", "copilot", "continue"],
+          "enum": [
+            "custom",
+            "cursor",
+            "copilot",
+            "continue"
+          ],
           "enumDescriptions": [
             "Advanced (Manual toggle control)",
             "Cursor AI (Optimizes for Composer context streaming)",

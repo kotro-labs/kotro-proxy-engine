@@ -1,6 +1,6 @@
 {
   "name": "@kotro-labs/proxy-engine",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "High-performance semantic caching AI proxy gateway with native Rust runtime.",
   "license": "MIT",
   "author": "Ramesh Pandian",
