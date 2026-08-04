@@ -3,17 +3,8 @@ name: Escape Lab
 on:
   push:
     branches: [main]
-    paths:
-      - "rust/**"
-      - "testdata/escape-lab/**"
-      - "scripts/escape-lab.py"
-      - ".github/workflows/escape-lab.yml"
   pull_request:
-    paths:
-      - "rust/**"
-      - "testdata/escape-lab/**"
-      - "scripts/escape-lab.py"
-      - ".github/workflows/escape-lab.yml"
+    branches: [main]
   workflow_dispatch:
 
 env:
