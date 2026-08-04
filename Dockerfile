@@ -4,7 +4,7 @@
 # ==========================================
 # STAGE 1: Go dependency fetch & mock build
 # ==========================================
-FROM golang:1.24-alpine AS go-builder
+FROM golang:1.26-alpine AS go-builder
 
 RUN apk add --no-cache ca-certificates git
 
