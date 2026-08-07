@@ -66,7 +66,16 @@ impl TrustStore {
         if !key.issuers.iter().any(|i| i == issuer) {
             return Err(TaskReason::TaskKeyUntrusted);
         }
-        if now < key.not_before.as_str() || now > key.not_after.as_str() {
+        // Parse RFC3339 — lexical string compare is wrong across offsets (Sol P1.4).
+        let now_t = crate::verify::parse_rfc3339(now)?;
+        let nbf = crate::verify::parse_rfc3339(&key.not_before)?;
+        let naf = crate::verify::parse_rfc3339(&key.not_after)?;
+        if nbf >= naf {
+            return Err(TaskReason::TaskKeyUntrusted);
+        }
+        // Active while now ∈ [not_before, not_after] inclusive on both ends for key validity
+        // (key registry window); distinct from envelope half-open expiry.
+        if now_t < nbf || now_t > naf {
             return Err(TaskReason::TaskKeyUntrusted);
         }
         Ok(key)

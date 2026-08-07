@@ -9,7 +9,8 @@ use serde_json::Value;
 
 use crate::envelope::{
     envelope_digest, key_id_for_public_key, signing_input, ArgumentConstraint, Capabilities,
-    DestinationCapability, TaskEnvelope, API_VERSION, HARD_MAX_DEPTH, KIND, MAX_ENVELOPE_BYTES,
+    DestinationCapability, TaskEnvelope, API_VERSION_V1ALPHA1, API_VERSION_V1ALPHA2,
+    HARD_MAX_DEPTH, KIND, MAX_ENVELOPE_BYTES,
 };
 use crate::reason::TaskReason;
 use crate::trust::{ParentStore, TrustStore};
@@ -358,8 +359,26 @@ fn verify_chain(
 }
 
 fn validate_shape(envelope: &TaskEnvelope) -> Result<(), TaskReason> {
-    if envelope.api_version != API_VERSION || envelope.kind != KIND {
+    if envelope.kind != KIND {
         return Err(TaskReason::TaskSchemaInvalid);
+    }
+    match envelope.api_version.as_str() {
+        API_VERSION_V1ALPHA1 => {
+            if envelope.repository.is_some() || envelope.land.is_some() {
+                // v1alpha1 must not carry Permit fields (fail closed / no silent upgrade).
+                return Err(TaskReason::TaskSchemaInvalid);
+            }
+        }
+        API_VERSION_V1ALPHA2 => {
+            let repo = envelope
+                .repository
+                .as_ref()
+                .ok_or(TaskReason::TaskSchemaInvalid)?;
+            let land = envelope.land.as_ref().ok_or(TaskReason::TaskSchemaInvalid)?;
+            validate_repository(repo)?;
+            let _ = land.mode;
+        }
+        _ => return Err(TaskReason::TaskSchemaInvalid),
     }
     if envelope.depth > HARD_MAX_DEPTH {
         return Err(TaskReason::TaskDelegationDepth);
@@ -370,7 +389,7 @@ fn validate_shape(envelope: &TaskEnvelope) -> Result<(), TaskReason> {
     if envelope.agent_scope.names.is_empty() {
         return Err(TaskReason::TaskSchemaInvalid);
     }
-    // Deny wildcards in v1alpha1.
+    // Deny wildcards.
     for n in &envelope.agent_scope.names {
         if n.contains('*') {
             return Err(TaskReason::TaskSchemaInvalid);
@@ -388,6 +407,21 @@ fn validate_shape(envelope: &TaskEnvelope) -> Result<(), TaskReason> {
         .ok_or(TaskReason::TaskSchemaInvalid)?;
     let _ = budgets;
     Ok(())
+}
+
+fn validate_repository(repo: &crate::envelope::RepositoryAuthority) -> Result<(), TaskReason> {
+    if repo.identity.trim().is_empty() || repo.base_ref.trim().is_empty() {
+        return Err(TaskReason::TaskSchemaInvalid);
+    }
+    if !is_full_git_sha(&repo.source_pin) || !is_full_git_sha(&repo.base_sha) {
+        return Err(TaskReason::TaskSchemaInvalid);
+    }
+    Ok(())
+}
+
+fn is_full_git_sha(s: &str) -> bool {
+    let n = s.len();
+    (n == 40 || n == 64) && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 fn verify_signature(
@@ -455,9 +489,33 @@ fn resolve_child_public_key(
 }
 
 fn check_time(envelope: &TaskEnvelope, now: &str) -> Result<(), TaskReason> {
+    check_envelope_time_window(
+        &envelope.issued_at,
+        &envelope.not_before,
+        &envelope.expires_at,
+        now,
+    )
+}
+
+/// Validate envelope time fields.
+///
+/// Contract (Permit / Sol P1.4):
+/// - Parse all timestamps as RFC3339 instants (offset-safe).
+/// - Require `issued_at <= not_before < expires_at`.
+/// - Validity is half-open `[not_before, expires_at)` — `now == expires_at` is expired.
+pub fn check_envelope_time_window(
+    issued_at: &str,
+    not_before: &str,
+    expires_at: &str,
+    now: &str,
+) -> Result<(), TaskReason> {
+    let issued = parse_rfc3339(issued_at)?;
+    let nbf = parse_rfc3339(not_before)?;
+    let exp = parse_rfc3339(expires_at)?;
     let now_t = parse_rfc3339(now)?;
-    let nbf = parse_rfc3339(&envelope.not_before)?;
-    let exp = parse_rfc3339(&envelope.expires_at)?;
+    if issued > nbf || nbf >= exp {
+        return Err(TaskReason::TaskMalformed);
+    }
     if now_t < nbf {
         return Err(TaskReason::TaskNotYetValid);
     }
@@ -467,7 +525,7 @@ fn check_time(envelope: &TaskEnvelope, now: &str) -> Result<(), TaskReason> {
     Ok(())
 }
 
-fn parse_rfc3339(s: &str) -> Result<time::OffsetDateTime, TaskReason> {
+pub fn parse_rfc3339(s: &str) -> Result<time::OffsetDateTime, TaskReason> {
     time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
         .map_err(|_| TaskReason::TaskMalformed)
 }
@@ -515,7 +573,38 @@ pub fn check_non_expansion(parent: &TaskEnvelope, child: &TaskEnvelope) -> Resul
     }) {
         return Err(TaskReason::TaskCapabilityExpansion);
     }
+    check_repository_land_narrow(parent, child)?;
     check_caps_narrow(&parent.capabilities, &child.capabilities)?;
+    Ok(())
+}
+
+fn check_repository_land_narrow(
+    parent: &TaskEnvelope,
+    child: &TaskEnvelope,
+) -> Result<(), TaskReason> {
+    match (&parent.repository, &child.repository) {
+        (None, None) => {}
+        (Some(p), Some(c)) => {
+            if c.identity != p.identity
+                || c.source_pin != p.source_pin
+                || c.base_ref != p.base_ref
+                || c.base_sha != p.base_sha
+            {
+                return Err(TaskReason::TaskCapabilityExpansion);
+            }
+        }
+        // Child cannot introduce or drop Permit repository authority relative to parent.
+        _ => return Err(TaskReason::TaskCapabilityExpansion),
+    }
+    match (&parent.land, &child.land) {
+        (None, None) => {}
+        (Some(p), Some(c)) => {
+            if !c.mode.is_narrower_or_equal(p.mode) {
+                return Err(TaskReason::TaskCapabilityExpansion);
+            }
+        }
+        _ => return Err(TaskReason::TaskCapabilityExpansion),
+    }
     Ok(())
 }
 
@@ -753,6 +842,8 @@ mod tests {
             nonce: "AAAAAAAAAAAAAAAAAAAAAA".into(),
             depth: 0,
             parent: None,
+            repository: None,
+            land: None,
             capabilities: Capabilities {
                 tools: vec![ToolCapability {
                     server: "github".into(),
@@ -1075,5 +1166,222 @@ mod tests {
             .unwrap_err(),
             TaskReason::TaskActionOutOfScope
         );
+    }
+
+    #[test]
+    fn time_window_exact_expiry_is_expired() {
+        assert_eq!(
+            check_envelope_time_window(
+                "2026-08-01T18:00:00Z",
+                "2026-08-01T18:00:00Z",
+                "2026-08-01T19:00:00Z",
+                "2026-08-01T19:00:00Z",
+            )
+            .unwrap_err(),
+            TaskReason::TaskExpired
+        );
+    }
+
+    #[test]
+    fn time_window_offset_equivalent_now_ok() {
+        // Same instant as 18:30Z expressed with +00:00 offset.
+        assert!(check_envelope_time_window(
+            "2026-08-01T18:00:00Z",
+            "2026-08-01T18:00:00Z",
+            "2026-08-01T19:00:00Z",
+            "2026-08-01T18:30:00+00:00",
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn time_window_rejects_malformed_ordering() {
+        assert_eq!(
+            check_envelope_time_window(
+                "2026-08-01T18:30:00Z",
+                "2026-08-01T18:00:00Z", // issued_at > not_before
+                "2026-08-01T19:00:00Z",
+                "2026-08-01T18:30:00Z",
+            )
+            .unwrap_err(),
+            TaskReason::TaskMalformed
+        );
+        assert_eq!(
+            check_envelope_time_window(
+                "2026-08-01T18:00:00Z",
+                "2026-08-01T19:00:00Z",
+                "2026-08-01T19:00:00Z", // not_before >= expires_at
+                "2026-08-01T19:00:00Z",
+            )
+            .unwrap_err(),
+            TaskReason::TaskMalformed
+        );
+    }
+
+    #[test]
+    fn trust_key_window_parses_offsets_not_lexically() {
+        let sk = SigningKey::generate(&mut OsRng);
+        let vk = sk.verifying_key();
+        let key_id = key_id_for_public_key(vk.as_bytes());
+        // Lexically "Z" > "+00:00" in ASCII, but instants are equal — must parse.
+        let trust = TrustStore {
+            keys: vec![TrustKey {
+                key_id: key_id.clone(),
+                algorithm: "Ed25519".into(),
+                public_key: public_key_b64(&vk),
+                issuers: vec!["kotro://authority/acme".into()],
+                status: "active".into(),
+                not_before: "2026-08-01T00:00:00+00:00".into(),
+                not_after: "2026-12-31T23:59:59Z".into(),
+            }],
+            revoked_key_ids: vec![],
+            revoked_task_ids: vec![],
+            revoked_envelope_digests: vec![],
+        };
+        assert!(trust
+            .find_active(&key_id, "kotro://authority/acme", "2026-08-01T18:30:00Z")
+            .is_ok());
+    }
+
+    fn sha40(nibble: char) -> String {
+        std::iter::repeat(nibble).take(40).collect()
+    }
+
+    fn sample_v1alpha2(sk: &SigningKey) -> TaskEnvelope {
+        let mut env = sample_envelope(sk);
+        env.api_version = API_VERSION_V1ALPHA2.into();
+        env.repository = Some(RepositoryAuthority {
+            identity: "github.com/kotro-labs/kotro-proxy-engine".into(),
+            source_pin: sha40('a'),
+            base_ref: "refs/heads/main".into(),
+            base_sha: sha40('b'),
+        });
+        env.land = Some(LandAuthority {
+            mode: LandMode::DraftPr,
+        });
+        sign_envelope(&mut env, sk).unwrap();
+        env
+    }
+
+    #[test]
+    fn v1alpha2_root_verifies_with_repository_and_land() {
+        let sk = SigningKey::generate(&mut OsRng);
+        let env = sample_v1alpha2(&sk);
+        let trust = trust_for(&sk);
+        let parents = MemoryParentStore::default();
+        let ctx = VerificationContext {
+            trust: &trust,
+            parents: &parents,
+            now_rfc3339: "2026-08-01T18:30:00Z",
+            expected_audience: Some("kotro://deployment/acme"),
+            kill_engaged: false,
+        };
+        assert!(verify(&env, &ctx).is_ok());
+        assert_eq!(
+            signing_domain_for(API_VERSION_V1ALPHA2).unwrap(),
+            SIGNING_DOMAIN_V1ALPHA2
+        );
+    }
+
+    #[test]
+    fn v1alpha2_rejects_truncated_sha() {
+        let sk = SigningKey::generate(&mut OsRng);
+        let mut env = sample_v1alpha2(&sk);
+        env.repository.as_mut().unwrap().base_sha = "abc1234".into();
+        sign_envelope(&mut env, &sk).unwrap();
+        let trust = trust_for(&sk);
+        let parents = MemoryParentStore::default();
+        let ctx = VerificationContext {
+            trust: &trust,
+            parents: &parents,
+            now_rfc3339: "2026-08-01T18:30:00Z",
+            expected_audience: Some("kotro://deployment/acme"),
+            kill_engaged: false,
+        };
+        assert_eq!(
+            verify(&env, &ctx).unwrap_err(),
+            TaskReason::TaskSchemaInvalid
+        );
+    }
+
+    #[test]
+    fn v1alpha2_child_cannot_change_base_sha() {
+        let sk = SigningKey::generate(&mut OsRng);
+        let parent = sample_v1alpha2(&sk);
+        let mut child = parent.clone();
+        child.task_id = "task-child".into();
+        child.depth = 1;
+        child.parent = Some(ParentRef {
+            task_id: parent.task_id.clone(),
+            digest: envelope_digest(&parent).unwrap(),
+        });
+        child.repository.as_mut().unwrap().base_sha = sha40('c');
+        assert_eq!(
+            check_non_expansion(&parent, &child).unwrap_err(),
+            TaskReason::TaskCapabilityExpansion
+        );
+    }
+
+    #[test]
+    fn v1alpha2_child_may_narrow_land_to_apply_only() {
+        let sk = SigningKey::generate(&mut OsRng);
+        let parent = sample_v1alpha2(&sk);
+        let mut child = parent.clone();
+        child.depth = 1;
+        child.land.as_mut().unwrap().mode = LandMode::ApplyOnly;
+        assert!(check_non_expansion(&parent, &child).is_ok());
+    }
+
+    #[test]
+    fn v1alpha2_child_cannot_widen_land_to_draft_pr() {
+        let sk = SigningKey::generate(&mut OsRng);
+        let mut parent = sample_v1alpha2(&sk);
+        parent.land.as_mut().unwrap().mode = LandMode::ApplyOnly;
+        sign_envelope(&mut parent, &sk).unwrap();
+        let mut child = parent.clone();
+        child.depth = 1;
+        child.land.as_mut().unwrap().mode = LandMode::DraftPr;
+        assert_eq!(
+            check_non_expansion(&parent, &child).unwrap_err(),
+            TaskReason::TaskCapabilityExpansion
+        );
+    }
+
+    #[test]
+    fn v1alpha1_rejects_repository_fields() {
+        let sk = SigningKey::generate(&mut OsRng);
+        let mut env = sample_envelope(&sk);
+        env.repository = Some(RepositoryAuthority {
+            identity: "github.com/kotro-labs/x".into(),
+            source_pin: sha40('a'),
+            base_ref: "main".into(),
+            base_sha: sha40('b'),
+        });
+        sign_envelope(&mut env, &sk).unwrap();
+        let trust = trust_for(&sk);
+        let parents = MemoryParentStore::default();
+        let ctx = VerificationContext {
+            trust: &trust,
+            parents: &parents,
+            now_rfc3339: "2026-08-01T18:30:00Z",
+            expected_audience: Some("kotro://deployment/acme"),
+            kill_engaged: false,
+        };
+        assert_eq!(
+            verify(&env, &ctx).unwrap_err(),
+            TaskReason::TaskSchemaInvalid
+        );
+    }
+
+    #[test]
+    fn v1alpha2_uses_distinct_signing_domain_from_v1alpha1() {
+        let sk = SigningKey::generate(&mut OsRng);
+        let a1 = sample_envelope(&sk);
+        let a2 = sample_v1alpha2(&sk);
+        let i1 = signing_input(&a1).unwrap();
+        let i2 = signing_input(&a2).unwrap();
+        assert!(i1.starts_with(SIGNING_DOMAIN_V1ALPHA1));
+        assert!(i2.starts_with(SIGNING_DOMAIN_V1ALPHA2));
+        assert_ne!(SIGNING_DOMAIN_V1ALPHA1, SIGNING_DOMAIN_V1ALPHA2);
     }
 }

@@ -1,0 +1,51 @@
+=== Containment feasibility spike ===
+label: Containment feasibility spike
+started: 20260807T062220Z
+image: python:3.12-slim
+
+--- #4 shell read of ~/.ssh/id_rsa ---
+Unable to find image 'python:3.12-slim' locally
+3.12-slim: Pulling from library/python
+1b7200988f19: Pulling fs layer
+a2b3b32822db: Pulling fs layer
+e81bdc779ed9: Pulling fs layer
+ffe2235b438b: Pulling fs layer
+ffe2235b438b: Waiting
+a2b3b32822db: Verifying Checksum
+a2b3b32822db: Download complete
+ffe2235b438b: Verifying Checksum
+ffe2235b438b: Download complete
+1b7200988f19: Verifying Checksum
+1b7200988f19: Download complete
+e81bdc779ed9: Verifying Checksum
+e81bdc779ed9: Download complete
+1b7200988f19: Pull complete
+a2b3b32822db: Pull complete
+e81bdc779ed9: Pull complete
+ffe2235b438b: Pull complete
+Digest: sha256:646fb0bca3dd3ea1bcc6feb72c17ed16eed6e10cffc732fcc1478bd3e7f02d7b
+Status: Downloaded newer image for python:3.12-slim
+cat: /home/agent/.ssh/id_rsa: No such file or directory
+EXIT:1
+RESULT #4: PASS — denied via ENOENT / not present (wanted)
+
+--- #5 Python read of ~/.ssh/id_rsa ---
+FileNotFoundError: [Errno 2] No such file or directory: '/home/agent/.ssh/id_rsa'
+RESULT #5: PASS — FileNotFoundError (not mounted; wanted)
+
+--- #6 hostile-domain egress (DNS + HTTP) ---
+dns_label=kotro-r01a-1786083747-32193.example.com
+gaierror: [Errno -3] Temporary failure in name resolution
+DNS_EXT_gaierror: [Errno -3] Temporary failure in name resolution
+URLError: <urlopen error [Errno -3] Temporary failure in name resolution>
+RESULT #6: PASS — external DNS and HTTP both failed as channels
+
+--- #7 hostile-IP egress ---
+OSError: [Errno 101] Network is unreachable
+RESULT #7: PASS — IP connect blocked (see exception class above)
+
+=== Summary ===
+#4=0 #5=0 #6=0 #7=0
+0=pass 1=fail 2=warn(PermissionError/over-mount)
+results_file=/Users/rameshpandian/GenAI/sourcecode/kotro-proxy-engine/spikes/r0.1a-containment/results/spike-20260807T062220Z.txt
+SPIKE: PASS — containment feasible under Docker internal network + selective mounts

@@ -1,0 +1,44 @@
+=== R0.1b topology spike ===
+label: Topology / host-canary spike
+started: 20260807T062507Z
+
+host canary listening on 0.0.0.0:18457
+agent network gateway: 172.18.0.1
+data-plane IP on agent net: 172.18.0.2
+
+--- #16 agent → data-plane (+ mediated upstream) ---
+DATAPLANE_OK UPSTREAM_OK
+RESULT #16: PASS — agent reached data-plane; upstream only via data-plane
+
+--- #25 host canary / gateway must NOT be reachable from agent ---
+CANARY_BLOCKED host.docker.internal:18457 -> URLError: <urlopen error [Errno -3] Temporary failure in name resolution>
+CANARY_BLOCKED 172.18.0.1:18457 -> URLError: <urlopen error [Errno 111] Connection refused>
+CANARY_BLOCKED 172.17.0.1:18457 -> URLError: <urlopen error [Errno 101] Network is unreachable>
+TCP_BLOCKED host.docker.internal:18457 -> gaierror
+TCP_BLOCKED 172.18.0.1:18457 -> ConnectionRefusedError
+RESULT #25: PASS — host canary/gateway probes blocked from agent net
+
+--- upstream direct (should fail; not on agent net) ---
+URLError: <urlopen error [Errno -3] Temporary failure in name resolution>
+RESULT direct-upstream: PASS — cannot reach upstream except via data-plane
+
+--- provider token not in agent env ---
+SCAN_DONE
+RESULT token-scan: PASS — no provider/github tokens in agent env
+
+=== Summary ===
+#16=0 #25=0 upstream=0 tokens=0
+results_file=/Users/rameshpandian/GenAI/sourcecode/kotro-proxy-engine/spikes/r0.1b-topology/results/topology-20260807T062507Z.txt
+SPIKE: PASS — dual-home shape holds on this Docker engine; host canary blocked
+./run.sh: line 32: 26968 Terminated: 15          python3 -  <<PY
+from http.server import BaseHTTPRequestHandler, HTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"CANARY_SECRET_SHOULD_NOT_LEAK")
+    def log_message(self, *a):
+        pass
+HTTPServer(("0.0.0.0", int("$CANARY_PORT")), H).serve_forever()
+PY
+

@@ -147,14 +147,14 @@ impl TaskGate {
                 Ok(())
             };
         };
-        // Re-check expiry against wall clock on every call.
+        // Re-check expiry against wall clock on every call (same half-open window as verify).
         let now = now_rfc3339();
-        if now.as_str() < auth.envelope.not_before.as_str() {
-            return Err(TaskReason::TaskNotYetValid);
-        }
-        if now.as_str() > auth.envelope.expires_at.as_str() {
-            return Err(TaskReason::TaskExpired);
-        }
+        kotro_types::check_envelope_time_window(
+            &auth.envelope.issued_at,
+            &auth.envelope.not_before,
+            &auth.envelope.expires_at,
+            &now,
+        )?;
         if let Some(aud) = &self.audience {
             if &auth.envelope.audience != aud {
                 return Err(TaskReason::TaskActionOutOfScope);

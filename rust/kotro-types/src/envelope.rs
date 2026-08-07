@@ -1,11 +1,18 @@
-//! TaskEnvelope v1alpha1 — signed, non-expanding task authority (S4 / C6).
+//! TaskEnvelope — signed, non-expanding task authority (S4 / C6 / Permit).
+//!
+//! - `kotro.dev/v1alpha1` — MCP / legacy capability envelope
+//! - `kotro.dev/v1alpha2` — Permit: signed `repository` + `land` (Sol R0.2)
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const API_VERSION: &str = "kotro.dev/v1alpha1";
+pub const API_VERSION_V1ALPHA1: &str = "kotro.dev/v1alpha1";
+pub const API_VERSION_V1ALPHA2: &str = "kotro.dev/v1alpha2";
 pub const KIND: &str = "TaskEnvelope";
 pub const SIGNING_DOMAIN: &[u8] = b"KOTRO-TASK-ENVELOPE-V1ALPHA1\0";
+pub const SIGNING_DOMAIN_V1ALPHA1: &[u8] = SIGNING_DOMAIN;
+pub const SIGNING_DOMAIN_V1ALPHA2: &[u8] = b"KOTRO-TASK-ENVELOPE-V1ALPHA2\0";
 pub const HARD_MAX_DEPTH: u32 = 8;
 pub const MAX_ENVELOPE_BYTES: usize = 256 * 1024;
 
@@ -26,9 +33,54 @@ pub struct TaskEnvelope {
     pub depth: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ParentRef>,
+    /// Required for v1alpha2 (Permit). Absent on v1alpha1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<RepositoryAuthority>,
+    /// Required for v1alpha2 (Permit). Absent on v1alpha1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub land: Option<LandAuthority>,
     pub capabilities: Capabilities,
     pub delegation: Delegation,
     pub signature: EnvelopeSignature,
+}
+
+/// Signed repository binding — resolved at **sign time** (Sol).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RepositoryAuthority {
+    /// Canonical remote identity (e.g. `github.com/org/repo`).
+    pub identity: String,
+    /// Full commit SHA staged into the sandbox.
+    pub source_pin: String,
+    pub base_ref: String,
+    /// Full base commit SHA — required for alpha; fail closed if base moved.
+    pub base_sha: String,
+}
+
+/// Signed land mode — what host mediator may do after review.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LandAuthority {
+    pub mode: LandMode,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LandMode {
+    ApplyOnly,
+    DraftPr,
+}
+
+impl LandMode {
+    /// Whether this mode is at most as powerful as `parent` (non-expansion).
+    pub fn is_narrower_or_equal(self, parent: LandMode) -> bool {
+        match (parent, self) {
+            (LandMode::DraftPr, LandMode::DraftPr) => true,
+            (LandMode::DraftPr, LandMode::ApplyOnly) => true,
+            (LandMode::ApplyOnly, LandMode::ApplyOnly) => true,
+            (LandMode::ApplyOnly, LandMode::DraftPr) => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -164,11 +216,20 @@ pub fn unsigned_value(envelope: &TaskEnvelope) -> Result<Value, String> {
     Ok(v)
 }
 
+pub fn signing_domain_for(api_version: &str) -> Result<&'static [u8], String> {
+    match api_version {
+        API_VERSION_V1ALPHA1 => Ok(SIGNING_DOMAIN_V1ALPHA1),
+        API_VERSION_V1ALPHA2 => Ok(SIGNING_DOMAIN_V1ALPHA2),
+        _ => Err(format!("unsupported api_version: {api_version}")),
+    }
+}
+
 pub fn signing_input(envelope: &TaskEnvelope) -> Result<Vec<u8>, String> {
+    let domain = signing_domain_for(&envelope.api_version)?;
     let unsigned = unsigned_value(envelope)?;
     let jcs = serde_json_canonicalizer::to_vec(&unsigned).map_err(|e| e.to_string())?;
-    let mut out = Vec::with_capacity(SIGNING_DOMAIN.len() + jcs.len());
-    out.extend_from_slice(SIGNING_DOMAIN);
+    let mut out = Vec::with_capacity(domain.len() + jcs.len());
+    out.extend_from_slice(domain);
     out.extend_from_slice(&jcs);
     Ok(out)
 }

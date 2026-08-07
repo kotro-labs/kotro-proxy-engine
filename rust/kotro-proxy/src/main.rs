@@ -745,6 +745,162 @@ fn run_corpus(args: &[String]) -> i32 {
     }
 }
 
+/// `kotro-proxy run --permit <envelope> --trust <store> [--audience <aud>]
+///   [--ledger-dir <dir>] [--verify-only] [--parent-store <dir>] -- <agent…>`
+fn run_permit_cmd(args: &[String]) -> i32 {
+    let Some(permit) = arg_value(args, "--permit") else {
+        eprintln!(
+            "usage: kotro-proxy run --permit <envelope.json> --trust <trust.json> \\\n\
+             \t[--audience <aud>] [--ledger-dir <dir>] [--verify-only] [--parent-store <dir>] \\\n\
+             \t-- <agent…>\n\
+             fail-closed: v1alpha2 only; no host fallback if sandbox unavailable"
+        );
+        return 1;
+    };
+    let Some(trust) = arg_value(args, "--trust") else {
+        eprintln!("run --permit: --trust <trust-store.json> is required");
+        return 1;
+    };
+    let audience = arg_value(args, "--audience");
+    let parent_store_dir = arg_value(args, "--parent-store").map(std::path::PathBuf::from);
+    let ledger_dir = arg_value(args, "--ledger-dir")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| state_dir_path().join("permit-ledger"));
+    let verify_only = args.iter().any(|a| a == "--verify-only");
+    let agent_cmd: Vec<String> = args
+        .iter()
+        .position(|a| a == "--")
+        .map(|i| args[i + 1..].to_vec())
+        .unwrap_or_default();
+
+    let opts = kotro_proxy::permit::RunPermitOptions {
+        permit_path: std::path::PathBuf::from(permit),
+        trust_path: std::path::PathBuf::from(trust),
+        audience,
+        parent_store_dir,
+        ledger_dir,
+        agent_cmd,
+        verify_only,
+        now_rfc3339: None,
+        sandbox_override: None,
+        host_fallback_requested: matches!(
+            std::env::var("KOTRO_PERMIT_ALLOW_HOST_FALLBACK")
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+                .as_str(),
+            "1" | "true" | "yes"
+        ),
+    };
+
+    match kotro_proxy::permit::run_permit(opts) {
+        Ok(kotro_proxy::permit::RunPermitOutcome::VerifyOnly {
+            permit_digest,
+            run_id,
+        }) => {
+            println!("permit_digest={permit_digest}");
+            println!("run_id={run_id}");
+            println!("status=verify_only_ok");
+            println!("ledger=unclaimed");
+            0
+        }
+        Ok(kotro_proxy::permit::RunPermitOutcome::Prepared {
+            permit_digest,
+            run_id,
+            sandbox_detail,
+        }) => {
+            // Exit code 2 = verified but execution unavailable (NOT CLI misuse).
+            // Automation: treat 2 as “gates ok, sandbox launch not wired / deferred.”
+            // Ledger is intentionally unclaimed until R2-A commits launch.
+            println!("permit_digest={permit_digest}");
+            println!("run_id={run_id}");
+            println!("sandbox={sandbox_detail}");
+            println!("status=verified_execution_unavailable");
+            println!("ledger=unclaimed");
+            println!("exit_meaning=verified_but_execution_unavailable");
+            eprintln!(
+                "run --permit: verified OK; execution unavailable (sandbox launch is R2-A). \
+                 exit 2 = verified but execution unavailable (not CLI misuse). \
+                 one-shot permit was NOT claimed."
+            );
+            2
+        }
+        Err(e) => {
+            eprintln!("run --permit: {e}");
+            1
+        }
+    }
+}
+
+/// `kotro-proxy receipt verify --trust <store> <receipt>`
+fn run_receipt_cmd(args: &[String]) -> i32 {
+    match args.first().map(String::as_str) {
+        Some("verify") => {
+            let Some(trust) = arg_value(args, "--trust") else {
+                eprintln!("usage: kotro-proxy receipt verify --trust <store> <receipt>");
+                return 1;
+            };
+            let receipt_path = args
+                .iter()
+                .skip(1)
+                .find(|a| *a != "--trust" && *a != trust.as_str() && !a.starts_with('-'));
+            let Some(receipt_path) = receipt_path else {
+                eprintln!("usage: kotro-proxy receipt verify --trust <store> <receipt>");
+                return 1;
+            };
+            match kotro_proxy::permit::verify_receipt_stub(
+                std::path::Path::new(receipt_path),
+                std::path::Path::new(&trust),
+            ) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("receipt verify: {e}");
+                    1
+                }
+            }
+        }
+        _ => {
+            eprintln!("usage: kotro-proxy receipt verify --trust <store> <receipt>");
+            1
+        }
+    }
+}
+
+/// `kotro-proxy permit-suite list|check`
+fn run_permit_suite_cmd(args: &[String]) -> i32 {
+    match args.first().map(String::as_str) {
+        Some("list") | None => {
+            let json = args.iter().any(|a| a == "--json");
+            let cases = kotro_proxy::permit::suite_registry();
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&cases).unwrap_or_else(|_| "[]".into())
+                );
+            } else {
+                for c in cases {
+                    println!("{}\t{:?}\t{}", c.id, c.layer, c.title);
+                }
+            }
+            0
+        }
+        Some("check") => {
+            let cases = kotro_proxy::permit::suite_registry();
+            println!("registered={} permit acceptance cases", cases.len());
+            for c in &cases {
+                println!("  {} — {}", c.id, c.title);
+            }
+            println!("run unit layer: cargo test -p kotro-proxy permit::");
+            println!("run staging:    spikes/r0.1b-topology/test-stage-safety.sh");
+            println!("full harness:   spikes/r0.3-acceptance/run.sh");
+            0
+        }
+        _ => {
+            eprintln!("usage: kotro-proxy permit-suite list|check [--json]");
+            1
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args: Vec<String> = std::env::args().collect();
@@ -786,6 +942,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         Some("policy") => {
             std::process::exit(run_policy(&args[2..]));
+        }
+        Some("run") => {
+            std::process::exit(run_permit_cmd(&args[2..]));
+        }
+        Some("receipt") => {
+            std::process::exit(run_receipt_cmd(&args[2..]));
+        }
+        Some("permit-suite") => {
+            std::process::exit(run_permit_suite_cmd(&args[2..]));
         }
         _ => {}
     }

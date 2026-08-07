@@ -1,0 +1,81 @@
+{
+  "suite": "kotro-permit-acceptance",
+  "version": "r0.3",
+  "description": "Registered Permit acceptance cases. Unit layer: cargo test -p kotro-proxy permit::. Shell/spike: spikes/r0.3-acceptance/run.sh.",
+  "cases": [
+    {
+      "id": "P-V1A2-ACCEPT",
+      "title": "run --permit accepts v1alpha2 only",
+      "layer": "unit",
+      "rust_filter": "permit::run::tests::accepts_v1alpha2_only"
+    },
+    {
+      "id": "P-V1A1-PERMIT-FIELDS",
+      "title": "v1alpha1 containing Permit fields rejects",
+      "layer": "unit",
+      "rust_filter": "permit::run::tests::rejects_v1alpha1_with_permit_fields"
+    },
+    {
+      "id": "P-SIGN-DOMAIN",
+      "title": "Cross-version signing-domain substitution rejects",
+      "layer": "unit",
+      "rust_filter": "permit::run::tests::cross_version_signing_domain_rejects"
+    },
+    {
+      "id": "P-REPO-MUTATE",
+      "title": "Repository identity/pin/base mutation breaks verification",
+      "layer": "unit",
+      "rust_filter": "permit::run::tests::repo_base_mutation_breaks_verify"
+    },
+    {
+      "id": "P-LAND-NARROW",
+      "title": "draft_pr → apply_only succeeds; reverse fails",
+      "layer": "unit",
+      "rust_filter": "permit::run::tests::land_narrow_ok_widen_fails"
+    },
+    {
+      "id": "P-REPLAY",
+      "title": "Replay after consume rejected",
+      "layer": "unit",
+      "rust_filter": "permit::run::tests::replay_after_consume_fails"
+    },
+    {
+      "id": "P-CONCURRENT",
+      "title": "Concurrent reserve — exactly one wins",
+      "layer": "unit",
+      "rust_filter": "permit::ledger::tests::concurrent_reserve_exactly_one_wins"
+    },
+    {
+      "id": "P-EXPIRY",
+      "title": "Active-run / prepare expiry rejects",
+      "layer": "unit",
+      "rust_filter": "permit::run::tests::active_run_expiry_rejects"
+    },
+    {
+      "id": "P-STAGING",
+      "title": "Unsafe staging / path traversal",
+      "layer": "shell",
+      "shell": "spikes/r0.1b-topology/test-stage-safety.sh"
+    },
+    {
+      "id": "P-NO-HOST-FALLBACK",
+      "title": "Sandbox absence never host-executes agent",
+      "layer": "unit",
+      "rust_filter": "permit::run::tests::sandbox_absent_never_runs_host_agent"
+    },
+    {
+      "id": "P-CONTAIN-4-7",
+      "title": "Containment #4–#7",
+      "layer": "spike_evidence",
+      "shell": "spikes/r0.1a-containment/run.sh",
+      "evidence": "spikes/r0.1a-containment/results/PASS-20260807.md"
+    },
+    {
+      "id": "P-TOPOLOGY-16-25",
+      "title": "Dual-home #16 + canary #25",
+      "layer": "spike_evidence",
+      "shell": "spikes/r0.1b-topology/run.sh",
+      "evidence": "spikes/r0.1b-topology/results/PASS-20260807.md"
+    }
+  ]
+}
