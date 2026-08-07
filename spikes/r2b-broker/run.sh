@@ -27,5 +27,9 @@ echo "$DRAFT" | grep -q "session" || {
 }
 
 echo "DOGFOOD_OK"
+echo "--- receipt verify surface ---"
+(cd "$RUST" && cargo test -q -p kotro-proxy permit::receipt:: -- --test-threads=4)
+echo "RECEIPT_OK"
 echo "next=kotro-proxy broker draft-pr --session <run.broker-session.json> --token <run_token> --allow-once-hash <sha256:…> --dry-run"
+echo "next_receipt=kotro-proxy receipt verify --trust <store> <run.land-receipt.json>"
 echo "live_pr=requires GITHUB_TOKEN on host + land.mode=draft_pr + interactive/allow-once (not claimed by this spike)"

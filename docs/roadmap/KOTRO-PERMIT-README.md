@@ -2,7 +2,7 @@
 
 **Purpose:** Index for humans / other LLMs before coding beyond the containment spike.  
 **Sol (2026-08-06):** Direction strong — **do not freeze R0.2 or begin R2** from the pre-contract pack.  
-**Next engineering step:** R3 harden (attenuation, signed land receipts). R2-B dogfood: `spikes/r2b-broker/`. Gate A recruiting remains parallel.
+**Next engineering step:** R4 launch claims (honest demo/README). R3 dogfood: receipts + attenuated tokens. Gate A recruiting remains parallel.
 **Date:** 2026-08-07
 
 ---
@@ -21,6 +21,7 @@ R0.2 draft: [`KOTRO-PERMIT-R0.2-MAPPING.md`](./KOTRO-PERMIT-R0.2-MAPPING.md) (**
 R0.3/R0.4: [`spikes/r0.3-acceptance/`](../../spikes/r0.3-acceptance/) + `kotro-proxy run --permit`  
 R2-A: `run --permit --repo … -- <agent>` → stage + Docker + `*.review.diff` → `kotro-proxy apply --repo … --diff …`  
 R2-B: `kotro-proxy broker draft-pr|serve` — clean host git + allow-once + run token; dogfood `spikes/r2b-broker/`  
+R3: signed land receipts (`receipt verify --trust`) + attenuated one-shot land tokens + broker rate limit  
 Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)  
 **Runtime prerequisite:** Docker Desktop **≥ 4.x, native arch** (arm64 on Apple Silicon) — avoid leftover Intel/HyperKit installs.
 
@@ -35,7 +36,7 @@ Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)
 | Badge | Signed TaskEnvelope; `[not_before, expires_at)`; replay mode explicit |
 | Land R2-A | Reviewed diff → apply |
 | Land R2-B | Broker + **clean host git** + permit-bound repo/base + allow-once |
-| Hard stops | R0.1a false DNS pass forbidden; R2-A/R2-B landed for alpha thesis; R3 next for hardened broker claims |
+| Hard stops | R0.1a false DNS pass forbidden; R2-A/R2-B/R3 alpha harden landed; R4 = honest launch claims |
 
 ---
 
@@ -74,3 +75,4 @@ Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)
 | 2026-08-06 | Fable flags |
 | 2026-08-06 | Sol contracts index → SOL-REVIEW; v7.1; DNS harness fix noted |
 | 2026-08-07 | R2-B thin broker landed; next = R3 |
+| 2026-08-07 | R3: land receipts + token attenuation + rate limit |

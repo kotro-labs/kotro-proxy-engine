@@ -1,7 +1,7 @@
 # Kotro Permit — implementation task list (v7.1)
 
 **Status:** R0 complete. **R2-A complete** (sandbox + Option A + apply + dual-home dataplane + dogfood). Gate A recruiting ∥.  
-**Next:** R3 harden (attenuation, signed land receipts, Escape Lab broker rows). R2-B dogfood: `spikes/r2b-broker/`.
+**Next:** R4 launch claims. R3: signed land receipts + attenuated run tokens + broker rate limit.
 **Runtime:** Docker Desktop **≥ 4.x, native arch** (SANDBOX §6.3).
 
 **Fable (2026-08-06):** Pack verified against source; R2-A/R2-B + anti-fatigue + TaskGate bridge folded.  
@@ -112,10 +112,12 @@ Runtime image = **trusted execution material** (outside the user-data capability
 
 ### R3 — Harden broker → R4
 
-| ID | Task |
-|----|------|
-| **R3.1+** | Attenuation, signed land receipts, Escape Lab broker abuse rows, polish |
-| **R4.*** | Demo/README/launch with honest claims |
+| ID | Task | Done when |
+|----|------|-----------|
+| **R3.1** | Signed land receipts + `receipt verify --trust` levels | **Done** — mediator Ed25519; signature/signer/permit_digest/chain |
+| **R3.2** | Run-token attenuation (scopes, TTL, one-shot land) | **Done** — `draft_pr` only; envelope expiry; land consume |
+| **R3.3** | Broker abuse polish + Escape Lab rows | **Done** — HTTP rate limit; EL-31–34 planned; #19/#21–#24 unit |
+| **R4.*** | Demo/README/launch with honest claims | |
 
 ---
 
@@ -159,4 +161,4 @@ R0.1a (DNS-fixed #6) ──hard stop / no false pass──►
   Gate A → R1 → R2-A → Gate B partial → R2-B (clean-git broker) → R3 → R4
 ```
 
-**Next:** Gate A recruiting ∥ R3. R2-A/R2-B alpha land paths exist (apply + thin broker dry-run).
+**Next:** Gate A recruiting ∥ R4. R2-A/R2-B/R3 alpha paths exist (apply + thin broker + signed receipts).

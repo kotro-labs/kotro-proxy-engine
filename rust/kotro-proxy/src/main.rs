@@ -972,6 +972,10 @@ fn run_broker_draft_pr(args: &[String]) -> i32 {
             println!("draft={}", r.draft);
             println!("head_branch={}", r.head_branch);
             println!("artifact_hash={}", r.artifact_hash);
+            if let Some(p) = r.receipt_path {
+                println!("receipt={p}");
+                println!("next_receipt=kotro-proxy receipt verify --trust <store> {p}");
+            }
             0
         }
         Err(e) => {
@@ -1071,11 +1075,18 @@ fn run_receipt_cmd(args: &[String]) -> i32 {
                 eprintln!("usage: kotro-proxy receipt verify --trust <store> <receipt>");
                 return 1;
             };
-            match kotro_proxy::permit::verify_receipt_stub(
+            match kotro_proxy::permit::verify_land_receipt(
                 std::path::Path::new(receipt_path),
                 std::path::Path::new(&trust),
             ) {
-                Ok(()) => 0,
+                Ok(levels) => {
+                    println!("signature_valid={}", levels.signature_valid);
+                    println!("signer_trusted={}", levels.signer_trusted);
+                    println!("permit_digest_bound={}", levels.permit_digest_bound);
+                    println!("chain_complete={}", levels.chain_complete);
+                    println!("status=receipt_ok");
+                    0
+                }
                 Err(e) => {
                     eprintln!("receipt verify: {e}");
                     1

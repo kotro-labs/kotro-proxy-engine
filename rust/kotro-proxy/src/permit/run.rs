@@ -282,10 +282,18 @@ pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitE
     let pin = stage.pin.clone();
 
     // Mint run token before claim (host-side only). Injected into agent after claim.
-    let run_token = crate::permit::token::mint_run_token(
+    // R3: attenuate to draft_pr + envelope expires_at (never merge).
+    let token_expires = prepared
+        .authority
+        .envelope
+        .expires_at
+        .clone();
+    let run_token = crate::permit::token::mint_run_token_attenuated(
         &opts.ledger_dir,
         &prepared.permit_digest,
         &prepared.run_id,
+        &["draft_pr"],
+        &token_expires,
     )
     .map_err(|e| RunPermitError::Launch(e.to_string()))?;
 

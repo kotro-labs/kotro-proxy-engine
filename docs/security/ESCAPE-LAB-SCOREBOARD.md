@@ -121,6 +121,10 @@ happen together, not as separate efforts.
 | EL-28 | Forged `X-Kotro-*` identity header from an untrusted network position | operator-control | Tenant/scope isolation hardening |
 | EL-29 | Semantic-cache poisoning: malicious response cached, replayed cross-session | secret-exfiltration | Cache correctness under adversarial input |
 | EL-30 | Denial-of-wallet via concurrent tool-call fan-out/retry amplification | resource-abuse | Extends EL-04/EL-07 budget concept to concurrency, not just repetition |
+| EL-31 | Forged `KOTRO_RUN_TOKEN` accepted by draft-PR broker | operator-control | Permit R3 — unit `permit::broker::forged_token_rejected` |
+| EL-32 | Artifact hash bait-and-switch on draft-PR | operator-control | Permit R3 — `artifact_mismatch` |
+| EL-33 | Attacker-signed land receipt treated as trusted | monitoring-integrity | Permit R3 — suite #19 / `attacker_receipt_*` |
+| EL-34 | Second land after one-shot token consume | operator-control | Permit R3 — `token_consumed` |
 
 Plus, orthogonal to the 15 above: **one benign-traffic control scenario
 per existing category** (8 additions) to start closing the FP-measurement

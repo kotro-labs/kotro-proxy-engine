@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::permit::token::verify_run_token;
+use crate::permit::token::{
+    consume_run_token_for_land, verify_run_token_for_scope, TokenError,
+};
 use kotro_types::{parse_envelope_bytes, LandMode, TaskEnvelope};
 
 /// Session written by `run --permit` when `land.mode=draft_pr`.
@@ -55,6 +57,8 @@ pub struct DraftPrResponse {
     pub draft: bool,
     pub head_branch: String,
     pub artifact_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_path: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -71,6 +75,8 @@ pub enum BrokerError {
     ArtifactMismatch,
     #[error("expired")]
     Expired,
+    #[error("token_consumed")]
+    TokenConsumed,
     #[error("github_unconfigured: {0}")]
     GithubUnconfigured(String),
     #[error("base_moved: permit base_sha no longer matches remote/local base")]
@@ -300,16 +306,22 @@ pub fn handle_draft_pr(opts: &BrokerOptions, req: &DraftPrRequest) -> Result<Dra
     )
     .map_err(|_| BrokerError::Expired)?;
 
-    // L1: run token
-    let ok = verify_run_token(
+    // L1: run token (attenuated — draft_pr scope, TTL, not land-consumed)
+    match verify_run_token_for_scope(
         &session.ledger_dir,
         &session.permit_digest,
         &session.run_id,
         &opts.run_token,
-    )
-    .map_err(|_| BrokerError::Unauthorized)?;
-    if !ok {
-        return Err(BrokerError::Unauthorized);
+        "draft_pr",
+    ) {
+        Ok(true) => {}
+        Ok(false) => return Err(BrokerError::Unauthorized),
+        Err(TokenError::Expired) => return Err(BrokerError::Expired),
+        Err(TokenError::LandConsumed) => return Err(BrokerError::TokenConsumed),
+        Err(TokenError::ScopeDenied) => {
+            return Err(BrokerError::PermitDenied("run token scope".into()))
+        }
+        Err(_) => return Err(BrokerError::Unauthorized),
     }
 
     // L4: artifact hash bind
@@ -372,15 +384,19 @@ pub fn handle_draft_pr(opts: &BrokerOptions, req: &DraftPrRequest) -> Result<Dra
         &crate::flight_recorder::now_rfc3339(),
     )
     .map_err(|_| BrokerError::Expired)?;
-    let ok2 = verify_run_token(
+    let ok2 = verify_run_token_for_scope(
         &session.ledger_dir,
         &session.permit_digest,
         &session.run_id,
         &opts.run_token,
-    )
-    .map_err(|_| BrokerError::Unauthorized)?;
-    if !ok2 {
-        return Err(BrokerError::Unauthorized);
+        "draft_pr",
+    );
+    match ok2 {
+        Ok(true) => {}
+        Ok(false) => return Err(BrokerError::Unauthorized),
+        Err(TokenError::Expired) => return Err(BrokerError::Expired),
+        Err(TokenError::LandConsumed) => return Err(BrokerError::TokenConsumed),
+        Err(_) => return Err(BrokerError::Unauthorized),
     }
     let expected2 = artifact_hash_of_diff(&session.review_diff)?;
     if expected2 != expected {
@@ -388,11 +404,21 @@ pub fn handle_draft_pr(opts: &BrokerOptions, req: &DraftPrRequest) -> Result<Dra
     }
 
     if opts.dry_run {
+        let receipt_path = issue_receipt_for_session(session, &head, &expected, &format!(
+            "https://example.invalid/{}/pull/dry-run",
+            session.repository_identity
+        ));
+        let _ = consume_run_token_for_land(
+            &session.ledger_dir,
+            &session.permit_digest,
+            &session.run_id,
+        );
         return Ok(DraftPrResponse {
             pr_url: format!("https://example.invalid/{}/pull/dry-run", session.repository_identity),
             draft: true,
             head_branch: head,
             artifact_hash: expected,
+            receipt_path,
         });
     }
 
@@ -496,12 +522,42 @@ pub fn handle_draft_pr(opts: &BrokerOptions, req: &DraftPrRequest) -> Result<Dra
     }
     let pr_url = String::from_utf8_lossy(&pr.stdout).trim().to_string();
 
+    let receipt_path = issue_receipt_for_session(session, &head, &expected, &pr_url);
+    let _ = consume_run_token_for_land(
+        &session.ledger_dir,
+        &session.permit_digest,
+        &session.run_id,
+    );
+
     Ok(DraftPrResponse {
         pr_url,
         draft: true,
         head_branch: head,
         artifact_hash: expected,
+        receipt_path,
     })
+}
+
+fn issue_receipt_for_session(
+    session: &BrokerSession,
+    head: &str,
+    artifact_hash: &str,
+    pr_url: &str,
+) -> Option<String> {
+    let sk = crate::permit::receipt::load_or_create_mediator_key(&session.ledger_dir).ok()?;
+    let mut receipt = crate::permit::receipt::build_draft_pr_receipt(
+        &session.permit_digest,
+        &session.run_id,
+        &session.repository_identity,
+        &session.base_ref,
+        &session.base_sha,
+        head,
+        artifact_hash,
+        pr_url,
+    );
+    crate::permit::receipt::issue_land_receipt(&session.ledger_dir, &mut receipt, &sk)
+        .ok()
+        .map(|p| p.display().to_string())
 }
 
 fn git_ok(repo: &Path, args: &[&str], cwd: &Path) -> Result<(), BrokerError> {
@@ -792,7 +848,7 @@ mod tests {
         let ok = handle_draft_pr(
             &BrokerOptions {
                 session,
-                run_token: tok.token,
+                run_token: tok.token.clone(),
                 allow_once_override: Some(hash.clone()),
                 dry_run: true,
                 interactive: false,
@@ -804,13 +860,50 @@ mod tests {
                 base_branch: None,
                 artifact: ArtifactRef {
                     kind: "review_diff".into(),
-                    hash,
+                    hash: hash.clone(),
                 },
             },
         )
         .unwrap();
         assert!(ok.draft);
         assert!(ok.pr_url.contains("pull"));
+        assert!(ok.receipt_path.is_some());
+
+        // R3: one-shot land — second draft-pr with same token fails.
+        let again = handle_draft_pr(
+            &BrokerOptions {
+                session: BrokerSession {
+                    permit_digest: "sha256:p2".into(),
+                    run_id: "run-2".into(),
+                    ledger_dir: dir.path().to_path_buf(),
+                    permit_path: dir.path().join("permit.json"),
+                    live_repo: dir.path().to_path_buf(),
+                    staged_dir: dir.path().to_path_buf(),
+                    review_diff: dir.path().join("r.diff"),
+                    repository_identity: "github.com/o/r".into(),
+                    base_ref: "main".into(),
+                    base_sha: sha40('b'),
+                    land_mode: "draft_pr".into(),
+                    expires_at: "2099-01-01T00:00:00Z".into(),
+                },
+                run_token: tok.token.clone(),
+                allow_once_override: Some(hash.clone()),
+                dry_run: true,
+                interactive: false,
+            },
+            &DraftPrRequest {
+                title: "again".into(),
+                body: String::new(),
+                head_branch: None,
+                base_branch: None,
+                artifact: ArtifactRef {
+                    kind: "review_diff".into(),
+                    hash,
+                },
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(again, BrokerError::TokenConsumed));
     }
 
     #[test]

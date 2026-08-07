@@ -156,6 +156,32 @@ pub fn suite_registry() -> Vec<SuiteCase> {
             shell: Some("spikes/r2b-broker/run.sh"),
             notes: "Host draft-pr dry-run; no GITHUB_TOKEN required",
         },
+        SuiteCase {
+            id: "P-RECEIPT-19",
+            title: "Attacker land receipt not chain_complete (#19)",
+            layer: SuiteLayer::Unit,
+            rust_filter: Some(
+                "permit::receipt::tests::attacker_receipt_signature_valid_but_untrusted",
+            ),
+            shell: None,
+            notes: "Suite #19 — signature may verify; signer must be trusted mediator",
+        },
+        SuiteCase {
+            id: "P-RECEIPT-CHAIN",
+            title: "Signed land receipt chain_complete",
+            layer: SuiteLayer::Unit,
+            rust_filter: Some("permit::receipt::tests::issue_and_verify_chain_complete"),
+            shell: None,
+            notes: "R3 mediator receipt + permit_digest bind",
+        },
+        SuiteCase {
+            id: "P-TOKEN-ATTENUATE",
+            title: "Run token TTL / consume / no merge scope",
+            layer: SuiteLayer::Unit,
+            rust_filter: Some("permit::token::tests::expired_and_consumed_and_scope"),
+            shell: None,
+            notes: "R3 attenuation",
+        },
     ]
 }
 

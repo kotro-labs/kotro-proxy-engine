@@ -23,11 +23,18 @@ pub use broker::{
     BrokerOptions, BrokerSession, DraftPrRequest, DraftPrResponse,
 };
 pub use ledger::{LedgerError, PermitLedger, PermitLedgerState};
-pub use receipt::{verify_receipt_stub, ReceiptVerifyError};
+pub use receipt::{
+    build_draft_pr_receipt, issue_land_receipt, load_or_create_mediator_key, verify_land_receipt,
+    verify_receipt_stub, LandReceipt, ReceiptVerifyError, ReceiptVerifyLevels,
+    LAND_RECEIPT_MEDIATOR,
+};
 pub use run::{
     claim_for_sandbox_launch, prepare_run, run_permit, PreparedRun, RunPermitError,
     RunPermitOptions, RunPermitOutcome,
 };
 pub use sandbox::{sandbox_backend_available, SandboxStatus};
 pub use suite::{suite_registry, SuiteCase, SuiteLayer};
-pub use token::{mint_run_token, verify_run_token, RunToken};
+pub use token::{
+    consume_run_token_for_land, mint_run_token, mint_run_token_attenuated, verify_run_token,
+    verify_run_token_for_scope, RunToken,
+};

@@ -297,10 +297,10 @@ Acceptance: extend suite so broker path proves **#10-class** — GitHub token ab
 
 ### R3 harden (after Gate B)
 
-- [ ] Attenuated tokens / least privilege  
-- [ ] Signed land receipts + `permit_digest`  
-- [ ] Escape Lab rows for broker abuse cases  
-- [ ] Optional explicit auto-draft (never default)  
+- [x] Attenuated tokens / least privilege (`draft_pr` scope, TTL, one-shot land)
+- [x] Signed land receipts + `permit_digest` + `receipt verify --trust` levels
+- [x] Escape Lab rows for broker abuse cases (EL-31–34 planned; unit coverage)
+- [ ] Optional explicit auto-draft (never default)
 
 ---
 
