@@ -8,7 +8,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use kotro_types::{
     envelope_digest, parse_envelope_bytes, verify, MemoryParentStore, TaskEnvelope, TrustStore,
@@ -17,7 +16,7 @@ use kotro_types::{
 use thiserror::Error;
 
 use crate::flight_recorder::now_rfc3339;
-use crate::permit::ledger::{LedgerError, PermitLedger, PermitLedgerState};
+use crate::permit::ledger::{LedgerError, PermitLedger};
 use crate::permit::sandbox::{sandbox_backend_available, SandboxStatus};
 
 #[derive(Debug, Clone)]
@@ -30,12 +29,24 @@ pub struct RunPermitOptions {
     pub agent_cmd: Vec<String>,
     /// Verify + sandbox probe only — **does not** claim the one-shot ledger.
     pub verify_only: bool,
+    /// Gates only (no stage/launch). Ledger unclaimed. Exit 2 when used from CLI.
+    pub prepare_only: bool,
+    /// Live repo to stage (Option A). Required for full R2-A launch.
+    pub repo: Option<PathBuf>,
+    pub staging_root: PathBuf,
+    pub image: String,
+    pub memory: String,
+    pub cpus: String,
+    pub pids_limit: String,
+    pub keep_staging: bool,
     /// Injected clock for tests (`None` → wall clock).
     pub now_rfc3339: Option<String>,
     /// Override sandbox probe (tests).
     pub sandbox_override: Option<SandboxStatus>,
     /// When true, refuse (tests / CLI set from `KOTRO_PERMIT_ALLOW_HOST_FALLBACK`).
     pub host_fallback_requested: bool,
+    /// Skip real docker; used by unit tests.
+    pub skip_docker_launch: bool,
 }
 
 #[derive(Debug)]
@@ -50,7 +61,16 @@ pub struct PreparedRun {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunPermitOutcome {
-    /// Gates passed; sandbox exec is R2 — **ledger not claimed**.
+    /// Full R2-A run completed inside sandbox; review artifact ready for `apply`.
+    Completed {
+        permit_digest: String,
+        run_id: String,
+        agent_exit_code: i32,
+        staged_dir: String,
+        review_diff: String,
+        pin: String,
+    },
+    /// Gates passed; `--prepare-only` — **ledger not claimed**.
     /// CLI maps this to exit code **2** = verified but execution unavailable.
     Prepared {
         permit_digest: String,
@@ -90,6 +110,14 @@ pub enum RunPermitError {
     HostFallbackForbidden,
     #[error("agent command empty; pass `-- <agent…>` or use --verify-only")]
     EmptyAgent,
+    #[error("run --permit requires --repo <path> for sandbox launch (or --verify-only / --prepare-only)")]
+    MissingRepo,
+    #[error("staging failed: {0}")]
+    Staging(String),
+    #[error("sandbox launch failed: {0}")]
+    Launch(String),
+    #[error("land.mode is draft_pr — broker land is R2-B; R2-A produces review diff for apply")]
+    DraftPrDeferred,
 }
 
 impl From<LedgerError> for RunPermitError {
@@ -178,9 +206,9 @@ pub fn claim_for_sandbox_launch(
     Ok(())
 }
 
-/// Full CLI entry: verify; never claim for `--verify-only` or deferred sandbox.
+/// Full CLI entry: verify; claim+launch only when executing R2-A sandbox.
 pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitError> {
-    let prepared = prepare_run(&opts)?;
+    let mut prepared = prepare_run(&opts)?;
     let now = opts.now_rfc3339.clone().unwrap_or_else(now_rfc3339);
     revalidate_time(&prepared.authority.envelope, &now)?;
 
@@ -196,26 +224,127 @@ pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitE
         });
     }
 
+    if opts.prepare_only {
+        let detail = match &prepared.sandbox {
+            SandboxStatus::Available { detail } => detail.clone(),
+            SandboxStatus::Unavailable { reason } => reason.clone(),
+        };
+        return Ok(RunPermitOutcome::Prepared {
+            permit_digest: prepared.permit_digest,
+            run_id: prepared.run_id,
+            sandbox_detail: detail,
+        });
+    }
+
     if opts.agent_cmd.is_empty() {
         return Err(RunPermitError::EmptyAgent);
     }
 
-    // R0.4: never exec agent on host; do **not** claim — launch is R2-A.
-    let _ = &prepared.authority;
-    let _ = task_gate_env(&opts, &prepared);
-    let _never_host: Option<Command> = None;
-    let _ = _never_host;
+    let repo = opts.repo.clone().ok_or(RunPermitError::MissingRepo)?;
 
     match &prepared.sandbox {
-        SandboxStatus::Available { detail } => Ok(RunPermitOutcome::Prepared {
-            permit_digest: prepared.permit_digest,
-            run_id: prepared.run_id,
-            sandbox_detail: detail.clone(),
-        }),
         SandboxStatus::Unavailable { reason } => {
-            Err(RunPermitError::SandboxUnavailable(reason.clone()))
+            return Err(RunPermitError::SandboxUnavailable(reason.clone()));
+        }
+        SandboxStatus::Available { .. } => {}
+    }
+
+    // Option A stage (before claim — staging failure must not consume permit).
+    let pin_rev = prepared
+        .authority
+        .envelope
+        .repository
+        .as_ref()
+        .map(|r| r.source_pin.as_str())
+        .unwrap_or("HEAD");
+    let stage = crate::permit::stage::stage_repo(&crate::permit::stage::StageOptions {
+        repo: repo.clone(),
+        rev: pin_rev.to_string(),
+        staging_root: opts.staging_root.clone(),
+        keep_baseline: true,
+    })
+    .map_err(|e| RunPermitError::Staging(e.to_string()))?;
+
+    crate::permit::docker::refuse_dangerous_mount(&stage.staged_dir)
+        .map_err(|e| RunPermitError::Launch(e.to_string()))?;
+
+    let pin = stage.pin.clone();
+    claim_for_sandbox_launch(&opts, &mut prepared)?;
+    let ledger = PermitLedger::open(&opts.ledger_dir)?;
+
+    let mut env = HashMap::new();
+    // Do not inject host filesystem paths for envelope/trust into the agent —
+    // those files are not mounted. TaskGate-inside-sandbox is a later wire-up.
+    env.insert("KOTRO_TASK_REQUIRED".into(), "true".into());
+    env.insert("KOTRO_PERMIT_DIGEST".into(), prepared.permit_digest.clone());
+    env.insert("KOTRO_RUN_ID".into(), prepared.run_id.clone());
+    if let Some(aud) = &opts.audience {
+        env.insert("KOTRO_TASK_AUDIENCE".into(), aud.clone());
+    }
+    env.insert("KOTRO_WORKSPACE".into(), "/workspace".into());
+    env.insert("KOTRO_PERMIT_PIN".into(), pin.clone());
+
+    let launch = if opts.skip_docker_launch {
+        // Test hook: pretend successful empty run without docker.
+        Ok(crate::permit::docker::DockerRunResult {
+            exit_code: 0,
+            network: "none".into(),
+            container_name: "test".into(),
+        })
+    } else {
+        let docker_opts = crate::permit::docker::DockerRunOptions {
+            run_id: prepared.run_id.clone(),
+            image: opts.image.clone(),
+            workspace: stage.staged_dir.clone(),
+            workdir: "/workspace".into(),
+            agent_cmd: opts.agent_cmd.clone(),
+            env,
+            memory: opts.memory.clone(),
+            cpus: opts.cpus.clone(),
+            pids_limit: opts.pids_limit.clone(),
+            network_none: false,
+        };
+        match crate::permit::docker::run_agent_container(&docker_opts) {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                let _ = ledger.release_pre_agent(&prepared.permit_digest, &prepared.run_id);
+                Err(RunPermitError::Launch(e.to_string()))
+            }
+        }
+    };
+
+    let docker_result = launch?;
+
+    // Container started (or test skip) → consume one-shot claim.
+    let now = opts.now_rfc3339.clone().unwrap_or_else(now_rfc3339);
+    if let Err(e) = ledger.consume(&prepared.permit_digest, &prepared.run_id, &now) {
+        eprintln!("warning: ledger consume failed: {e}");
+    }
+
+    let review_diff = PathBuf::from(format!("{}.review.diff", stage.staged_dir.display()));
+    if let Some(baseline) = &stage.baseline_dir {
+        crate::permit::stage::write_review_diff(baseline, &stage.staged_dir, &review_diff)
+            .map_err(|e| RunPermitError::Staging(e.to_string()))?;
+    }
+
+    if !opts.keep_staging {
+        // Keep staging + review diff by default for apply; only drop baseline.
+        if let Some(b) = &stage.baseline_dir {
+            let _ = std::fs::remove_dir_all(b);
         }
     }
+
+    let _ = &prepared.authority; // land.mode draft_pr still gets apply artifact in R2-A
+    let _ = RunPermitError::DraftPrDeferred;
+
+    Ok(RunPermitOutcome::Completed {
+        permit_digest: prepared.permit_digest,
+        run_id: prepared.run_id,
+        agent_exit_code: docker_result.exit_code,
+        staged_dir: stage.staged_dir.display().to_string(),
+        review_diff: review_diff.display().to_string(),
+        pin,
+    })
 }
 
 fn revalidate_time(envelope: &TaskEnvelope, now: &str) -> Result<(), RunPermitError> {
@@ -289,6 +418,7 @@ mod hex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::permit::ledger::{PermitLedger, PermitLedgerState};
     use ed25519_dalek::SigningKey;
     use kotro_types::{
         check_non_expansion, key_id_for_public_key, public_key_b64, sign_envelope, signing_input,
@@ -420,11 +550,20 @@ mod tests {
             ledger_dir: ledger,
             agent_cmd: vec!["claude".into()],
             verify_only: true,
+            prepare_only: false,
+            repo: None,
+            staging_root: PathBuf::from("/tmp/kotro-staging-test"),
+            image: "alpine:3.20".into(),
+            memory: "512m".into(),
+            cpus: "1".into(),
+            pids_limit: "256".into(),
+            keep_staging: true,
             now_rfc3339: Some("2026-08-01T18:30:00Z".into()),
             sandbox_override: Some(SandboxStatus::Available {
                 detail: "test".into(),
             }),
             host_fallback_requested: false,
+            skip_docker_launch: true,
         }
     }
 
@@ -455,12 +594,91 @@ mod tests {
         let ledger_dir = dir.path().join("ledger");
         let mut o = opts(permit, trust, ledger_dir.clone());
         o.verify_only = false;
+        o.prepare_only = true;
         let out = run_permit(o).unwrap();
         assert!(matches!(out, RunPermitOutcome::Prepared { .. }));
         let ledger = PermitLedger::open(&ledger_dir).unwrap();
         assert!(
             !ledger.is_claimed(&digest),
-            "sandbox-deferred exit must not claim one-shot permit"
+            "prepare-only must not claim one-shot permit"
+        );
+    }
+
+    #[test]
+    fn r2a_completed_claims_and_writes_review_diff() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "t@t"])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
+        fs::write(repo.join("README.md"), "ok\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
+        let pin = String::from_utf8(
+            std::process::Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(&repo)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+
+        let sk = SigningKey::generate(&mut OsRng);
+        let mut env = sample_v1alpha2(&sk);
+        env.repository.as_mut().unwrap().source_pin = pin.clone();
+        env.repository.as_mut().unwrap().base_sha = pin.clone();
+        env.land.as_mut().unwrap().mode = LandMode::ApplyOnly;
+        sign_envelope(&mut env, &sk).unwrap();
+        let (permit, trust) = write_fixture(dir.path(), &sk, &env);
+        let ledger_dir = dir.path().join("ledger");
+        let mut o = opts(permit, trust, ledger_dir.clone());
+        o.verify_only = false;
+        o.prepare_only = false;
+        o.repo = Some(repo);
+        o.staging_root = dir.path().join("staging");
+        o.agent_cmd = vec!["true".into()];
+        o.skip_docker_launch = true;
+        let out = run_permit(o).unwrap();
+        match out {
+            RunPermitOutcome::Completed {
+                review_diff,
+                agent_exit_code,
+                ..
+            } => {
+                assert_eq!(agent_exit_code, 0);
+                assert!(PathBuf::from(&review_diff).is_file());
+            }
+            other => panic!("expected Completed, got {other:?}"),
+        }
+        let digest = envelope_digest(&env).unwrap();
+        let ledger = PermitLedger::open(&ledger_dir).unwrap();
+        assert_eq!(
+            ledger.load(&digest).unwrap().state,
+            PermitLedgerState::Consumed
         );
     }
 

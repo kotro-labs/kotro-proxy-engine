@@ -1,7 +1,7 @@
 # Kotro Permit — implementation task list (v7.1)
 
-**Status:** R0.1a **PASS**. R0.1b **PASS**. Staging hardened. **v1alpha2** in `kotro-types`. **R0.3 suite registered** + **R0.4 `run --permit`** fail-closed CLI. Gate A recruiting ∥ ([`GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)).  
-**Next product gate:** **R2-A** (mandatory sandbox, Option A staging, reviewed apply).  
+**Status:** R0 complete on main. **R2-A in progress:** sandbox launch + Option A stage + review diff + `apply` landed; dual-home dataplane still open. Gate A recruiting ∥.  
+**Next:** finish R2.3 dataplane dual-home + dogfood (R2.3b); then R2-B broker.  
 **Runtime:** Docker Desktop **≥ 4.x, native arch** (SANDBOX §6.3).
 
 **Fable (2026-08-06):** Pack verified against source; R2-A/R2-B + anti-fatigue + TaskGate bridge folded.  
@@ -101,9 +101,9 @@ Runtime image = **trusted execution material** (outside the user-data capability
 
 | ID | Task | Done when |
 |----|------|-----------|
-| **R2.1** | `run --permit` + mandatory sandbox | |
-| **R2.2** | Ephemeral copy + review artifact (diff / staging commit) + **apply** path | R2-A thesis land |
-| **R2.3** | Dual-homed + host canary posture; LLM/GitHub creds only on host | |
+| **R2.1** | `run --permit` + mandatory sandbox | **Done** — Docker `--internal`, claim-on-launch, no host fallback |
+| **R2.2** | Ephemeral copy + review artifact + **apply** | **Done** — Option A stage + `.review.diff` + `kotro-proxy apply` |
+| **R2.3** | Dual-homed + host canary posture; LLM/GitHub creds only on host | Partial — internal net + blocked token env; dataplane proxy still open |
 | **R2.3b** | Dogfood R2-A → Gate B *partial* | |
 | **R2.4** | Mint/inject `KOTRO_RUN_TOKEN`; broker URL on data-plane | |
 | **R2.5** | Thin broker: clean host git + permit-bound refs + allow-once anti-fatigue + revalidate-before-push | #10/#21–#24; SOL P0.3/P1.1 |

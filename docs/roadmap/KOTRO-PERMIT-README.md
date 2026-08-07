@@ -2,7 +2,7 @@
 
 **Purpose:** Index for humans / other LLMs before coding beyond the containment spike.  
 **Sol (2026-08-06):** Direction strong — **do not freeze R0.2 or begin R2** from the pre-contract pack.  
-**Next engineering step:** Gate A recruiting ∥ R1. **R2-A** is the next product gate (mandatory sandbox exec, Option A, reviewed apply). R0.3 suite + R0.4 `run --permit` gates landed.
+**Next engineering step:** Finish R2.3 dual-home dataplane + dogfood R2-A; Gate A recruiting remains parallel. R2-B broker after that.
 **Date:** 2026-08-07
 
 ---
@@ -19,6 +19,7 @@ Spike: `spikes/r0.1a-containment/` (**PASS**)
 R0.1b: `spikes/r0.1b-topology/` (**PASS**) + [`KOTRO-PERMIT-R0.1b-CONTRACT.md`](./KOTRO-PERMIT-R0.1b-CONTRACT.md)  
 R0.2 draft: [`KOTRO-PERMIT-R0.2-MAPPING.md`](./KOTRO-PERMIT-R0.2-MAPPING.md) (**v1alpha2** landed)  
 R0.3/R0.4: [`spikes/r0.3-acceptance/`](../../spikes/r0.3-acceptance/) + `kotro-proxy run --permit`  
+R2-A: `run --permit --repo … -- <agent>` → stage + Docker + `*.review.diff` → `kotro-proxy apply --repo … --diff …`  
 Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)  
 **Runtime prerequisite:** Docker Desktop **≥ 4.x, native arch** (arm64 on Apple Silicon) — avoid leftover Intel/HyperKit installs.
 

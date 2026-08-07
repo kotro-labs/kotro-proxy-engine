@@ -745,15 +745,16 @@ fn run_corpus(args: &[String]) -> i32 {
     }
 }
 
-/// `kotro-proxy run --permit <envelope> --trust <store> [--audience <aud>]
-///   [--ledger-dir <dir>] [--verify-only] [--parent-store <dir>] -- <agent…>`
+/// `kotro-proxy run --permit <envelope> --trust <store> --repo <path>
+///   [--image alpine:3.20] [--verify-only|--prepare-only] -- <agent…>`
 fn run_permit_cmd(args: &[String]) -> i32 {
     let Some(permit) = arg_value(args, "--permit") else {
         eprintln!(
             "usage: kotro-proxy run --permit <envelope.json> --trust <trust.json> \\\n\
-             \t[--audience <aud>] [--ledger-dir <dir>] [--verify-only] [--parent-store <dir>] \\\n\
-             \t-- <agent…>\n\
-             fail-closed: v1alpha2 only; no host fallback if sandbox unavailable"
+             \t--repo <path> [--image <img>] [--staging-root <dir>] \\\n\
+             \t[--verify-only | --prepare-only] [--keep-staging] -- <agent…>\n\
+             fail-closed: v1alpha2 only; Option A stage; Docker sandbox; no host fallback\n\
+             exit 0 = ok; 1 = failure; 2 = --prepare-only verified but execution unavailable"
         );
         return 1;
     };
@@ -766,7 +767,22 @@ fn run_permit_cmd(args: &[String]) -> i32 {
     let ledger_dir = arg_value(args, "--ledger-dir")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| state_dir_path().join("permit-ledger"));
+    let staging_root = arg_value(args, "--staging-root")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(
+                std::env::var("KOTRO_STAGING_ROOT").unwrap_or_else(|_| {
+                    format!("{}/.kotro/staging", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+                }),
+            )
+        });
     let verify_only = args.iter().any(|a| a == "--verify-only");
+    let prepare_only = args.iter().any(|a| a == "--prepare-only");
+    let keep_staging = args.iter().any(|a| a == "--keep-staging");
+    let repo = arg_value(args, "--repo").map(std::path::PathBuf::from);
+    let image = arg_value(args, "--image").unwrap_or_else(|| "alpine:3.20".into());
+    let memory = arg_value(args, "--memory").unwrap_or_else(|| "2g".into());
+    let cpus = arg_value(args, "--cpus").unwrap_or_else(|| "2".into());
     let agent_cmd: Vec<String> = args
         .iter()
         .position(|a| a == "--")
@@ -781,6 +797,14 @@ fn run_permit_cmd(args: &[String]) -> i32 {
         ledger_dir,
         agent_cmd,
         verify_only,
+        prepare_only,
+        repo,
+        staging_root,
+        image,
+        memory,
+        cpus,
+        pids_limit: "512".into(),
+        keep_staging,
         now_rfc3339: None,
         sandbox_override: None,
         host_fallback_requested: matches!(
@@ -790,6 +814,7 @@ fn run_permit_cmd(args: &[String]) -> i32 {
                 .as_str(),
             "1" | "true" | "yes"
         ),
+        skip_docker_launch: false,
     };
 
     match kotro_proxy::permit::run_permit(opts) {
@@ -808,9 +833,6 @@ fn run_permit_cmd(args: &[String]) -> i32 {
             run_id,
             sandbox_detail,
         }) => {
-            // Exit code 2 = verified but execution unavailable (NOT CLI misuse).
-            // Automation: treat 2 as “gates ok, sandbox launch not wired / deferred.”
-            // Ledger is intentionally unclaimed until R2-A commits launch.
             println!("permit_digest={permit_digest}");
             println!("run_id={run_id}");
             println!("sandbox={sandbox_detail}");
@@ -818,14 +840,73 @@ fn run_permit_cmd(args: &[String]) -> i32 {
             println!("ledger=unclaimed");
             println!("exit_meaning=verified_but_execution_unavailable");
             eprintln!(
-                "run --permit: verified OK; execution unavailable (sandbox launch is R2-A). \
+                "run --permit: --prepare-only — verified OK; execution not started. \
                  exit 2 = verified but execution unavailable (not CLI misuse). \
                  one-shot permit was NOT claimed."
             );
             2
         }
+        Ok(kotro_proxy::permit::RunPermitOutcome::Completed {
+            permit_digest,
+            run_id,
+            agent_exit_code,
+            staged_dir,
+            review_diff,
+            pin,
+        }) => {
+            println!("permit_digest={permit_digest}");
+            println!("run_id={run_id}");
+            println!("pin={pin}");
+            println!("staged={staged_dir}");
+            println!("review_diff={review_diff}");
+            println!("agent_exit={agent_exit_code}");
+            println!("status=completed");
+            println!("ledger=consumed");
+            println!("next=kotro-proxy apply --repo <live-repo> --diff {review_diff}");
+            if agent_exit_code == 0 {
+                0
+            } else {
+                agent_exit_code
+            }
+        }
         Err(e) => {
             eprintln!("run --permit: {e}");
+            1
+        }
+    }
+}
+
+/// `kotro-proxy apply --repo <path> --diff <review.diff> [--check]`
+fn run_apply_cmd(args: &[String]) -> i32 {
+    let Some(repo) = arg_value(args, "--repo") else {
+        eprintln!("usage: kotro-proxy apply --repo <path> --diff <review.diff> [--check]");
+        return 1;
+    };
+    let Some(diff) = arg_value(args, "--diff") else {
+        eprintln!("usage: kotro-proxy apply --repo <path> --diff <review.diff> [--check]");
+        return 1;
+    };
+    let check_only = args.iter().any(|a| a == "--check");
+    match kotro_proxy::permit::apply_review_diff(&kotro_proxy::permit::ApplyOptions {
+        repo: std::path::PathBuf::from(repo),
+        diff_path: std::path::PathBuf::from(diff),
+        check_only,
+    }) {
+        Ok(r) => {
+            println!(
+                "status={}",
+                if r.check_only {
+                    "check_ok"
+                } else if r.applied {
+                    "applied"
+                } else {
+                    "noop_empty_diff"
+                }
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("apply: {e}");
             1
         }
     }
@@ -945,6 +1026,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         Some("run") => {
             std::process::exit(run_permit_cmd(&args[2..]));
+        }
+        Some("apply") => {
+            std::process::exit(run_apply_cmd(&args[2..]));
         }
         Some("receipt") => {
             std::process::exit(run_receipt_cmd(&args[2..]));
