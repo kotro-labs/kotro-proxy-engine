@@ -1,170 +1,40 @@
-# Kotro Permit — implementation task list (v7.1)
+# Kotro Permit — task list (**FROZEN**)
 
-**Status:** R0–R4 alpha engineering complete. **Sol (2026-08-07):** Gate A revised to wedge validation; Docker kept as reference; OAP honesty in positioning.  
-**Next:** **Gate A** — ask teams that already sandbox whether they still need CI-issued authority, delegation, source-bound grants, offline evidence. Pause further adapters until signal.  
-**Runtime:** Docker Desktop **≥ 4.x, native arch** (SANDBOX §6.3). Backend contract: [`KOTRO-PERMIT-BACKEND-CONTRACT.md`](./KOTRO-PERMIT-BACKEND-CONTRACT.md).
+**Status (2026-08-07):** **Experimental / code-frozen.**  
+**Do not** schedule R2-A expansion, broker expansion, delegation, receipts polish, or Permit adapters.  
+**Security and correctness fixes only.** Preserve tests and docs.
 
-**Fable (2026-08-06):** Pack verified against source; R2-A/R2-B + anti-fatigue + TaskGate bridge folded.  
-**Sol (2026-08-06):** P0/P1 contracts in SOL-REVIEW; DNS+#25 spikes executed.
+**Next direction:** [`KOTRO-CONTROL-LAB.md`](./KOTRO-CONTROL-LAB.md) (vendor-neutral verification suite).
 
-**Companions:**  
-- [`KOTRO-PERMIT-README.md`](./KOTRO-PERMIT-README.md) — index  
-- [`KOTRO-PERMIT-POSITIONING.md`](./KOTRO-PERMIT-POSITIONING.md) — **OAP honesty + cooperative wedge**  
-- [`KOTRO-PERMIT-BACKEND-CONTRACT.md`](./KOTRO-PERMIT-BACKEND-CONTRACT.md) — Docker reference; Nono spike; srt failIfUnavailable  
-- [`KOTRO-PERMIT-SOL-REVIEW.md`](./KOTRO-PERMIT-SOL-REVIEW.md) — Sol P0/P1 contracts  
-- [`KOTRO-PERMIT-SANDBOX.md`](./KOTRO-PERMIT-SANDBOX.md)  
-- [`KOTRO-PERMIT-AUTHORITY.md`](./KOTRO-PERMIT-AUTHORITY.md)  
-- [`KOTRO-PERMIT-BROKER.md`](./KOTRO-PERMIT-BROKER.md)  
-- Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)  
+Alpha R2–R4 code that already landed on `main` remains in-tree as reference; it is **not** a mandate to continue. Sunk cost ≠ roadmap.
 
-**History:** … → v7 → Fable flags → **v7.1 Sol contracts** (DNS, dual-home honesty, clean-git land, replay, time, inclusion).
-
-**Sol / Fable invariants (unchanged core):** Option A; narrow symlink; containment spike label; suite enumerated; ENOENT-prefer; R2-A then R2-B; run fail-closed vs TaskGate; anti-fatigue allow-once.
-
-### Alpha scope discipline (v6 → v7 cost)
-
-| Stage | Deliver | Proves | Gate |
-|-------|---------|--------|------|
-| **R2-A (thesis)** | R2.1–R2.3: sandbox + Option A inclusion policy + dual-home **with host canary** + **reviewed diff → apply** | Containment + permit land without GitHub | Gate B *partial* OK |
-| **R2-B (positioning)** | R2.4–R2.5: thin broker on **host-owned clean git** + allow-once + permit-bound repo/base | Speed without token-in-agent | After R2-A; after Sol P0.3/P1.1 |
-
-**Do not freeze R0.2 schema until:** land capability representation chosen (version bump vs existing form); one-shot vs reusable permit; time interval `[not_before, expires_at)` specified for implementers.
 ---
 
-## Product
+## Freeze rules
 
-**Sentence (alpha):**  
-*Nono, srt or Docker enforce the boundary; Kotro makes the job authority portable, delegable and provable — then land via apply or a Kotro-brokered draft PR you confirm.*
+| Allowed | Forbidden |
+|---------|-----------|
+| Bugfixes that keep existing Permit tests green | New broker/land features |
+| Doc honesty (experimental banners) | Nono/srt **Permit** adapters |
+| Reusing patterns inside Control Lab adapters | Gate A as reason to build more Permit |
 
-Runtime image = **trusted execution material** (outside the user-data capability set).
+Historical design companions (read-only context): positioning, backend contract, sandbox, authority, broker, SOL-REVIEW.
 
-| **Milestone** | **Claim** |
+---
+
+## What was built (archive — not a continue list)
+
+| Milestone | State |
 |-----------|--------|
-| **Alpha R2-A** | Secret read denied; ephemeral copy; **reviewed diff → apply**; no secrets in agent |
-| **Alpha R2-B** | Same + **thin broker → allow-once draft PR**; you merge |
-| **R3** | Hardened broker (attenuation, signed land receipts), Escape Lab authority rows |
-| **Launch rule** | Do not claim R2-B/R3 before implemented; R2-A is enough to prove thesis |
-
-**Validation gates:**  
-- **Gate A (urgent):** ≥3 teams that **already sandbox** still affirm needing CI-issued task authority / delegation / source-bound grants / offline evidence — see [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md). Containment clip is **not** the lead.  
-- **Gate B (before claiming north-star adoption):** ≥3 users **completed** an alpha run (ideally including a real draft PR).
-
-**Positioning:**  
-*Nono, srt or Docker enforce the boundary. Kotro makes the job authority portable, delegable and provable.*  
-Detail: [`KOTRO-PERMIT-POSITIONING.md`](./KOTRO-PERMIT-POSITIONING.md) (OAP honesty — do not claim unique signed authority). Broker line still fine: agent never holds your GitHub token.
+| R0 | Complete (v1alpha2, suite, fail-closed run) |
+| R2-A / R2-B / R3 / R4 | Landed experimentally; **frozen** — no expansion |
+| Gate A Permit recruiting | Superseded by Control Lab external validation gates |
 
 ---
 
-## Critical invariants
+## Document history
 
-1. **`kotro-proxy run --permit` is fail-closed** (`--permit` mandatory).  
-   Greenfield enforce; refuse without sandbox; proxy death → fail closed. Under `internal: true`, proxy death is topology-proven fail-closed.
-
-2. **Wrapper ≠ OS confinement.** Proof = `#4`/`#5`.
-
-3. **Dual-homed network:** Agent → Kotro **data-plane** only; Kotro → upstream/GitHub; no control-plane / docker.sock to agent.  
-   `internal: true` = **public egress baseline only** — **not** proof of “Kotro only.” R0.1b must add **host canary + gateway scan**; host firewall/bind rules are in scope if we claim sole window (see SOL-REVIEW P0.2).
-
-4. **Host write boundary — Option A locked** with explicit **inclusion policy** (tracked@pinned + previewed untracked — not naive full-tree copy). Land: R2-A apply; R2-B broker on **host-owned clean repo** (never agent `.git`).  
-   `--live-workspace` later = lower security.
-
-5. **Mount topology** for host secrets. Narrow symlink claim (see sandbox doc).
-
-6. **Receipts (R3 full):** mediator signer; `receipt verify --trust`; distinguish signature-valid / signer-trusted / permit-trusted / chain-complete; `permit_digest` on events. Alpha may stub land audit logs.
-
-7. **PermitSpec → TaskEnvelope** (two artifacts). Land capability: schema-version bump **or** existing capability form (R0.2 choose). Default at most draft land — **not** `merge`.
-
-8. **Keys:** separate permit vs receipt identities; never mount private keys or **provider/GitHub tokens** into agent; owner-only; atomic writes.
-
-9. **Broker auth:** `KOTRO_RUN_TOKEN` **intentionally** enters agent; provider/GitHub tokens stay on host. See broker doc + SOL-REVIEW P0.3/P1.1.
-
-10. **Replay:** one-shot claim of nonce/digest **or** reusable `max_runs` + aggregate budgets (decide in R0.2; add tests).
-
-11. **Time:** validity **`[not_before, expires_at)`**; `issued_at ≤ not_before < expires_at`; container deadline `min(expires_at, start+max_duration, ceiling)` stops the sandbox; revalidate before push. Do **not** reuse current verify/TaskGate/trust date logic unchanged (SOL-REVIEW P1.4).
-
----
-
-## Execution order
-
-### R0 — Spike, then specs
-
-| ID | Task | Done when |
-|----|------|-----------|
-| **R0.1a** | **Containment feasibility spike** | **PASS** 2026-08-07 — #4–#7 incl. DNS |
-| **R0.1b** | Topology + staging contract | **PASS** topology spike; `stage-repo.sh`; gateway L3 note |
-| **R0.2** | PermitSpec → TaskEnvelope | **v1alpha2** + signed `repository`/`land`; one-shot ledger — see [`KOTRO-PERMIT-R0.2-MAPPING.md`](./KOTRO-PERMIT-R0.2-MAPPING.md) |
-| **R0.3** | Acceptance suite registered | **Done** — `testdata/permit-suite/registry.json`, `permit::suite`, `spikes/r0.3-acceptance/run.sh` |
-| **R0.4** | CLI lifecycle | **Done (gates)** — `run --permit` v1alpha2; exit **2** = verified but execution unavailable (unclaimed); `claim_for_sandbox_launch` for R2-A; atomic `.claim` files (no sticky lockdir); `receipt verify` stub |
-### R1 — After Gate A
-
-| ID | Task |
-|----|------|
-| **R1.1–R1.5** | Compiler, keys/trust, permit CLI inspect states, MCP enforce, fail-closed startup (as v6) |
-
-### R2 — Alpha (staged)
-
-| ID | Task | Done when |
-|----|------|-----------|
-| **R2.1** | `run --permit` + mandatory sandbox | **Done** — Docker `--internal`, claim-on-launch, no host fallback |
-| **R2.2** | Ephemeral copy + review artifact + **apply** | **Done** — Option A stage + `.review.diff` + `kotro-proxy apply` |
-| **R2.3** | Dual-homed + host canary posture; LLM/GitHub creds only on host | **Done** — agent/up nets + dataplane sidecar; `KOTRO_RUN_TOKEN` + dataplane URL in agent; provider tokens on dataplane/host only |
-| **R2.3b** | Dogfood R2-A → Gate B *partial* | **Done** — `spikes/r2a-dogfood/run.sh` |
-| **R2.4** | Mint/inject `KOTRO_RUN_TOKEN`; broker URL on data-plane | **Done** — token mint/verify; dataplane `/v1/broker/*` forward + `--broker-forward` |
-| **R2.5** | Thin broker: clean host git + permit-bound refs + allow-once anti-fatigue + revalidate-before-push | **Done** — `permit::broker` + `broker draft-pr\|serve`; #21–#24 unit |
-| **R2.6** | Golden path with draft PR when R2-B ready | **Partial** — dry-run dogfood; live `gh pr create --draft` needs host `GITHUB_TOKEN` |
-| **R2.7** | Dogfood → Gate B full | **Partial** — `spikes/r2b-broker/` dry-run; live PR not claimed |
-
-### R3 — Harden broker → R4
-
-| ID | Task | Done when |
-|----|------|-----------|
-| **R3.1** | Signed land receipts + `receipt verify --trust` levels | **Done** — mediator Ed25519; signature/signer/permit_digest/chain |
-| **R3.2** | Run-token attenuation (scopes, TTL, one-shot land) | **Done** — `draft_pr` only; envelope expiry; land consume |
-| **R3.3** | Broker abuse polish + Escape Lab rows | **Done** — HTTP rate limit; EL-31–34 planned; #19/#21–#24 unit |
-| **R4.1** | Honest claims matrix + Limits & trust boundaries | **Done** — `docs/launch/PERMIT-ALPHA-CLAIMS.md`, `PERMIT-LIMITS.md` |
-| **R4.2** | README + Gate A + Show HN permit wording | **Done** — no overclaim; golden path doc |
-| **R4.3** | Demo narrative linking dogfoods | **Done** — `PERMIT-GOLDEN-PATH.md` |
-
----
-
-## Acceptance suite (#1–#24 + Sol adds)
-
-Fake `$HOME` + fake SSH key only.
-
-| # | Test | Notes |
-|---|------|--------|
-| **1–5** | Path / symlink / shell / Python secret reads | As before; R0.1a for #4/#5 |
-| **6** | Hostile-domain: **external DNS and HTTP** both fail as channels | R0.1a; DNS success = FAIL |
-| **7** | Hostile-IP egress | R0.1a |
-| **8–9** | Redirect defer; sandbox unavailable fail-closed | |
-| **10** | Provider **and GitHub** tokens absent from agent; `KOTRO_RUN_TOKEN` may be present | Clarify “token only in proxy” |
-| **11–13** | Tamper / trust | |
-| **14–15** | Live repo / land path (apply and/or clean-git draft PR) | |
-| **16–18** | Dual-home reachability; no control-plane; no docker.sock | |
-| **19–20** | Attacker receipt; proxy death | |
-| **21–24** | Forged run token; artifact mismatch; allow-once deny; no merge | Broker |
-| **25** | Host canary content unreachable; gateway exposure recorded | Not “gateway denied”; L3 addressability may exist |
-| **26** | Replay / concurrent second run (one-shot ledger) | R0.2/R2 |
-| **27** | Expiry stops container FS writes; push rejected after expiry | P1.3 |
-| **28** | Staging: reject unsafe out / `../` extras / nested denied / host manifest integrity | R0.3 |
-
-**Success metric:** Mediated actions and observable denials linked to permit digest + run ID.
-
----
-
-## Gate A recruiting asset (from R0.1a)
-
-**~60s clip** labeled **"Containment feasibility spike"** (not Permit/receipt theater):  
-poisoned README → `~/.ssh` → denied (ENOENT / FileNotFound).
-
----
-
-## Start sequence
-
-```
-R0.1a (DNS-fixed #6) ──hard stop / no false pass──►
-  R0.1b (canary + inclusion) ∥ R0.2 contracts (do not freeze early) → R0.3–R0.4 →
-  Gate A → R1 → R2-A → Gate B partial → R2-B (clean-git broker) → R3 → R4
-```
-
-**Next:** **Gate A wedge asks** (Sol). Optional later: 3-day Nono spike per backend contract — only after Gate A signal. Claims: `docs/launch/PERMIT-ALPHA-CLAIMS.md`.
+| Date | Change |
+|------|--------|
+| 2026-08-07 | **FROZEN** — Control Lab becomes primary OSS bet |
+| … | Prior R0–R4 history retained in git |

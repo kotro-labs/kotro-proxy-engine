@@ -1,40 +1,55 @@
 # Kotro — Consolidated Next Steps (Aug 2026)
 
-> **Source synthesis:** Cursor · Claude Opus · Sol · Codex fact-check (2026-08-02).  
-> **Supersedes** open sequencing in `next-steps.md` P3–P4. Historical P0–P2 checkboxes remain the archive.
+> **Supersedes prior sequencing where it conflicts.**  
+> **2026-08-07 lock:** Permit **frozen**; primary OSS bet = **Control Lab** ([`KOTRO-CONTROL-LAB.md`](./KOTRO-CONTROL-LAB.md)).
 
 ---
 
-## 1. Locked thesis (Codex refinement of Opus)
+## 0. Current lock (read first)
 
-**Pipelock is a real, direct competitor** (~786★ / 90 forks / 30 releases as of 2026-08-02). “Local agent firewall” alone is **no longer differentiated**.
-
-**Do not feature-chase Pipelock’s Landlock/seccomp stack.** Do not race LiteLLM on providers.
+| Decision | Detail |
+|----------|--------|
+| **Permit** | Experimental / code-frozen — security fixes only ([`KOTRO-PERMIT-README.md`](./KOTRO-PERMIT-README.md)) |
+| **Do not build** | Another sandbox, generic gateway/scanner, replay UI, IFC/taint, A2A-for-fashion, more Permit |
+| **Do build** | Escape Lab v2 scoreboard → multi-backend Control Lab → public comparable report |
+| **Kill criterion** | If ~4 weeks after public report: no external reproduction / maintainer engagement / contribution — **stop expanding** the harness |
 
 **Own this:**
 
-> **Kotro is the open, local coding-agent control plane** that combines **MCP action governance**, **LLM-path protection**, **cost control**, and **replayable evidence** in one binary.
-
-| Competitor role | Kotro role |
-|-----------------|------------|
-| **Pipelock** — agent egress + OS containment | **Kotro** — complete coding-agent *transaction*: MCP admission → LLM request, with cache/budget + Escape Lab evidence |
-| **LiteLLM / Portkey** — org gateways | Adjacent; lose on purpose |
-| **pxpipe** (~6.9k★) — image-context token compression | Different mission (cost via PNG pages); not a security/runtime peer |
-| **OmniRoute** (~4★, not 9k–20k SEO claims) | Noise; do not weight SEO articles |
-
-**Differentiators already in code (must become the README story):**
-
-1. OpenAI ⇄ Anthropic protocol translation  
-2. LLM caching + context efficiency on the same path as security  
-3. MCP schema admission + TaskEnvelope + exact-action approvals  
-4. Unified `KOTRO_MODE` + kill switch that outranks it  
-5. Cross-plane session correlation / flight recorder  
-6. Coding-agent install UX (`KOTRO_PROFILE`, brew/curl/extension)  
-7. Escape Lab as a CI-gated regression corpus  
+> **Kotro is the open, local coding-agent control plane** (MCP + LLM + cost + evidence) that is becoming a **vendor-neutral verification suite** for what agent controls actually stop — without replacing Nono, Anthropic srt, or Docker.
 
 ---
 
-## 2. Fact-check: do not adopt Opus unchanged
+## 1. Locked thesis (coding-agent control plane — still true)
+
+**Pipelock is a real, direct competitor.** “Local agent firewall” alone is **no longer differentiated.**
+
+**Do not feature-chase Pipelock’s Landlock/seccomp stack.** Do not race LiteLLM on providers.
+
+| Competitor role | Kotro role |
+|-----------------|------------|
+| **Pipelock** — agent egress + OS containment | **Kotro** — coding-agent *transaction* + **comparable Escape/Control Lab evidence** |
+| **Nono / Anthropic srt / Docker** — boundary enforcement | **Backends under Control Lab**, not rivals to replace |
+| **OAP** — signed passport / tool-call decisions | Peer on authority; not our unique moat |
+| **LiteLLM / Portkey** — org gateways | Adjacent; lose on purpose |
+| **Phoenix / Arize** — tracing / eval | Different job; do not build a replay dashboard |
+| **FIDES** — information-flow | Do not build a taint framework |
+| **MCP official conformance** | Adopt in CI (table stakes), not reinvent |
+
+**Differentiators already in code:**
+
+1. OpenAI ⇄ Anthropic protocol translation  
+2. LLM caching + security on the same path  
+3. MCP schema admission + TaskEnvelope  
+4. Unified `KOTRO_MODE` + kill switch  
+5. Flight recorder  
+6. Escape Lab CI corpus → **Control Lab** multi-backend  
+
+---
+
+## 1b. Fact-check archive
+
+*(Prior Aug 2 Opus/Codex fact-check tables remain below for history; sequencing in §5 is superseded by §0 / Control Lab weeks.)*
 
 | Opus / earlier claim | Reality (2026-08-02) | Action |
 |----------------------|----------------------|--------|

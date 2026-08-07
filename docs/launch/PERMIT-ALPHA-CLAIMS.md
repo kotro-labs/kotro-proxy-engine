@@ -1,7 +1,8 @@
-# Kotro Permit — alpha claims (R4)
+# Kotro Permit — alpha claims (**EXPERIMENTAL / FROZEN**)
 
-**Status:** Alpha engineering complete through R3. This page is the **honesty contract** for demos, README, and recruiting.  
-**Date:** 2026-08-07
+**Status:** Experimental code remains in-tree. **No further Permit product work** until users explicitly ask.  
+**Primary OSS direction:** [`../roadmap/KOTRO-CONTROL-LAB.md`](../roadmap/KOTRO-CONTROL-LAB.md).  
+**Freeze notice:** [`../roadmap/KOTRO-PERMIT-README.md`](../roadmap/KOTRO-PERMIT-README.md).
 
 If a claim is not listed under **You may claim**, do not say it in a launch post.
 

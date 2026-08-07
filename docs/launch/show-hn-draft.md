@@ -75,12 +75,10 @@ Honest constraints (also in docs/security/THREAT-MODEL.md):
 - An agent that shells out or opens a raw socket never transits the proxy —
   egress firewall is a later phase (tracked, not hidden — see Escape Lab EL-09).
 
-Optional third path (alpha — only if the thread asks about sandbox/PR land):
-  Cooperative line: Nono/srt/Docker enforce the boundary; Kotro makes job
-  authority portable, delegable, and provable (not "we uniquely invented
-  signed permits" — see OAP). kotro-proxy run --permit … is fail-closed Docker
-  today. Honest claims: docs/launch/PERMIT-ALPHA-CLAIMS.md
-  Gate A asks: docs/launch/GATE-A-RECRUITING.md
+Optional third path (experimental — frozen):
+  Permit (`run --permit`) exists in-tree but is code-frozen. Do not pitch it
+  as the roadmap. Next bet: Control Lab — same attacks across Nono / srt /
+  Docker / Kotro. See docs/roadmap/KOTRO-CONTROL-LAB.md
 
 Repro (no API key — mock upstream):
   git clone https://github.com/kotro-labs/kotro-proxy-engine

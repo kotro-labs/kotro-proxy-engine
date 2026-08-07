@@ -1,7 +1,7 @@
 # Escape Lab Scoreboard — v2 design
 
-**Status: design spec, not yet implemented.** This document proposes a
-richer public scoreboard on top of the existing Escape Lab corpus
+**Status:** design spec → **Week 1 Control Lab work** (implement renderer; see [`../roadmap/KOTRO-CONTROL-LAB.md`](../roadmap/KOTRO-CONTROL-LAB.md)).  
+This document proposes a richer public scoreboard on top of the existing Escape Lab corpus
 (`testdata/escape-lab/scenarios.json`, rendered today as
 [`ESCAPE-LAB-MATRIX.md`](ESCAPE-LAB-MATRIX.md)). It does not change how CI
 gates today — see "CI gate vs. public scoreboard" below for why those stay

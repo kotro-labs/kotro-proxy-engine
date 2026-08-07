@@ -66,8 +66,8 @@
 | **LLM proxy** | Scans/redacts provider HTTP (`/v1/chat/completions`, `/v1/messages`); OpenAI ⇄ Anthropic translation |
 | **`KOTRO_MODE`** | `disabled` / `audit` / `enforce` on both planes; kill switch still halts when engaged |
 | **Flight recorder** | Local tape of decisions — export from `:9090` |
-| **Escape Lab** | CI-gated adversarial corpus — see honesty note below |
-| **Permit (alpha)** | Fail-closed `run --permit`: Docker sandbox + signed envelope + Option A stage → apply / thin draft-PR broker — [claims](docs/launch/PERMIT-ALPHA-CLAIMS.md) |
+| **Escape Lab** | CI-gated adversarial corpus — evolving into [Control Lab](docs/roadmap/KOTRO-CONTROL-LAB.md) (multi-backend) |
+| **Permit** | **Experimental / frozen** — fail-closed `run --permit` remains in-tree; no further product expansion — [freeze notice](docs/roadmap/KOTRO-PERMIT-README.md) |
 
 ### 30-second install
 
@@ -209,30 +209,15 @@ Kotro is deliberately narrow: a **local coding-agent control plane** (MCP + LLM 
 | **[Portkey](https://github.com/Portkey-AI/gateway)** | Heavier production guardrails / managed options | Third party or heavier ops footprint |
 | **Hosted gateways** | Zero infra | A third party sees traffic |
 
-**Compose, don’t pretend:** for process/network isolation, pair Kotro’s policy + evidence with Docker MCP Gateway / OS sandbox profiles (`kotro isolate` direction) — Kotro owns the transaction and the tape; the runtime owns the jail. **Permit alpha** (`run --permit`) is the productized Docker sandbox + signed-authority path — see [honest claims](docs/launch/PERMIT-ALPHA-CLAIMS.md) and [limits](docs/launch/PERMIT-LIMITS.md).
+**Compose, don’t pretend:** for process/network isolation, pair Kotro with Docker / Nono / Anthropic sandbox-runtime — Kotro owns the transaction tape and (next) **comparable measurement**. **Permit is experimental and frozen** — see [freeze notice](docs/roadmap/KOTRO-PERMIT-README.md). Primary OSS bet: [Control Lab](docs/roadmap/KOTRO-CONTROL-LAB.md).
 
 Long-form comparison (dated stats, who should use which): [`docs/launch/competitive-honesty.md`](docs/launch/competitive-honesty.md). Sequencing: [`docs/roadmap/CONSOLIDATED-NEXT-STEPS.md`](docs/roadmap/CONSOLIDATED-NEXT-STEPS.md). MCP method matrix: [`docs/security/MCP-COMPATIBILITY.md`](docs/security/MCP-COMPATIBILITY.md).
 
-### Permit alpha (task-scoped sandbox)
+### Control Lab (next) & Permit (frozen)
 
-Optional third path beyond MCP wrap + LLM proxy: run an agent under a **signed short-lived permit** in Docker.
+**Next:** vendor-neutral suite — same attacks/benign tasks across `none` / Docker / Nono / Anthropic srt / Kotro → prevented vs detect-only vs bypassed vs false positives. Spec: [`docs/roadmap/KOTRO-CONTROL-LAB.md`](docs/roadmap/KOTRO-CONTROL-LAB.md).
 
-```text
-kotro-proxy run --permit <env.json> --trust <trust.json> --repo <path> -- <agent…>
-# → stage + sandbox + review.diff
-kotro-proxy apply --repo <live> --diff <review.diff>
-# optional: broker draft-pr (host GITHUB_TOKEN) + receipt verify --trust
-```
-
-| Claim | Do not claim |
-|-------|----------------|
-| Fail-closed without verified v1alpha2 permit; no host fallback | Hypervisor / “Kotro-only” network |
-| Ephemeral copy → reviewed apply; broker dry-run + signed land receipts | Live draft PR without host GitHub creds; “we merge for you” |
-| Agent never holds provider / GitHub tokens (`KOTRO_RUN_TOKEN` OK) | Containment demo alone proves receipts |
-
-Details: [`docs/launch/PERMIT-ALPHA-CLAIMS.md`](docs/launch/PERMIT-ALPHA-CLAIMS.md) · limits: [`docs/launch/PERMIT-LIMITS.md`](docs/launch/PERMIT-LIMITS.md) · demo path: [`docs/launch/PERMIT-GOLDEN-PATH.md`](docs/launch/PERMIT-GOLDEN-PATH.md) · positioning (vs OAP / sandboxes): [`docs/roadmap/KOTRO-PERMIT-POSITIONING.md`](docs/roadmap/KOTRO-PERMIT-POSITIONING.md) · design pack: [`docs/roadmap/KOTRO-PERMIT-README.md`](docs/roadmap/KOTRO-PERMIT-README.md).
-
-**Cooperative line:** *Nono, srt or Docker enforce the boundary. Kotro makes the job authority portable, delegable and provable.*
+**Permit** (`run --permit`, broker, receipts) stays in the binary as **experimental / code-frozen**. Do not treat it as the star roadmap. Honesty: [`docs/launch/PERMIT-ALPHA-CLAIMS.md`](docs/launch/PERMIT-ALPHA-CLAIMS.md).
 
 ### About the 99.3% upstream-token figure
 
