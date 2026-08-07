@@ -230,7 +230,9 @@ kotro-proxy apply --repo <live> --diff <review.diff>
 | Ephemeral copy → reviewed apply; broker dry-run + signed land receipts | Live draft PR without host GitHub creds; “we merge for you” |
 | Agent never holds provider / GitHub tokens (`KOTRO_RUN_TOKEN` OK) | Containment demo alone proves receipts |
 
-Details: [`docs/launch/PERMIT-ALPHA-CLAIMS.md`](docs/launch/PERMIT-ALPHA-CLAIMS.md) · limits: [`docs/launch/PERMIT-LIMITS.md`](docs/launch/PERMIT-LIMITS.md) · demo path: [`docs/launch/PERMIT-GOLDEN-PATH.md`](docs/launch/PERMIT-GOLDEN-PATH.md) · design pack: [`docs/roadmap/KOTRO-PERMIT-README.md`](docs/roadmap/KOTRO-PERMIT-README.md).
+Details: [`docs/launch/PERMIT-ALPHA-CLAIMS.md`](docs/launch/PERMIT-ALPHA-CLAIMS.md) · limits: [`docs/launch/PERMIT-LIMITS.md`](docs/launch/PERMIT-LIMITS.md) · demo path: [`docs/launch/PERMIT-GOLDEN-PATH.md`](docs/launch/PERMIT-GOLDEN-PATH.md) · positioning (vs OAP / sandboxes): [`docs/roadmap/KOTRO-PERMIT-POSITIONING.md`](docs/roadmap/KOTRO-PERMIT-POSITIONING.md) · design pack: [`docs/roadmap/KOTRO-PERMIT-README.md`](docs/roadmap/KOTRO-PERMIT-README.md).
+
+**Cooperative line:** *Nono, srt or Docker enforce the boundary. Kotro makes the job authority portable, delegable and provable.*
 
 ### About the 99.3% upstream-token figure
 

@@ -76,11 +76,11 @@ Honest constraints (also in docs/security/THREAT-MODEL.md):
   egress firewall is a later phase (tracked, not hidden — see Escape Lab EL-09).
 
 Optional third path (alpha — only if the thread asks about sandbox/PR land):
-  kotro-proxy run --permit … stages an ephemeral copy under a signed short-lived
-  permit (Docker sandbox, fail-closed, no host fallback). Land via reviewed apply
-  or a thin draft-PR broker that keeps GITHUB_TOKEN on the host after allow-once.
-  Honest claims matrix: docs/launch/PERMIT-ALPHA-CLAIMS.md — do not claim
-  hypervisor isolation or "Kotro-only network" from Docker --internal.
+  Cooperative line: Nono/srt/Docker enforce the boundary; Kotro makes job
+  authority portable, delegable, and provable (not "we uniquely invented
+  signed permits" — see OAP). kotro-proxy run --permit … is fail-closed Docker
+  today. Honest claims: docs/launch/PERMIT-ALPHA-CLAIMS.md
+  Gate A asks: docs/launch/GATE-A-RECRUITING.md
 
 Repro (no API key — mock upstream):
   git clone https://github.com/kotro-labs/kotro-proxy-engine

@@ -1,7 +1,8 @@
 # P0 — Async validation (no cold calls required)
 
-**Goal:** Get ≥3 written “yes, I’d try this on a real task” before building Permit MVP.  
-**You do not need Zoom, DMs to strangers, or in-person talks.**
+**Goal:** Get ≥3 written affirmations of the **remaining wedge** (not “sandbox sounds cool”) before more Permit engineering.  
+**You do not need Zoom, DMs to strangers, or in-person talks.**  
+**Canonical ask:** [`GATE-A-RECRUITING.md`](./GATE-A-RECRUITING.md) (Sol 2026-08-07 — containment is not the lead).
 
 ---
 
@@ -9,10 +10,11 @@
 
 ### Step 1 — Practice the pitch once (5 min, alone)
 
-Say out loud (timer 60s). You’re not publishing this; it keeps your public posts clear:
+Say out loud (timer 60s):
 
-> We don’t claim the model can’t be manipulated — we ensure manipulation
-> can’t exceed the task permit.
+> Nono, srt or Docker enforce the boundary. Kotro makes the job authority
+> portable, delegable and provable — CI-issued badges, attenuated sub-agents,
+> source-bound grants, offline receipts across sandbox → land.
 
 ---
 
@@ -21,17 +23,21 @@ Say out loud (timer 60s). You’re not publishing this; it keeps your public pos
 Reply to your existing Kotro tweet  
 https://x.com/RameshPandian04/status/2085029921785799155  
 
-**Paste (edit lightly in your own words if you want):**
+**Paste (from Gate A — edit lightly in your own words if you want):**
 
 ```
-Quick question for people who run Claude Code / Codex / Cursor agents with tools:
+Quick question if you already sandbox Claude Code / Cursor agents:
 
-I’m focusing Kotro on task-scoped permits — you sign what an agent may
-read/call/spend for one task, so a poisoned README can’t take ~/.ssh
-or hit random sites.
+Containment is getting commodity (vendor sandboxes, Docker, Nono, …).
+We're testing whether teams still need a portable job badge on top:
 
-If setup were under 3 minutes, would you try it on a real task?
-Reply: yes / no / maybe + one reason.
+  • CI-issued signed task authority
+  • attenuated delegation to sub-agents
+  • grants bound to repo + base SHA
+  • offline-verifiable receipts across sandbox → mediation → land
+
+Do any of those still hurt for you? If three teams say yes, we'll
+dogfood Kotro Permit on a real repo. If not, that's useful too.
 ```
 
 **Done when:** reply is live.

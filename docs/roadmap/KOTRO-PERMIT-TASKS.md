@@ -1,18 +1,21 @@
 # Kotro Permit — implementation task list (v7.1)
 
-**Status:** R0–R3 alpha engineering complete. **R4 launch claims** shipped (honest matrix + limits + golden path). Gate A recruiting ∥.  
-**Next:** Gate A / Gate B user validation; keep claims to [`../launch/PERMIT-ALPHA-CLAIMS.md`](../launch/PERMIT-ALPHA-CLAIMS.md).
-**Runtime:** Docker Desktop **≥ 4.x, native arch** (SANDBOX §6.3).
+**Status:** R0–R4 alpha engineering complete. **Sol (2026-08-07):** Gate A revised to wedge validation; Docker kept as reference; OAP honesty in positioning.  
+**Next:** **Gate A** — ask teams that already sandbox whether they still need CI-issued authority, delegation, source-bound grants, offline evidence. Pause further adapters until signal.  
+**Runtime:** Docker Desktop **≥ 4.x, native arch** (SANDBOX §6.3). Backend contract: [`KOTRO-PERMIT-BACKEND-CONTRACT.md`](./KOTRO-PERMIT-BACKEND-CONTRACT.md).
 
 **Fable (2026-08-06):** Pack verified against source; R2-A/R2-B + anti-fatigue + TaskGate bridge folded.  
 **Sol (2026-08-06):** P0/P1 contracts in SOL-REVIEW; DNS+#25 spikes executed.
 
 **Companions:**  
 - [`KOTRO-PERMIT-README.md`](./KOTRO-PERMIT-README.md) — index  
-- [`KOTRO-PERMIT-SOL-REVIEW.md`](./KOTRO-PERMIT-SOL-REVIEW.md) — **Sol contracts (blocking R0.2 freeze / R2 start)**  
+- [`KOTRO-PERMIT-POSITIONING.md`](./KOTRO-PERMIT-POSITIONING.md) — **OAP honesty + cooperative wedge**  
+- [`KOTRO-PERMIT-BACKEND-CONTRACT.md`](./KOTRO-PERMIT-BACKEND-CONTRACT.md) — Docker reference; Nono spike; srt failIfUnavailable  
+- [`KOTRO-PERMIT-SOL-REVIEW.md`](./KOTRO-PERMIT-SOL-REVIEW.md) — Sol P0/P1 contracts  
 - [`KOTRO-PERMIT-SANDBOX.md`](./KOTRO-PERMIT-SANDBOX.md)  
 - [`KOTRO-PERMIT-AUTHORITY.md`](./KOTRO-PERMIT-AUTHORITY.md)  
 - [`KOTRO-PERMIT-BROKER.md`](./KOTRO-PERMIT-BROKER.md)  
+- Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)  
 
 **History:** … → v7 → Fable flags → **v7.1 Sol contracts** (DNS, dual-home honesty, clean-git land, replay, time, inclusion).
 
@@ -31,7 +34,7 @@
 ## Product
 
 **Sentence (alpha):**  
-*Run Claude Code in an isolated workspace under a signed, short-lived permit defining which project data, tools, and external services it may access — then land via a Kotro-brokered draft PR you confirm.*
+*Nono, srt or Docker enforce the boundary; Kotro makes the job authority portable, delegable and provable — then land via apply or a Kotro-brokered draft PR you confirm.*
 
 Runtime image = **trusted execution material** (outside the user-data capability set).
 
@@ -43,11 +46,12 @@ Runtime image = **trusted execution material** (outside the user-data capability
 | **Launch rule** | Do not claim R2-B/R3 before implemented; R2-A is enough to prove thesis |
 
 **Validation gates:**  
-- **Gate A (before significant R1):** ≥3 users **commit to trying** — recruit with R0.1a containment clip.  
-- **Gate B (before R3 harden):** ≥3 users **completed** an alpha run (ideally including a real draft PR).
+- **Gate A (urgent):** ≥3 teams that **already sandbox** still affirm needing CI-issued task authority / delegation / source-bound grants / offline evidence — see [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md). Containment clip is **not** the lead.  
+- **Gate B (before claiming north-star adoption):** ≥3 users **completed** an alpha run (ideally including a real draft PR).
 
 **Positioning:**  
-*Like other coding agents we open a draft PR for you — unlike them, the agent never holds your GitHub token; Kotro does, after you confirm.*
+*Nono, srt or Docker enforce the boundary. Kotro makes the job authority portable, delegable and provable.*  
+Detail: [`KOTRO-PERMIT-POSITIONING.md`](./KOTRO-PERMIT-POSITIONING.md) (OAP honesty — do not claim unique signed authority). Broker line still fine: agent never holds your GitHub token.
 
 ---
 
@@ -163,4 +167,4 @@ R0.1a (DNS-fixed #6) ──hard stop / no false pass──►
   Gate A → R1 → R2-A → Gate B partial → R2-B (clean-git broker) → R3 → R4
 ```
 
-**Next:** Gate A recruiting ∥ Gate B validation. Claims locked in `docs/launch/PERMIT-ALPHA-CLAIMS.md`.
+**Next:** **Gate A wedge asks** (Sol). Optional later: 3-day Nono spike per backend contract — only after Gate A signal. Claims: `docs/launch/PERMIT-ALPHA-CLAIMS.md`.

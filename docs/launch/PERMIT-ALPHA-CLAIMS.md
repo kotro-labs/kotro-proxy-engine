@@ -5,6 +5,21 @@
 
 If a claim is not listed under **You may claim**, do not say it in a launch post.
 
+**Related:** [`../roadmap/KOTRO-PERMIT-POSITIONING.md`](../roadmap/KOTRO-PERMIT-POSITIONING.md) · [Gate A](./GATE-A-RECRUITING.md)
+
+---
+
+## Positioning (cooperative)
+
+> **Nono, sandbox-runtime (srt), or Docker enforce the boundary. Kotro makes the job authority portable, delegable, and provable.**
+
+**Remaining wedge** (not “we uniquely invented signed permits” — OAP already has signed passports/decisions):
+
+- Implemented delegation / attenuation  
+- Enforcement outside an instrumented hook  
+- Source-pin / base-SHA binding  
+- Receipt spanning sandbox + mediation + workspace + landing  
+
 ---
 
 ## One-sentence product (safe)
@@ -35,15 +50,18 @@ If a claim is not listed under **You may claim**, do not say it in a launch post
 
 | Overclaim | Reality |
 |-----------|---------|
+| “Nobody else has signed portable authority / receipts” | **OAP** (and peers) already do — cite as validation; our wedge is narrower (see positioning) |
 | “Hypervisor / VM isolation” | Docker shares a kernel — workspace + network confinement only |
 | “Kotro-only network” / “no path to the host” | `internal: true` = public egress baseline; gateway L3 addressability is a **measured** note (R0.1b #25) |
 | “Live draft PR always works out of the box” | Live `gh pr create --draft` needs host `GITHUB_TOKEN`/`GH_TOKEN`; dogfood is **dry-run** |
 | “Gate B complete (≥3 users finished alpha runs)” | Recruiting/parallel — do not invent user counts |
-| “Containment clip proves receipts / broker” | Gate A clip = **Containment feasibility spike** only |
+| “Containment clip proves the product / unique signed authority” | Containment is **table stakes**; Gate A asks wedge questions first |
+| “Codex ships Landlock + seccomp by default” | **Unverified** — do not repeat without primary docs |
 | “Draft PR means no CI / no bots” | Draft ≠ no execution — disclose CI/`pull_request` apps |
 | “We merge for you” / “merge scope in default permit” | Human merges; `merge` scope forbidden in alpha broker |
 | “Confluence / Figma / Notion updated under Permit” | Out of scope |
 | Escape Lab “14/14 attacks prevented” | Match **declared** behavior; known `none` rows stay documented |
+| “We replace vendor sandboxes” | Cooperative: they enforce the boundary; we issue the job badge |
 
 ---
 
@@ -65,10 +83,11 @@ Short version:
 
 | Goal | Command / doc |
 |------|----------------|
-| Containment (~60s recruit) | [`GATE-A-RECRUITING.md`](./GATE-A-RECRUITING.md) + `spikes/r0.1a-containment/run.sh` |
+| Containment (~60s honesty only) | [`GATE-A-RECRUITING.md`](./GATE-A-RECRUITING.md) — **after** wedge questions |
 | Thesis land (apply) | `spikes/r2a-dogfood/run.sh` |
 | Broker + receipt dry-run | `spikes/r2b-broker/run.sh` |
 | Golden path narrative | [`PERMIT-GOLDEN-PATH.md`](./PERMIT-GOLDEN-PATH.md) |
+| Backend / Nono spike rules | [`../roadmap/KOTRO-PERMIT-BACKEND-CONTRACT.md`](../roadmap/KOTRO-PERMIT-BACKEND-CONTRACT.md) |
 
 ---
 

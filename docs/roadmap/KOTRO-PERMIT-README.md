@@ -2,18 +2,21 @@
 
 **Purpose:** Index for humans / other LLMs before coding beyond the containment spike.  
 **Sol (2026-08-06):** Direction strong — **do not freeze R0.2 or begin R2** from the pre-contract pack.  
-**Next engineering step:** Gate A / Gate B user validation. Launch claims locked: [`../launch/PERMIT-ALPHA-CLAIMS.md`](../launch/PERMIT-ALPHA-CLAIMS.md).
+**Next engineering step:** **Gate A wedge validation** (Sol) — not more Permit code. Positioning: [`KOTRO-PERMIT-POSITIONING.md`](./KOTRO-PERMIT-POSITIONING.md). Backend: [`KOTRO-PERMIT-BACKEND-CONTRACT.md`](./KOTRO-PERMIT-BACKEND-CONTRACT.md). Claims: [`../launch/PERMIT-ALPHA-CLAIMS.md`](../launch/PERMIT-ALPHA-CLAIMS.md).
 **Date:** 2026-08-07
 
 ---
 
 ## Read order
 
-1. [`KOTRO-PERMIT-SOL-REVIEW.md`](./KOTRO-PERMIT-SOL-REVIEW.md) — **Sol P0/P1 contracts (blocking)**  
-2. [`KOTRO-PERMIT-TASKS.md`](./KOTRO-PERMIT-TASKS.md) — v7.1 order, suite #1–#27  
-3. [`KOTRO-PERMIT-SANDBOX.md`](./KOTRO-PERMIT-SANDBOX.md)  
-4. [`KOTRO-PERMIT-AUTHORITY.md`](./KOTRO-PERMIT-AUTHORITY.md)  
-5. [`KOTRO-PERMIT-BROKER.md`](./KOTRO-PERMIT-BROKER.md)  
+1. [`KOTRO-PERMIT-POSITIONING.md`](./KOTRO-PERMIT-POSITIONING.md) — **Sol: OAP honesty + cooperative wedge**  
+2. [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md) — **urgent: wedge questions, not containment lead**  
+3. [`KOTRO-PERMIT-BACKEND-CONTRACT.md`](./KOTRO-PERMIT-BACKEND-CONTRACT.md) — Docker reference; Nono spike; srt failIfUnavailable  
+4. [`KOTRO-PERMIT-SOL-REVIEW.md`](./KOTRO-PERMIT-SOL-REVIEW.md) — Sol P0/P1 contracts (blocking)  
+5. [`KOTRO-PERMIT-TASKS.md`](./KOTRO-PERMIT-TASKS.md) — v7.1 order, suite #1–#27  
+6. [`KOTRO-PERMIT-SANDBOX.md`](./KOTRO-PERMIT-SANDBOX.md)  
+7. [`KOTRO-PERMIT-AUTHORITY.md`](./KOTRO-PERMIT-AUTHORITY.md)  
+8. [`KOTRO-PERMIT-BROKER.md`](./KOTRO-PERMIT-BROKER.md)  
 
 Spike: `spikes/r0.1a-containment/` (**PASS**)  
 R0.1b: `spikes/r0.1b-topology/` (**PASS**) + [`KOTRO-PERMIT-R0.1b-CONTRACT.md`](./KOTRO-PERMIT-R0.1b-CONTRACT.md)  
@@ -32,12 +35,12 @@ Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)
 
 | Idea | Choice |
 |------|--------|
-| Wedge | Task-scoped authority + sealed workspace + Kotro as window |
-| Sandbox | Docker; Option A with **inclusion policy**; `internal: true` = public baseline only |
+| Wedge | Portable / delegable / provable **job authority** on top of Nono/srt/Docker (not containment alone) |
+| Sandbox | Docker **reference**; Option A; `internal: true` = public baseline only; Nono = time-boxed spike only |
 | Badge | Signed TaskEnvelope; `[not_before, expires_at)`; replay mode explicit |
 | Land R2-A | Reviewed diff → apply |
 | Land R2-B | Broker + **clean host git** + permit-bound repo/base + allow-once |
-| Hard stops | R0.1a false DNS pass forbidden; R2–R4 alpha docs landed; recruit with Gate A without overclaiming |
+| Hard stops | Do not overclaim vs OAP; Gate A = wedge questions; no unverified Codex Landlock defaults |
 
 ---
 
@@ -78,3 +81,4 @@ Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)
 | 2026-08-07 | R2-B thin broker landed; next = R3 |
 | 2026-08-07 | R3: land receipts + token attenuation + rate limit |
 | 2026-08-07 | R4: PERMIT-ALPHA-CLAIMS + limits + golden path + README |
+| 2026-08-07 | Sol: positioning vs OAP; Gate A wedge-first; backend contract (Docker+Nono spike) |

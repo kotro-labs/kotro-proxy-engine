@@ -23,9 +23,9 @@ This document captures decisions and open constraints discussed before implement
 | **Kotro (mediator)** | Controlled window out of the room — LLM proxy + **GitHub draft-PR broker** (alpha thin; R3 harden) |
 
 **One-line product sentence (alpha):**  
-Run a coding agent in an isolated workspace under a signed, short-lived permit; land via a Kotro-brokered draft PR you confirm (agent never holds the GitHub token).
+Nono, srt, or Docker enforce the boundary; Kotro makes the job authority portable, delegable, and provable — land via apply or a Kotro-brokered draft PR you confirm (agent never holds the GitHub token).
 
-**Not the same as “agent in a sandbox” alone.** Many sandboxes still bind-mount the live repo, allow open egress, and put API tokens in the agent environment. Permit’s differentiation is authority + honest boundaries + mediator topology — enforced by a real sandbox backend.
+**Not the same as “agent in a sandbox” alone.** Vendor sandboxes are table stakes. Permit’s differentiation is **authority + delegation + source-bound grants + spanning receipts** — enforced *with* a real sandbox backend (see positioning doc).
 
 ### Current Kotro vs Permit
 
@@ -74,10 +74,12 @@ Permit **reuses** Kotro as mediator; it does not replace the need for confinemen
 
 | Decision | Choice |
 |----------|--------|
-| Backend (alpha) | Docker Engine / Docker Desktop (OCI) |
+| Backend (alpha) | Docker Engine / Docker Desktop (OCI) — **reference**; keep until adapters pass contract |
 | Lifecycle | **Per permit run** (start with task, tear down on exit) — not an always-on agent VM |
 | If Docker unavailable | **Refuse to start** (fail-closed); never fall back to unsandboxed host |
 | Who runs where | Agent **in** container; Kotro mediator **outside** (host / dual-homed); keys outside agent |
+| Alternates | Time-boxed **Nono** spike + **srt** only with `failIfUnavailable=true` hard-required — [`KOTRO-PERMIT-BACKEND-CONTRACT.md`](./KOTRO-PERMIT-BACKEND-CONTRACT.md) |
+| Property | Prefer **mount-namespace absence** (ENOENT) over path denial alone |
 | Network | Agent on **internal** network; Kotro dual-homed to upstream |
 | Repo mount | **Option A:** ephemeral copy only |
 | Later escape hatch | `--live-workspace`, explicitly labeled **lower security** |
