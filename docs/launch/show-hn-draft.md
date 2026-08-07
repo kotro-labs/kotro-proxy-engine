@@ -75,6 +75,13 @@ Honest constraints (also in docs/security/THREAT-MODEL.md):
 - An agent that shells out or opens a raw socket never transits the proxy —
   egress firewall is a later phase (tracked, not hidden — see Escape Lab EL-09).
 
+Optional third path (alpha — only if the thread asks about sandbox/PR land):
+  kotro-proxy run --permit … stages an ephemeral copy under a signed short-lived
+  permit (Docker sandbox, fail-closed, no host fallback). Land via reviewed apply
+  or a thin draft-PR broker that keeps GITHUB_TOKEN on the host after allow-once.
+  Honest claims matrix: docs/launch/PERMIT-ALPHA-CLAIMS.md — do not claim
+  hypervisor isolation or "Kotro-only network" from Docker --internal.
+
 Repro (no API key — mock upstream):
   git clone https://github.com/kotro-labs/kotro-proxy-engine
   cd kotro-proxy-engine && make demo-injection
@@ -102,6 +109,7 @@ path, or would you rather start enforce-by-default with a loud kill switch?
 4. Escape Lab matrix (`docs/security/ESCAPE-LAB-MATRIX.md`) — if asked "does this actually work"
 5. Escape Lab scoreboard design (`docs/security/ESCAPE-LAB-SCOREBOARD.md`) — if asked about prevention rate vs green CI
 6. Deeper Pipelock/pxpipe/LiteLLM/Portkey comparison: `docs/launch/competitive-honesty.md`
+7. If asked about sandbox / draft PR: `docs/launch/PERMIT-ALPHA-CLAIMS.md` (+ golden path)
 
 ---
 
@@ -122,6 +130,7 @@ path, or would you rather start enforce-by-default with a loud kill switch?
 - [x] Escape Lab framed as "declared behavior matched" (9/14 covered, 3 known `none`), not "attacks prevented"
 - [x] Direct "why not Pipelock/pxpipe" paragraph included so the obvious HN comment is pre-answered
 - [x] Body aligned with README dual-plane section (integration pass)
+- [x] Optional Permit alpha paragraph points at PERMIT-ALPHA-CLAIMS (no overclaim)
 
 **Launch gate (must be green before posting):**
 - [x] `main` CI green after cache/TTL determinism fix (`4e075a9` / tip includes always-on required checks)

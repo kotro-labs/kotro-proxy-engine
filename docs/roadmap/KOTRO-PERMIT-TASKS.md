@@ -1,7 +1,7 @@
 # Kotro Permit — implementation task list (v7.1)
 
-**Status:** R0 complete. **R2-A complete** (sandbox + Option A + apply + dual-home dataplane + dogfood). Gate A recruiting ∥.  
-**Next:** R4 launch claims. R3: signed land receipts + attenuated run tokens + broker rate limit.
+**Status:** R0–R3 alpha engineering complete. **R4 launch claims** shipped (honest matrix + limits + golden path). Gate A recruiting ∥.  
+**Next:** Gate A / Gate B user validation; keep claims to [`../launch/PERMIT-ALPHA-CLAIMS.md`](../launch/PERMIT-ALPHA-CLAIMS.md).
 **Runtime:** Docker Desktop **≥ 4.x, native arch** (SANDBOX §6.3).
 
 **Fable (2026-08-06):** Pack verified against source; R2-A/R2-B + anti-fatigue + TaskGate bridge folded.  
@@ -117,7 +117,9 @@ Runtime image = **trusted execution material** (outside the user-data capability
 | **R3.1** | Signed land receipts + `receipt verify --trust` levels | **Done** — mediator Ed25519; signature/signer/permit_digest/chain |
 | **R3.2** | Run-token attenuation (scopes, TTL, one-shot land) | **Done** — `draft_pr` only; envelope expiry; land consume |
 | **R3.3** | Broker abuse polish + Escape Lab rows | **Done** — HTTP rate limit; EL-31–34 planned; #19/#21–#24 unit |
-| **R4.*** | Demo/README/launch with honest claims | |
+| **R4.1** | Honest claims matrix + Limits & trust boundaries | **Done** — `docs/launch/PERMIT-ALPHA-CLAIMS.md`, `PERMIT-LIMITS.md` |
+| **R4.2** | README + Gate A + Show HN permit wording | **Done** — no overclaim; golden path doc |
+| **R4.3** | Demo narrative linking dogfoods | **Done** — `PERMIT-GOLDEN-PATH.md` |
 
 ---
 
@@ -161,4 +163,4 @@ R0.1a (DNS-fixed #6) ──hard stop / no false pass──►
   Gate A → R1 → R2-A → Gate B partial → R2-B (clean-git broker) → R3 → R4
 ```
 
-**Next:** Gate A recruiting ∥ R4. R2-A/R2-B/R3 alpha paths exist (apply + thin broker + signed receipts).
+**Next:** Gate A recruiting ∥ Gate B validation. Claims locked in `docs/launch/PERMIT-ALPHA-CLAIMS.md`.

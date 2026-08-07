@@ -2,7 +2,7 @@
 
 **Purpose:** Index for humans / other LLMs before coding beyond the containment spike.  
 **Sol (2026-08-06):** Direction strong — **do not freeze R0.2 or begin R2** from the pre-contract pack.  
-**Next engineering step:** R4 launch claims (honest demo/README). R3 dogfood: receipts + attenuated tokens. Gate A recruiting remains parallel.
+**Next engineering step:** Gate A / Gate B user validation. Launch claims locked: [`../launch/PERMIT-ALPHA-CLAIMS.md`](../launch/PERMIT-ALPHA-CLAIMS.md).
 **Date:** 2026-08-07
 
 ---
@@ -22,6 +22,7 @@ R0.3/R0.4: [`spikes/r0.3-acceptance/`](../../spikes/r0.3-acceptance/) + `kotro-p
 R2-A: `run --permit --repo … -- <agent>` → stage + Docker + `*.review.diff` → `kotro-proxy apply --repo … --diff …`  
 R2-B: `kotro-proxy broker draft-pr|serve` — clean host git + allow-once + run token; dogfood `spikes/r2b-broker/`  
 R3: signed land receipts (`receipt verify --trust`) + attenuated one-shot land tokens + broker rate limit  
+**R4 launch:** [`../launch/PERMIT-ALPHA-CLAIMS.md`](../launch/PERMIT-ALPHA-CLAIMS.md) · [`../launch/PERMIT-LIMITS.md`](../launch/PERMIT-LIMITS.md) · [`../launch/PERMIT-GOLDEN-PATH.md`](../launch/PERMIT-GOLDEN-PATH.md)  
 Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)  
 **Runtime prerequisite:** Docker Desktop **≥ 4.x, native arch** (arm64 on Apple Silicon) — avoid leftover Intel/HyperKit installs.
 
@@ -36,7 +37,7 @@ Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)
 | Badge | Signed TaskEnvelope; `[not_before, expires_at)`; replay mode explicit |
 | Land R2-A | Reviewed diff → apply |
 | Land R2-B | Broker + **clean host git** + permit-bound repo/base + allow-once |
-| Hard stops | R0.1a false DNS pass forbidden; R2-A/R2-B/R3 alpha harden landed; R4 = honest launch claims |
+| Hard stops | R0.1a false DNS pass forbidden; R2–R4 alpha docs landed; recruit with Gate A without overclaiming |
 
 ---
 
@@ -76,3 +77,4 @@ Gate A: [`../launch/GATE-A-RECRUITING.md`](../launch/GATE-A-RECRUITING.md)
 | 2026-08-06 | Sol contracts index → SOL-REVIEW; v7.1; DNS harness fix noted |
 | 2026-08-07 | R2-B thin broker landed; next = R3 |
 | 2026-08-07 | R3: land receipts + token attenuation + rate limit |
+| 2026-08-07 | R4: PERMIT-ALPHA-CLAIMS + limits + golden path + README |

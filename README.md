@@ -67,6 +67,7 @@
 | **`KOTRO_MODE`** | `disabled` / `audit` / `enforce` on both planes; kill switch still halts when engaged |
 | **Flight recorder** | Local tape of decisions — export from `:9090` |
 | **Escape Lab** | CI-gated adversarial corpus — see honesty note below |
+| **Permit (alpha)** | Fail-closed `run --permit`: Docker sandbox + signed envelope + Option A stage → apply / thin draft-PR broker — [claims](docs/launch/PERMIT-ALPHA-CLAIMS.md) |
 
 ### 30-second install
 
@@ -208,9 +209,28 @@ Kotro is deliberately narrow: a **local coding-agent control plane** (MCP + LLM 
 | **[Portkey](https://github.com/Portkey-AI/gateway)** | Heavier production guardrails / managed options | Third party or heavier ops footprint |
 | **Hosted gateways** | Zero infra | A third party sees traffic |
 
-**Compose, don’t pretend:** for process/network isolation, pair Kotro’s policy + evidence with Docker MCP Gateway / OS sandbox profiles (`kotro isolate` direction) — Kotro owns the transaction and the tape; the runtime owns the jail.
+**Compose, don’t pretend:** for process/network isolation, pair Kotro’s policy + evidence with Docker MCP Gateway / OS sandbox profiles (`kotro isolate` direction) — Kotro owns the transaction and the tape; the runtime owns the jail. **Permit alpha** (`run --permit`) is the productized Docker sandbox + signed-authority path — see [honest claims](docs/launch/PERMIT-ALPHA-CLAIMS.md) and [limits](docs/launch/PERMIT-LIMITS.md).
 
 Long-form comparison (dated stats, who should use which): [`docs/launch/competitive-honesty.md`](docs/launch/competitive-honesty.md). Sequencing: [`docs/roadmap/CONSOLIDATED-NEXT-STEPS.md`](docs/roadmap/CONSOLIDATED-NEXT-STEPS.md). MCP method matrix: [`docs/security/MCP-COMPATIBILITY.md`](docs/security/MCP-COMPATIBILITY.md).
+
+### Permit alpha (task-scoped sandbox)
+
+Optional third path beyond MCP wrap + LLM proxy: run an agent under a **signed short-lived permit** in Docker.
+
+```text
+kotro-proxy run --permit <env.json> --trust <trust.json> --repo <path> -- <agent…>
+# → stage + sandbox + review.diff
+kotro-proxy apply --repo <live> --diff <review.diff>
+# optional: broker draft-pr (host GITHUB_TOKEN) + receipt verify --trust
+```
+
+| Claim | Do not claim |
+|-------|----------------|
+| Fail-closed without verified v1alpha2 permit; no host fallback | Hypervisor / “Kotro-only” network |
+| Ephemeral copy → reviewed apply; broker dry-run + signed land receipts | Live draft PR without host GitHub creds; “we merge for you” |
+| Agent never holds provider / GitHub tokens (`KOTRO_RUN_TOKEN` OK) | Containment demo alone proves receipts |
+
+Details: [`docs/launch/PERMIT-ALPHA-CLAIMS.md`](docs/launch/PERMIT-ALPHA-CLAIMS.md) · limits: [`docs/launch/PERMIT-LIMITS.md`](docs/launch/PERMIT-LIMITS.md) · demo path: [`docs/launch/PERMIT-GOLDEN-PATH.md`](docs/launch/PERMIT-GOLDEN-PATH.md) · design pack: [`docs/roadmap/KOTRO-PERMIT-README.md`](docs/roadmap/KOTRO-PERMIT-README.md).
 
 ### About the 99.3% upstream-token figure
 

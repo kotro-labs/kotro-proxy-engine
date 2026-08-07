@@ -251,11 +251,11 @@ Use during R0.1b contract, R2 `run --permit`, and docs/CLI work.
 
 ### Product honesty
 
-- [ ] Pluggable backend interface (Docker first)  
-- [ ] No README/CLI language claiming hypervisor isolation on Docker tier  
+- [x] Pluggable backend interface (Docker first)  
+- [x] No README/CLI language claiming hypervisor isolation on Docker tier  
 - [ ] `--live-workspace` (if added) labeled lower security  
-- [ ] Spike/demo labeled **Containment feasibility spike** until permits/receipts exist  
-- [ ] User-facing “Limits & trust boundaries” section shipped with alpha (see §6)
+- [x] Spike/demo labeled **Containment feasibility spike** until permits/receipts exist  
+- [x] User-facing “Limits & trust boundaries” section shipped with alpha (`docs/launch/PERMIT-LIMITS.md`)
 
 ### Acceptance mapping
 
@@ -274,7 +274,7 @@ Ship these (or equivalent) in: CLI `--help` / first-run, README Permit section, 
 - Grants only what the **permit** allows for a **short time**.  
 - Keeps work on an **ephemeral copy** with an explicit inclusion preview.  
 - **R2-A:** you review and **apply**.  
-- **R2-B (when available):** you allow-once; **Kotro opens a draft PR** from a host-owned clean repo (GitHub token stays on the host).  
+- **R2-B:** you allow-once; **Kotro opens a draft PR** from a host-owned clean repo (GitHub token stays on the host; live path needs host `GITHUB_TOKEN`).  
 - You **merge** on GitHub.  
 - Sends model traffic through **Kotro**; the agent should not hold your provider API key.  
 - Blocks direct internet from the agent (deny-all); outbound LLM/GitHub land calls go via Kotro.
@@ -286,7 +286,7 @@ Ship these (or equivalent) in: CLI `--help` / first-run, README Permit section, 
 - It does **not** protect secrets you **voluntarily mount** or paste into the workspace copy.  
 - It does **not** replace your review / allow-once, and it does **not** merge for you.  
 - It does **not** update Confluence/Figma in alpha.  
-- Hardened broker features (attenuation, signed land receipts) are R3 — don’t claim them early.
+- Hardened broker features (attenuation, signed land receipts) shipped in R3 — claim only with [`../launch/PERMIT-ALPHA-CLAIMS.md`](../launch/PERMIT-ALPHA-CLAIMS.md).
 
 ### 6.3 Requirements to run
 
