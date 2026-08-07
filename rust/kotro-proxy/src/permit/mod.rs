@@ -5,6 +5,7 @@
 //! sandbox launch is committed, and never falls back to host agent execution.
 
 pub mod apply;
+pub mod dataplane;
 pub mod docker;
 pub mod ledger;
 pub mod receipt;
@@ -12,6 +13,7 @@ pub mod run;
 pub mod sandbox;
 pub mod stage;
 pub mod suite;
+pub mod token;
 
 pub use apply::{apply_review_diff, ApplyError, ApplyOptions, ApplyResult};
 pub use ledger::{LedgerError, PermitLedger, PermitLedgerState};
@@ -22,3 +24,4 @@ pub use run::{
 };
 pub use sandbox::{sandbox_backend_available, SandboxStatus};
 pub use suite::{suite_registry, SuiteCase, SuiteLayer};
+pub use token::{mint_run_token, verify_run_token, RunToken};

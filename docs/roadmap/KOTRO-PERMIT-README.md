@@ -2,7 +2,7 @@
 
 **Purpose:** Index for humans / other LLMs before coding beyond the containment spike.  
 **Sol (2026-08-06):** Direction strong — **do not freeze R0.2 or begin R2** from the pre-contract pack.  
-**Next engineering step:** Finish R2.3 dual-home dataplane + dogfood R2-A; Gate A recruiting remains parallel. R2-B broker after that.
+**Next engineering step:** R2-B thin broker (draft PR + allow-once). R2-A dogfood: `spikes/r2a-dogfood/`. Gate A recruiting remains parallel.
 **Date:** 2026-08-07
 
 ---

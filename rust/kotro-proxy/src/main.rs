@@ -781,6 +781,10 @@ fn run_permit_cmd(args: &[String]) -> i32 {
     let keep_staging = args.iter().any(|a| a == "--keep-staging");
     let repo = arg_value(args, "--repo").map(std::path::PathBuf::from);
     let image = arg_value(args, "--image").unwrap_or_else(|| "alpine:3.20".into());
+    let dataplane_image =
+        arg_value(args, "--dataplane-image").unwrap_or_else(|| "python:3.12-slim".into());
+    let dataplane_upstream = arg_value(args, "--dataplane-upstream");
+    let skip_dataplane = args.iter().any(|a| a == "--skip-dataplane");
     let memory = arg_value(args, "--memory").unwrap_or_else(|| "2g".into());
     let cpus = arg_value(args, "--cpus").unwrap_or_else(|| "2".into());
     let agent_cmd: Vec<String> = args
@@ -805,6 +809,9 @@ fn run_permit_cmd(args: &[String]) -> i32 {
         cpus,
         pids_limit: "512".into(),
         keep_staging,
+        dataplane_image,
+        dataplane_upstream,
+        skip_dataplane,
         now_rfc3339: None,
         sandbox_override: None,
         host_fallback_requested: matches!(
@@ -853,12 +860,16 @@ fn run_permit_cmd(args: &[String]) -> i32 {
             staged_dir,
             review_diff,
             pin,
+            dataplane_url,
         }) => {
             println!("permit_digest={permit_digest}");
             println!("run_id={run_id}");
             println!("pin={pin}");
             println!("staged={staged_dir}");
             println!("review_diff={review_diff}");
+            if let Some(url) = dataplane_url {
+                println!("dataplane_url={url}");
+            }
             println!("agent_exit={agent_exit_code}");
             println!("status=completed");
             println!("ledger=consumed");

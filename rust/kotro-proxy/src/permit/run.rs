@@ -39,6 +39,12 @@ pub struct RunPermitOptions {
     pub cpus: String,
     pub pids_limit: String,
     pub keep_staging: bool,
+    /// Data-plane sidecar image (needs python). Default python:3.12-slim.
+    pub dataplane_image: String,
+    /// Optional upstream URL for dataplane mediation (host kotro or mock).
+    pub dataplane_upstream: Option<String>,
+    /// Skip dual-home dataplane (tests / offline).
+    pub skip_dataplane: bool,
     /// Injected clock for tests (`None` → wall clock).
     pub now_rfc3339: Option<String>,
     /// Override sandbox probe (tests).
@@ -69,6 +75,7 @@ pub enum RunPermitOutcome {
         staged_dir: String,
         review_diff: String,
         pin: String,
+        dataplane_url: Option<String>,
     },
     /// Gates passed; `--prepare-only` — **ledger not claimed**.
     /// CLI maps this to exit code **2** = verified but execution unavailable.
@@ -269,12 +276,19 @@ pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitE
         .map_err(|e| RunPermitError::Launch(e.to_string()))?;
 
     let pin = stage.pin.clone();
+
+    // Mint run token before claim (host-side only). Injected into agent after claim.
+    let run_token = crate::permit::token::mint_run_token(
+        &opts.ledger_dir,
+        &prepared.permit_digest,
+        &prepared.run_id,
+    )
+    .map_err(|e| RunPermitError::Launch(e.to_string()))?;
+
     claim_for_sandbox_launch(&opts, &mut prepared)?;
     let ledger = PermitLedger::open(&opts.ledger_dir)?;
 
     let mut env = HashMap::new();
-    // Do not inject host filesystem paths for envelope/trust into the agent —
-    // those files are not mounted. TaskGate-inside-sandbox is a later wire-up.
     env.insert("KOTRO_TASK_REQUIRED".into(), "true".into());
     env.insert("KOTRO_PERMIT_DIGEST".into(), prepared.permit_digest.clone());
     env.insert("KOTRO_RUN_ID".into(), prepared.run_id.clone());
@@ -283,15 +297,57 @@ pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitE
     }
     env.insert("KOTRO_WORKSPACE".into(), "/workspace".into());
     env.insert("KOTRO_PERMIT_PIN".into(), pin.clone());
+    // Intentional: run token enters agent; provider/GitHub tokens must not.
+    env.insert("KOTRO_RUN_TOKEN".into(), run_token.token.clone());
+
+    let mut dataplane_url: Option<String> = None;
+    let mut dp_handle: Option<crate::permit::dataplane::DataplaneHandle> = None;
 
     let launch = if opts.skip_docker_launch {
-        // Test hook: pretend successful empty run without docker.
         Ok(crate::permit::docker::DockerRunResult {
             exit_code: 0,
             network: "none".into(),
             container_name: "test".into(),
         })
     } else {
+        let agent_network = if opts.skip_dataplane {
+            None
+        } else {
+            let nets = crate::permit::dataplane::create_dual_home_nets(&prepared.run_id)
+                .map_err(|e| {
+                    let _ = ledger.release_pre_agent(&prepared.permit_digest, &prepared.run_id);
+                    RunPermitError::Launch(e.to_string())
+                })?;
+            match crate::permit::dataplane::start_dataplane(
+                &prepared.run_id,
+                &nets,
+                &opts.dataplane_image,
+                opts.dataplane_upstream.as_deref(),
+                // Provider token stays on dataplane — take from host env if present,
+                // never forward into the agent map below.
+                std::env::var("KOTRO_UPSTREAM_API_KEY")
+                    .ok()
+                    .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+                    .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+                    .as_deref(),
+            ) {
+                Ok(h) => {
+                    let url = h.broker_url();
+                    env.insert("KOTRO_DATAPLANE_URL".into(), url.clone());
+                    env.insert("KOTRO_BROKER_URL".into(), url.clone());
+                    dataplane_url = Some(url);
+                    let agent_net = h.nets.agent_net.clone();
+                    dp_handle = Some(h);
+                    Some(agent_net)
+                }
+                Err(e) => {
+                    crate::permit::dataplane::remove_dual_home_nets(&nets);
+                    let _ = ledger.release_pre_agent(&prepared.permit_digest, &prepared.run_id);
+                    return Err(RunPermitError::Launch(e.to_string()));
+                }
+            }
+        };
+
         let docker_opts = crate::permit::docker::DockerRunOptions {
             run_id: prepared.run_id.clone(),
             image: opts.image.clone(),
@@ -303,17 +359,30 @@ pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitE
             cpus: opts.cpus.clone(),
             pids_limit: opts.pids_limit.clone(),
             network_none: false,
+            agent_network,
+            cleanup_network: dp_handle.is_none(),
         };
         match crate::permit::docker::run_agent_container(&docker_opts) {
             Ok(r) => Ok(r),
             Err(e) => {
+                if let Some(h) = &dp_handle {
+                    crate::permit::dataplane::stop_dataplane(h);
+                }
                 let _ = ledger.release_pre_agent(&prepared.permit_digest, &prepared.run_id);
                 Err(RunPermitError::Launch(e.to_string()))
             }
         }
     };
 
-    let docker_result = launch?;
+    let docker_result = match launch {
+        Ok(r) => r,
+        Err(e) => {
+            if let Some(h) = &dp_handle {
+                crate::permit::dataplane::stop_dataplane(h);
+            }
+            return Err(e);
+        }
+    };
 
     // Container started (or test skip) → consume one-shot claim.
     let now = opts.now_rfc3339.clone().unwrap_or_else(now_rfc3339);
@@ -328,14 +397,14 @@ pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitE
     }
 
     if !opts.keep_staging {
-        // Keep staging + review diff by default for apply; only drop baseline.
         if let Some(b) = &stage.baseline_dir {
             let _ = std::fs::remove_dir_all(b);
         }
     }
 
-    let _ = &prepared.authority; // land.mode draft_pr still gets apply artifact in R2-A
-    let _ = RunPermitError::DraftPrDeferred;
+    if let Some(h) = &dp_handle {
+        crate::permit::dataplane::stop_dataplane(h);
+    }
 
     Ok(RunPermitOutcome::Completed {
         permit_digest: prepared.permit_digest,
@@ -344,6 +413,7 @@ pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitE
         staged_dir: stage.staged_dir.display().to_string(),
         review_diff: review_diff.display().to_string(),
         pin,
+        dataplane_url,
     })
 }
 
@@ -558,6 +628,9 @@ mod tests {
             cpus: "1".into(),
             pids_limit: "256".into(),
             keep_staging: true,
+            dataplane_image: "python:3.12-slim".into(),
+            dataplane_upstream: None,
+            skip_dataplane: true,
             now_rfc3339: Some("2026-08-01T18:30:00Z".into()),
             sandbox_override: Some(SandboxStatus::Available {
                 detail: "test".into(),
@@ -667,10 +740,12 @@ mod tests {
             RunPermitOutcome::Completed {
                 review_diff,
                 agent_exit_code,
+                dataplane_url,
                 ..
             } => {
                 assert_eq!(agent_exit_code, 0);
                 assert!(PathBuf::from(&review_diff).is_file());
+                assert!(dataplane_url.is_none()); // skip_dataplane in unit test
             }
             other => panic!("expected Completed, got {other:?}"),
         }

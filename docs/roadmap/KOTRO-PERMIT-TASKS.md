@@ -1,7 +1,7 @@
 # Kotro Permit — implementation task list (v7.1)
 
-**Status:** R0 complete on main. **R2-A in progress:** sandbox launch + Option A stage + review diff + `apply` landed; dual-home dataplane still open. Gate A recruiting ∥.  
-**Next:** finish R2.3 dataplane dual-home + dogfood (R2.3b); then R2-B broker.  
+**Status:** R0 complete. **R2-A complete** (sandbox + Option A + apply + dual-home dataplane + dogfood). Gate A recruiting ∥.  
+**Next:** R2-B thin broker (draft PR + allow-once) on clean host git.  
 **Runtime:** Docker Desktop **≥ 4.x, native arch** (SANDBOX §6.3).
 
 **Fable (2026-08-06):** Pack verified against source; R2-A/R2-B + anti-fatigue + TaskGate bridge folded.  
@@ -103,8 +103,8 @@ Runtime image = **trusted execution material** (outside the user-data capability
 |----|------|-----------|
 | **R2.1** | `run --permit` + mandatory sandbox | **Done** — Docker `--internal`, claim-on-launch, no host fallback |
 | **R2.2** | Ephemeral copy + review artifact + **apply** | **Done** — Option A stage + `.review.diff` + `kotro-proxy apply` |
-| **R2.3** | Dual-homed + host canary posture; LLM/GitHub creds only on host | Partial — internal net + blocked token env; dataplane proxy still open |
-| **R2.3b** | Dogfood R2-A → Gate B *partial* | |
+| **R2.3** | Dual-homed + host canary posture; LLM/GitHub creds only on host | **Done** — agent/up nets + dataplane sidecar; `KOTRO_RUN_TOKEN` + dataplane URL in agent; provider tokens on dataplane/host only |
+| **R2.3b** | Dogfood R2-A → Gate B *partial* | **Done** — `spikes/r2a-dogfood/run.sh` |
 | **R2.4** | Mint/inject `KOTRO_RUN_TOKEN`; broker URL on data-plane | |
 | **R2.5** | Thin broker: clean host git + permit-bound refs + allow-once anti-fatigue + revalidate-before-push | #10/#21–#24; SOL P0.3/P1.1 |
 | **R2.6** | Golden path with draft PR when R2-B ready | |

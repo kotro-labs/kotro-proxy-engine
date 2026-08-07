@@ -30,6 +30,10 @@ pub struct DockerRunOptions {
     pub pids_limit: String,
     /// When true, use `--network none` (stronger than internal for alpha isolation tests).
     pub network_none: bool,
+    /// Pre-created agent network name (dual-home). When set, skip create/rm here.
+    pub agent_network: Option<String>,
+    /// When false, caller owns network lifecycle (dataplane teardown).
+    pub cleanup_network: bool,
 }
 
 #[derive(Debug)]
@@ -79,15 +83,26 @@ pub fn remove_network(name: &str) -> Result<(), DockerError> {
     Ok(())
 }
 
+pub fn docker_ok_pub(args: &[&str]) -> Result<(), DockerError> {
+    docker_ok(args)
+}
+
+pub fn sanitize_pub(s: &str) -> String {
+    sanitize(s)
+}
+
 /// Run the agent command inside a one-shot container. Never runs on the host.
 pub fn run_agent_container(opts: &DockerRunOptions) -> Result<DockerRunResult, DockerError> {
     assert_sandbox_ready()?;
 
-    let network = if opts.network_none {
-        "none".to_string()
+    let (network, owned) = if opts.network_none {
+        ("none".to_string(), false)
+    } else if let Some(n) = &opts.agent_network {
+        (n.clone(), false)
     } else {
-        create_internal_network(&opts.run_id)?
+        (create_internal_network(&opts.run_id)?, true)
     };
+    let cleanup = opts.cleanup_network && owned;
 
     let container_name = format!("kotro-agent-{}", sanitize(&opts.run_id));
     let ws = opts
@@ -137,7 +152,9 @@ pub fn run_agent_container(opts: &DockerRunOptions) -> Result<DockerRunResult, D
 
     args.push(opts.image.clone());
     if opts.agent_cmd.is_empty() {
-        let _ = remove_network_if_ours(&network);
+        if cleanup {
+            let _ = remove_network_if_ours(&network);
+        }
         return Err(DockerError::Docker("empty agent command".into()));
     }
     // Use sh -c when a single shell string isn't provided — pass argv directly.
@@ -153,7 +170,7 @@ pub fn run_agent_container(opts: &DockerRunOptions) -> Result<DockerRunResult, D
         .status()
         .map_err(|e| DockerError::Docker(e.to_string()))?;
 
-    if !opts.network_none {
+    if cleanup {
         let _ = remove_network(&network);
     }
 
