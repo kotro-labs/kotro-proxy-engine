@@ -124,6 +124,38 @@ pub fn suite_registry() -> Vec<SuiteCase> {
             shell: Some("spikes/r0.1b-topology/run.sh"),
             notes: "R0.1b PASS; gateway L3 exposure recorded",
         },
+        SuiteCase {
+            id: "P-BROKER-21",
+            title: "Forged run token rejected (#21)",
+            layer: SuiteLayer::Unit,
+            rust_filter: Some("permit::broker::tests::forged_token_rejected"),
+            shell: None,
+            notes: "Suite #21 — broker L1",
+        },
+        SuiteCase {
+            id: "P-BROKER-22",
+            title: "Artifact hash mismatch rejected (#22)",
+            layer: SuiteLayer::Unit,
+            rust_filter: Some("permit::broker::tests::artifact_mismatch_and_happy_dry_run"),
+            shell: None,
+            notes: "Suite #22 — L4 bind + happy dry-run",
+        },
+        SuiteCase {
+            id: "P-BROKER-23-24",
+            title: "Allow-once deny + merge scope forbidden (#23/#24)",
+            layer: SuiteLayer::Unit,
+            rust_filter: Some("permit::broker::tests::allow_once_deny_and_merge_forbidden"),
+            shell: None,
+            notes: "Suite #23/#24",
+        },
+        SuiteCase {
+            id: "P-BROKER-DOGFOOD",
+            title: "R2-B broker dry-run dogfood",
+            layer: SuiteLayer::Shell,
+            rust_filter: None,
+            shell: Some("spikes/r2b-broker/run.sh"),
+            notes: "Host draft-pr dry-run; no GITHUB_TOKEN required",
+        },
     ]
 }
 

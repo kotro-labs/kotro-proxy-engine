@@ -1,7 +1,7 @@
 # Kotro Permit — implementation task list (v7.1)
 
 **Status:** R0 complete. **R2-A complete** (sandbox + Option A + apply + dual-home dataplane + dogfood). Gate A recruiting ∥.  
-**Next:** R2-B thin broker (draft PR + allow-once) on clean host git.  
+**Next:** R3 harden (attenuation, signed land receipts, Escape Lab broker rows). R2-B dogfood: `spikes/r2b-broker/`.
 **Runtime:** Docker Desktop **≥ 4.x, native arch** (SANDBOX §6.3).
 
 **Fable (2026-08-06):** Pack verified against source; R2-A/R2-B + anti-fatigue + TaskGate bridge folded.  
@@ -105,10 +105,10 @@ Runtime image = **trusted execution material** (outside the user-data capability
 | **R2.2** | Ephemeral copy + review artifact + **apply** | **Done** — Option A stage + `.review.diff` + `kotro-proxy apply` |
 | **R2.3** | Dual-homed + host canary posture; LLM/GitHub creds only on host | **Done** — agent/up nets + dataplane sidecar; `KOTRO_RUN_TOKEN` + dataplane URL in agent; provider tokens on dataplane/host only |
 | **R2.3b** | Dogfood R2-A → Gate B *partial* | **Done** — `spikes/r2a-dogfood/run.sh` |
-| **R2.4** | Mint/inject `KOTRO_RUN_TOKEN`; broker URL on data-plane | |
-| **R2.5** | Thin broker: clean host git + permit-bound refs + allow-once anti-fatigue + revalidate-before-push | #10/#21–#24; SOL P0.3/P1.1 |
-| **R2.6** | Golden path with draft PR when R2-B ready | |
-| **R2.7** | Dogfood → Gate B full | |
+| **R2.4** | Mint/inject `KOTRO_RUN_TOKEN`; broker URL on data-plane | **Done** — token mint/verify; dataplane `/v1/broker/*` forward + `--broker-forward` |
+| **R2.5** | Thin broker: clean host git + permit-bound refs + allow-once anti-fatigue + revalidate-before-push | **Done** — `permit::broker` + `broker draft-pr\|serve`; #21–#24 unit |
+| **R2.6** | Golden path with draft PR when R2-B ready | **Partial** — dry-run dogfood; live `gh pr create --draft` needs host `GITHUB_TOKEN` |
+| **R2.7** | Dogfood → Gate B full | **Partial** — `spikes/r2b-broker/` dry-run; live PR not claimed |
 
 ### R3 — Harden broker → R4
 
@@ -159,4 +159,4 @@ R0.1a (DNS-fixed #6) ──hard stop / no false pass──►
   Gate A → R1 → R2-A → Gate B partial → R2-B (clean-git broker) → R3 → R4
 ```
 
-**Next:** Gate A recruiting ∥ R1. R2-A is the next meaningful product gate (sandbox exec + Option A land).
+**Next:** Gate A recruiting ∥ R3. R2-A/R2-B alpha land paths exist (apply + thin broker dry-run).

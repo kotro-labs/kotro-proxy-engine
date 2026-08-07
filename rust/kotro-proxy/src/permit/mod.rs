@@ -5,8 +5,10 @@
 //! sandbox launch is committed, and never falls back to host agent execution.
 
 pub mod apply;
+pub mod broker;
 pub mod dataplane;
 pub mod docker;
+pub mod http_broker;
 pub mod ledger;
 pub mod receipt;
 pub mod run;
@@ -16,6 +18,10 @@ pub mod suite;
 pub mod token;
 
 pub use apply::{apply_review_diff, ApplyError, ApplyOptions, ApplyResult};
+pub use broker::{
+    artifact_hash_of_diff, handle_draft_pr, load_session, write_session, ArtifactRef, BrokerError,
+    BrokerOptions, BrokerSession, DraftPrRequest, DraftPrResponse,
+};
 pub use ledger::{LedgerError, PermitLedger, PermitLedgerState};
 pub use receipt::{verify_receipt_stub, ReceiptVerifyError};
 pub use run::{

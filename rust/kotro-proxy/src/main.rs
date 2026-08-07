@@ -812,6 +812,7 @@ fn run_permit_cmd(args: &[String]) -> i32 {
         dataplane_image,
         dataplane_upstream,
         skip_dataplane,
+        broker_forward: arg_value(args, "--broker-forward"),
         now_rfc3339: None,
         sandbox_override: None,
         host_fallback_requested: matches!(
@@ -861,6 +862,8 @@ fn run_permit_cmd(args: &[String]) -> i32 {
             review_diff,
             pin,
             dataplane_url,
+            broker_session,
+            run_token,
         }) => {
             println!("permit_digest={permit_digest}");
             println!("run_id={run_id}");
@@ -870,10 +873,22 @@ fn run_permit_cmd(args: &[String]) -> i32 {
             if let Some(url) = dataplane_url {
                 println!("dataplane_url={url}");
             }
+            if let Some(path) = &broker_session {
+                println!("broker_session={path}");
+            }
+            // Once-only host echo for R2-B land; raw token is not reminted from disk.
+            if let Some(tok) = run_token {
+                println!("run_token={tok}");
+            }
             println!("agent_exit={agent_exit_code}");
             println!("status=completed");
             println!("ledger=consumed");
             println!("next=kotro-proxy apply --repo <live-repo> --diff {review_diff}");
+            if let Some(path) = broker_session {
+                println!(
+                    "next_broker=kotro-proxy broker draft-pr --session {path} --token <run_token> [--interactive|--allow-once-hash <sha256:…>] [--dry-run]"
+                );
+            }
             if agent_exit_code == 0 {
                 0
             } else {
@@ -882,6 +897,123 @@ fn run_permit_cmd(args: &[String]) -> i32 {
         }
         Err(e) => {
             eprintln!("run --permit: {e}");
+            1
+        }
+    }
+}
+
+/// `kotro-proxy broker draft-pr|serve …`
+fn run_broker_cmd(args: &[String]) -> i32 {
+    match args.first().map(String::as_str) {
+        Some("draft-pr") => run_broker_draft_pr(&args[1..]),
+        Some("serve") => run_broker_serve(&args[1..]),
+        _ => {
+            eprintln!(
+                "usage: kotro-proxy broker draft-pr --session <file> --token <tok> \\\n\
+                 \t[--title …] [--body …] [--interactive | --allow-once-hash sha256:…] [--dry-run]\n\
+                 \tkotro-proxy broker serve --session <file> [--bind 127.0.0.1:18999] \\\n\
+                 \t[--allow-once-hash sha256:…] [--dry-run]\n\
+                 host-only: GITHUB_TOKEN / GH_TOKEN never enter the agent"
+            );
+            1
+        }
+    }
+}
+
+fn run_broker_draft_pr(args: &[String]) -> i32 {
+    let Some(session_path) = arg_value(args, "--session") else {
+        eprintln!("broker draft-pr: --session <broker-session.json> is required");
+        return 1;
+    };
+    let Some(token) = arg_value(args, "--token") else {
+        eprintln!("broker draft-pr: --token <KOTRO_RUN_TOKEN> is required");
+        return 1;
+    };
+    let session = match kotro_proxy::permit::load_session(std::path::Path::new(&session_path)) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("broker draft-pr: {e}");
+            return 1;
+        }
+    };
+    let hash = match kotro_proxy::permit::artifact_hash_of_diff(&session.review_diff) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("broker draft-pr: {e}");
+            return 1;
+        }
+    };
+    let title = arg_value(args, "--title").unwrap_or_else(|| format!("kotro: {}", session.run_id));
+    let body = arg_value(args, "--body").unwrap_or_default();
+    let interactive = args.iter().any(|a| a == "--interactive");
+    let dry_run = args.iter().any(|a| a == "--dry-run");
+    let allow_once_override = arg_value(args, "--allow-once-hash");
+    let opts = kotro_proxy::permit::BrokerOptions {
+        session,
+        run_token: token,
+        allow_once_override,
+        dry_run,
+        interactive,
+    };
+    let req = kotro_proxy::permit::DraftPrRequest {
+        title,
+        body,
+        head_branch: None,
+        base_branch: None,
+        artifact: kotro_proxy::permit::ArtifactRef {
+            kind: "review_diff".into(),
+            hash,
+        },
+    };
+    match kotro_proxy::permit::handle_draft_pr(&opts, &req) {
+        Ok(r) => {
+            println!("status=draft_pr_ok");
+            println!("pr_url={}", r.pr_url);
+            println!("draft={}", r.draft);
+            println!("head_branch={}", r.head_branch);
+            println!("artifact_hash={}", r.artifact_hash);
+            0
+        }
+        Err(e) => {
+            eprintln!("broker draft-pr: {e}");
+            1
+        }
+    }
+}
+
+fn run_broker_serve(args: &[String]) -> i32 {
+    let Some(session_path) = arg_value(args, "--session") else {
+        eprintln!("broker serve: --session <broker-session.json> is required");
+        return 1;
+    };
+    let session = match kotro_proxy::permit::load_session(std::path::Path::new(&session_path)) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("broker serve: {e}");
+            return 1;
+        }
+    };
+    let dry_run = args.iter().any(|a| a == "--dry-run");
+    let allow_once_override = arg_value(args, "--allow-once-hash");
+    let bind = arg_value(args, "--bind").unwrap_or_else(|| "127.0.0.1:18999".into());
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    match rt.block_on(async {
+        let addr = kotro_proxy::permit::http_broker::serve_broker_at(
+            &bind,
+            session,
+            allow_once_override,
+            dry_run,
+        )
+        .await?;
+        println!("broker_listen=http://{addr}");
+        println!("draft_pr_path=/v1/broker/draft-pr");
+        println!("status=serving");
+        let _ = tokio::signal::ctrl_c().await;
+        Ok::<(), String>(())
+    }) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("broker serve: {e}");
             1
         }
     }
@@ -1040,6 +1172,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         Some("apply") => {
             std::process::exit(run_apply_cmd(&args[2..]));
+        }
+        Some("broker") => {
+            std::process::exit(run_broker_cmd(&args[2..]));
         }
         Some("receipt") => {
             std::process::exit(run_receipt_cmd(&args[2..]));

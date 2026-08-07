@@ -45,6 +45,8 @@ pub struct RunPermitOptions {
     pub dataplane_upstream: Option<String>,
     /// Skip dual-home dataplane (tests / offline).
     pub skip_dataplane: bool,
+    /// Host broker URL reachable from dataplane UP net (e.g. http://host.docker.internal:18999).
+    pub broker_forward: Option<String>,
     /// Injected clock for tests (`None` → wall clock).
     pub now_rfc3339: Option<String>,
     /// Override sandbox probe (tests).
@@ -76,6 +78,8 @@ pub enum RunPermitOutcome {
         review_diff: String,
         pin: String,
         dataplane_url: Option<String>,
+        broker_session: Option<String>,
+        run_token: Option<String>,
     },
     /// Gates passed; `--prepare-only` — **ledger not claimed**.
     /// CLI maps this to exit code **2** = verified but execution unavailable.
@@ -330,6 +334,7 @@ pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitE
                     .or_else(|| std::env::var("OPENAI_API_KEY").ok())
                     .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
                     .as_deref(),
+                opts.broker_forward.as_deref(),
             ) {
                 Ok(h) => {
                     let url = h.broker_url();
@@ -406,6 +411,51 @@ pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitE
         crate::permit::dataplane::stop_dataplane(h);
     }
 
+    // Persist broker session for R2-B `broker draft-pr` / `broker serve`.
+    // Raw run token is returned once in the outcome for host-side land (never reminted from disk).
+    let mut broker_session_path: Option<String> = None;
+    let issued_run_token = Some(run_token.token.clone());
+    if let Some(repo) = &opts.repo {
+        let land_mode = prepared
+            .authority
+            .envelope
+            .land
+            .as_ref()
+            .map(|l| match l.mode {
+                kotro_types::LandMode::DraftPr => "draft_pr",
+                kotro_types::LandMode::ApplyOnly => "apply_only",
+            })
+            .unwrap_or("apply_only");
+        let repo_auth = prepared.authority.envelope.repository.as_ref();
+        let session = crate::permit::broker::BrokerSession {
+            permit_digest: prepared.permit_digest.clone(),
+            run_id: prepared.run_id.clone(),
+            ledger_dir: opts.ledger_dir.clone(),
+            permit_path: opts.permit_path.clone(),
+            live_repo: repo.clone(),
+            staged_dir: stage.staged_dir.clone(),
+            review_diff: review_diff.clone(),
+            repository_identity: repo_auth
+                .map(|r| r.identity.clone())
+                .unwrap_or_default(),
+            base_ref: repo_auth
+                .map(|r| r.base_ref.clone())
+                .unwrap_or_else(|| "main".into()),
+            base_sha: repo_auth
+                .map(|r| r.base_sha.clone())
+                .unwrap_or_default(),
+            land_mode: land_mode.into(),
+            expires_at: prepared.authority.envelope.expires_at.clone(),
+        };
+        let path = opts.ledger_dir.join(format!(
+            "{}.broker-session.json",
+            prepared.run_id.replace('/', "_")
+        ));
+        if crate::permit::broker::write_session(&path, &session).is_ok() {
+            broker_session_path = Some(path.display().to_string());
+        }
+    }
+
     Ok(RunPermitOutcome::Completed {
         permit_digest: prepared.permit_digest,
         run_id: prepared.run_id,
@@ -414,6 +464,8 @@ pub fn run_permit(opts: RunPermitOptions) -> Result<RunPermitOutcome, RunPermitE
         review_diff: review_diff.display().to_string(),
         pin,
         dataplane_url,
+        broker_session: broker_session_path,
+        run_token: issued_run_token,
     })
 }
 
@@ -631,6 +683,7 @@ mod tests {
             dataplane_image: "python:3.12-slim".into(),
             dataplane_upstream: None,
             skip_dataplane: true,
+            broker_forward: None,
             now_rfc3339: Some("2026-08-01T18:30:00Z".into()),
             sandbox_override: Some(SandboxStatus::Available {
                 detail: "test".into(),

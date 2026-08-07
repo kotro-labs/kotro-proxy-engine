@@ -69,21 +69,25 @@ pub fn start_dataplane(
     image: &str,
     upstream_url: Option<&str>,
     provider_token: Option<&str>,
+    broker_forward: Option<&str>,
 ) -> Result<DataplaneHandle, DataplaneError> {
     let name = format!("kotro-dp-{}", sanitize_pub(run_id));
     let _ = Command::new("docker").args(["rm", "-f", &name]).status();
 
-    // Provider token stays on the data-plane container — never the agent.
     let tok = provider_token.unwrap_or("host-only-provider-token");
     let up = upstream_url.unwrap_or("");
+    let fwd = broker_forward.unwrap_or("");
 
-    let py = format!(
-        r#"
+    let py = r#"
 import os, urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 UP=os.environ.get("KOTRO_UPSTREAM","").strip()
 TOK=os.environ.get("PROVIDER_TOKEN","")
+FWD=os.environ.get("KOTRO_BROKER_FORWARD","").strip().rstrip("/")
 class H(BaseHTTPRequestHandler):
+  def _read(self):
+    n=int(self.headers.get("Content-Length") or 0)
+    return self.rfile.read(n) if n else b""
   def do_GET(self):
     if self.path.startswith("/control"):
       self.send_response(403); self.end_headers(); self.wfile.write(b"CONTROL_DENIED"); return
@@ -92,7 +96,7 @@ class H(BaseHTTPRequestHandler):
     if self.path.startswith("/v1/"):
       if UP:
         try:
-          req=urllib.request.Request(UP, headers={{"Authorization":"Bearer "+TOK}} if TOK else {{}})
+          req=urllib.request.Request(UP, headers={"Authorization":"Bearer "+TOK} if TOK else {})
           body=urllib.request.urlopen(req, timeout=5).read()
           self.send_response(200); self.end_headers()
           self.wfile.write(b"DATAPLANE_OK "+body[:200]); return
@@ -100,10 +104,35 @@ class H(BaseHTTPRequestHandler):
           self.send_response(502); self.end_headers(); self.wfile.write(str(e).encode()); return
       self.send_response(200); self.end_headers(); self.wfile.write(b"DATAPLANE_OK local"); return
     self.send_response(404); self.end_headers()
+  def do_POST(self):
+    if self.path.startswith("/v1/broker/") and FWD:
+      try:
+        data=self._read()
+        req=urllib.request.Request(
+          FWD+self.path,
+          data=data,
+          headers={
+            "Content-Type": self.headers.get("Content-Type") or "application/json",
+            "Authorization": self.headers.get("Authorization") or "",
+          },
+          method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+          body=resp.read()
+          self.send_response(resp.status); self.end_headers(); self.wfile.write(body)
+      except Exception as e:
+        code=502
+        msg=str(e).encode()
+        if hasattr(e, "code"):
+          code=int(e.code)
+          try: msg=e.read()
+          except Exception: pass
+        self.send_response(code); self.end_headers(); self.wfile.write(msg)
+      return
+    self.send_response(404); self.end_headers()
   def log_message(self,*a): pass
 HTTPServer(("0.0.0.0",8080),H).serve_forever()
-"#
-    );
+"#;
 
     let status = Command::new("docker")
         .args([
@@ -115,14 +144,18 @@ HTTPServer(("0.0.0.0",8080),H).serve_forever()
             &nets.agent_net,
             "--label",
             "kotro.permit=dataplane",
+            "--add-host",
+            "host.docker.internal:host-gateway",
             "-e",
             &format!("PROVIDER_TOKEN={tok}"),
             "-e",
             &format!("KOTRO_UPSTREAM={up}"),
+            "-e",
+            &format!("KOTRO_BROKER_FORWARD={fwd}"),
             image,
             "python",
             "-c",
-            &py,
+            py,
         ])
         .status()
         .map_err(|e| DataplaneError::Msg(e.to_string()))?;
