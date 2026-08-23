@@ -93,8 +93,15 @@ if [ "$USE_SUDO" -eq 0 ] && ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
     echo ""
 fi
 
-echo "Start the proxy:"
-echo "  kotro-proxy"
+echo "Next steps:"
+echo "  # Real provider traffic (set both):"
+echo "  KOTRO_UPSTREAM_URL=https://api.openai.com KOTRO_UPSTREAM_API_KEY=\$OPENAI_API_KEY kotro-proxy"
 echo ""
-echo "Dashboard: http://localhost:9090/dashboard"
+echo "  # No API key? Bare kotro-proxy will not serve a demo on :9000."
+echo "  # Clone the repo and run the no-key proof:"
+echo "  #   git clone https://github.com/kotro-labs/kotro-proxy-engine.git && cd kotro-proxy-engine"
+echo "  #   make demo-injection"
+echo "  # Docs: https://github.com/kotro-labs/kotro-proxy-engine#see-it-yourself-no-api-key"
+echo ""
+echo "Dashboard (after proxy is up with an upstream): http://localhost:9090/dashboard"
 echo "========================================="
