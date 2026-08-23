@@ -50,7 +50,7 @@ Pushing a `v*` tag triggers `.github/workflows/release.yml`, which cross-compile
 ```bash
 cd distributions/npm-cli
 npm install -g .
-kotro-proxy   # forwards to the native binary for this platform
+kotro-proxy   # forwards to the native binary; set KOTRO_UPSTREAM_URL (or monorepo make demo-injection for no-key demo)
 ```
 
 ## Homebrew tap
