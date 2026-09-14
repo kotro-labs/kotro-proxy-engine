@@ -12,7 +12,7 @@ categories = ["caching", "web-programming", "asynchronous"]
 readme = "README.md"
 
 [dependencies]
-sha2 = "0.10"
+sha2 = "0.11"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -20,11 +20,11 @@ thiserror = "2"
 
 # Semantic (vector) cache — optional; enables MiniLM embedding-based fuzzy matching.
 # Add feature "semantic" to pull in the full ML stack.
-candle-core = { version = "0.9", optional = true }
-candle-nn = { version = "0.9", optional = true }
-candle-transformers = { version = "0.9", optional = true }
-hf-hub = { version = "0.3", features = ["tokio"], optional = true }
-tokenizers = { version = "0.21", optional = true }
+candle-core = { version = "0.11", optional = true }
+candle-nn = { version = "0.11", optional = true }
+candle-transformers = { version = "0.11", optional = true }
+hf-hub = { version = "0.5", features = ["tokio"], optional = true }
+tokenizers = { version = "0.22", optional = true }
 
 [features]
 default = []
